@@ -45,7 +45,7 @@ export default function CollectionChart({ data }: CollectionChartProps) {
         <p className="text-gray-500 text-sm">Current term</p>
       </div>
 
-      <ResponsiveContainer width="100%" height={Math.max(280, data.length * 32)}>
+      <ResponsiveContainer width="100%" height={Math.max(280, data.length * 22)}>
         <BarChart
           data={data}
           layout="vertical"
@@ -77,7 +77,7 @@ export default function CollectionChart({ data }: CollectionChartProps) {
             }}
             labelStyle={{ color: '#0D1B36', fontWeight: 600 }}
           />
-          <Bar dataKey="collected" name="Collected" radius={[0, 4, 4, 0]}>
+          <Bar dataKey="collected" name="Collected" radius={[0, 4, 4, 0]} barSize={8}>
             {data.map((entry, index) => (
               <Cell 
                 key={`cell-${index}`} 
