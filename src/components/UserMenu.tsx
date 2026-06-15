@@ -26,14 +26,17 @@ export default function UserMenu({ userName, userEmail, userRole, schoolName }: 
 
   return (
     <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors"
-      >
-        <div className="w-8 h-8 bg-navy rounded-full flex items-center justify-center">
-          <span className="text-white text-xs font-semibold">{initials}</span>
-        </div>
-      </button>
+    <button
+      onClick={() => setOpen(!open)}
+      className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors"
+    >
+      <div className="w-8 h-8 bg-navy rounded-full flex items-center justify-center">
+        <span className="text-white text-xs font-semibold">{initials}</span>
+      </div>
+      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+      </svg>
+    </button>
 
       {open && (
         <>

@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 export async function getDashboardKPIs() {
   const supabase = await createClient()
 
-  // Get the authenticated user's school_id
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
 
@@ -15,8 +14,6 @@ export async function getDashboardKPIs() {
 
   if (!userProfile) throw new Error('User profile not found')
 
-  // For super_admin, default to first school for now (we'll add school picker later)
-  // For school_admin/bursar, use their school_id
   let schoolId = userProfile.school_id
   if (!schoolId && userProfile.role === 'super_admin') {
     const { data: firstSchool } = await supabase
@@ -29,10 +26,6 @@ export async function getDashboardKPIs() {
 
   if (!schoolId) throw new Error('No school context')
 
-  // For super_admin, RLS would normally block. We use service role for cross-school queries.
-  // For now, super_admin sees school they pick. School admin/bursar restricted by RLS.
-
-  // Get current billing cycle (active or most recent draft)
   const { data: currentCycle } = await supabase
     .from('billing_cycles')
     .select('id, name')
@@ -42,28 +35,24 @@ export async function getDashboardKPIs() {
     .limit(1)
     .single()
 
-  // Get all active students count
   const { count: studentsCount } = await supabase
     .from('students')
     .select('id', { count: 'exact', head: true })
     .eq('school_id', schoolId)
     .eq('status', 'active')
 
-  // Get all invoices for current cycle
   const { data: invoices } = await supabase
     .from('invoices')
     .select('total_amount, paid_amount, status')
     .eq('school_id', schoolId)
     .eq('billing_cycle_id', currentCycle?.id || '')
 
-  // Get pending approvals count
   const { count: pendingApprovalsCount } = await supabase
     .from('pending_approvals')
     .select('id', { count: 'exact', head: true })
     .eq('school_id', schoolId)
     .eq('status', 'pending')
 
-  // Calculate totals
   const totalExpected = invoices?.reduce((sum, inv) => sum + Number(inv.total_amount), 0) || 0
   const totalCollected = invoices?.reduce((sum, inv) => sum + Number(inv.paid_amount), 0) || 0
   const totalOutstanding = totalExpected - totalCollected
@@ -105,7 +94,6 @@ export async function getCollectionByClass() {
   }
   if (!schoolId) return []
 
-  // Get current billing cycle
   const { data: currentCycle } = await supabase
     .from('billing_cycles')
     .select('id')
@@ -117,7 +105,6 @@ export async function getCollectionByClass() {
 
   if (!currentCycle) return []
 
-  // Get classes with display order
   const { data: classes } = await supabase
     .from('classes')
     .select('id, name, display_order')
@@ -127,14 +114,12 @@ export async function getCollectionByClass() {
 
   if (!classes) return []
 
-  // Get invoices joined with students to get class_id
   const { data: invoices } = await supabase
     .from('invoices')
     .select('total_amount, paid_amount, students(class_id)')
     .eq('school_id', schoolId)
     .eq('billing_cycle_id', currentCycle.id)
 
-  // Aggregate per class
   const classData = classes.map(cls => {
     const classInvoices = invoices?.filter(
       // @ts-expect-error — students is joined object
@@ -151,7 +136,102 @@ export async function getCollectionByClass() {
       collected,
       percentage,
     }
-  }).filter(c => c.expected > 0) // Only show classes with invoices
+  }).filter(c => c.expected > 0)
 
   return classData
+}
+
+export async function getRecentActivity(limit: number = 7) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data: userProfile } = await supabase
+    .from('users')
+    .select('school_id, role')
+    .eq('id', user.id)
+    .single()
+
+  let schoolId = userProfile?.school_id
+  if (!schoolId && userProfile?.role === 'super_admin') {
+    const { data: firstSchool } = await supabase
+      .from('schools')
+      .select('id')
+      .limit(1)
+      .single()
+    schoolId = firstSchool?.id
+  }
+  if (!schoolId) return []
+
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select(`
+      id,
+      total_amount,
+      paid_amount,
+      status,
+      generated_at,
+      fully_paid_at,
+      students!inner(
+        first_name,
+        last_name,
+        classes!inner(name),
+        families!inner(primary_parent_name)
+      )
+    `)
+    .eq('school_id', schoolId)
+    .order('updated_at', { ascending: false })
+    .limit(limit)
+
+  if (!invoices) return []
+
+  type ActivityEvent = {
+    id: string
+    type: 'payment' | 'invoice_generated' | 'partial_payment'
+    amount?: number
+    timestamp: string
+    description: string
+  }
+
+  const events: ActivityEvent[] = invoices.map((inv) => {
+    // @ts-expect-error — joined object
+    const studentName = `${inv.students?.first_name || ''} ${inv.students?.last_name || ''}`.trim()
+    // @ts-expect-error — joined object
+    const className = inv.students?.classes?.name || ''
+    // @ts-expect-error — joined object
+    const parentName = inv.students?.families?.primary_parent_name || 'family'
+    
+    if (inv.status === 'paid' && inv.fully_paid_at) {
+      return {
+        id: inv.id,
+        type: 'payment' as const,
+        amount: Number(inv.paid_amount),
+        timestamp: inv.fully_paid_at,
+        description: `Payment received from ${parentName} for ${studentName} (${className})`,
+      }
+    }
+
+    if (inv.status === 'partial' && Number(inv.paid_amount) > 0) {
+      return {
+        id: inv.id,
+        type: 'partial_payment' as const,
+        amount: Number(inv.paid_amount),
+        timestamp: inv.generated_at,
+        description: `Payment received from ${parentName} for ${studentName} (${className})`,
+      }
+    }
+
+    return {
+      id: inv.id,
+      type: 'invoice_generated' as const,
+      amount: Number(inv.total_amount),
+      timestamp: inv.generated_at,
+      description: `Invoice sent to ${parentName} for ${studentName} (${className})`,
+    }
+  })
+
+  return events.sort((a, b) => 
+    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  )
 }

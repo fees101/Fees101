@@ -39,13 +39,13 @@ export default function CollectionChart({ data }: CollectionChartProps) {
   }
 
   return (
-    <div className="bg-white p-6 rounded-xl border border-gray-200">
+    <div className="bg-white p-6 rounded-xl border border-gray-200 h-full">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-navy font-semibold text-lg">Collection by Class</h2>
         <p className="text-gray-500 text-sm">Current term</p>
       </div>
 
-      <ResponsiveContainer width="100%" height={Math.max(300, data.length * 40)}>
+      <ResponsiveContainer width="100%" height={Math.max(280, data.length * 32)}>
         <BarChart
           data={data}
           layout="vertical"
