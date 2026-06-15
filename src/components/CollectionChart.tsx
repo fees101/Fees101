@@ -68,7 +68,7 @@ export default function CollectionChart({ data }: CollectionChartProps) {
             width={100}
           />
           <Tooltip 
-            formatter={(value: number) => formatNaira(value)}
+            formatter={(value) => formatNaira(Number(value))}
             contentStyle={{
               backgroundColor: 'white',
               border: '1px solid #E5E7EB',
