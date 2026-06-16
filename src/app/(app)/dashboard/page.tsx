@@ -26,7 +26,7 @@ export default async function Dashboard() {
   const firstName = profile?.name?.split(' ')[0] || 'there'
   const kpis = await getDashboardKPIs()
   const classData = await getCollectionByClass()
-  const activity = await getRecentActivity(6)
+  const activity = await getRecentActivity(5)
 
   return (
     <main className="px-6 py-6">
