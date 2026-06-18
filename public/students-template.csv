@@ -1,0 +1,3 @@
+first_name,last_name,admission_number,class_name,admission_date,parent_name,parent_phone,parent_email,secondary_parent_name,secondary_parent_phone,secondary_parent_email,notes
+Tomi,Adesanya,2026/001,Grade 1,2026-09-01,Mrs. Adesanya,+2348034567890,adesanya@example.com,,,,
+Adaeze,Bello,2026/002,Year 8,2026-09-01,Mr. Bello,+2348081234567,bello@example.com,Mrs. Bello,+2348081234999,,Pays on time

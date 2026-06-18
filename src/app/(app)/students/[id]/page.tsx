@@ -2,9 +2,11 @@ import { getStudentById } from '@/lib/queries/students'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import StudentActivityTimeline from '@/components/StudentActivityTimeline'
+import StudentSettingsTab from '@/components/StudentSettingsTab'
 
 interface PageProps {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ tab?: string }>
 }
 
 function formatNaira(amount: number): string {
@@ -20,8 +22,10 @@ function getInitials(firstName: string, lastName: string): string {
   return (firstName[0] + lastName[0]).toUpperCase()
 }
 
-export default async function StudentDetailPage({ params }: PageProps) {
+export default async function StudentDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params
+  const { tab } = await searchParams
+  const activeTab = tab === 'settings' ? 'settings' : tab === 'payments' ? 'payments' : 'overview'
   const student = await getStudentById(id)
 
   if (!student) {
@@ -108,20 +112,31 @@ export default async function StudentDetailPage({ params }: PageProps) {
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6">
           <div className="flex gap-6">
-            <button className="px-1 py-3 text-sm font-medium text-navy border-b-2 border-mint">
+            <Link 
+              href={`/students/${id}`}
+              className={`px-1 py-3 text-sm font-medium ${activeTab === 'overview' ? 'text-navy border-b-2 border-mint' : 'text-gray-500 hover:text-navy'}`}
+            >
               Overview
-            </button>
-            <button className="px-1 py-3 text-sm font-medium text-gray-500 hover:text-navy">
+            </Link>
+            <Link 
+              href={`/students/${id}?tab=payments`}
+              className={`px-1 py-3 text-sm font-medium ${activeTab === 'payments' ? 'text-navy border-b-2 border-mint' : 'text-gray-500 hover:text-navy'}`}
+            >
               Payment History
-            </button>
-            <button className="px-1 py-3 text-sm font-medium text-gray-500 hover:text-navy">
+            </Link>
+            <Link 
+              href={`/students/${id}?tab=settings`}
+              className={`px-1 py-3 text-sm font-medium ${activeTab === 'settings' ? 'text-navy border-b-2 border-mint' : 'text-gray-500 hover:text-navy'}`}
+            >
               Settings
-            </button>
+            </Link>
           </div>
         </div>
 
-        {/* Two-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          {activeTab === 'overview' && (
+            <>
+          {/* Two-column layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           
           {/* Left: Invoice card */}
           <div className="lg:col-span-2">
@@ -329,11 +344,23 @@ export default async function StudentDetailPage({ params }: PageProps) {
         </div>
 
         {/* Full-width activity timeline */}
-        <StudentActivityTimeline 
-          studentId={student.id}
-          studentName={`${student.firstName} ${student.lastName}`}
-          parentName={student.family.primaryParentName}
-        />
+                <StudentActivityTimeline 
+                  studentId={student.id}
+                  studentName={`${student.firstName} ${student.lastName}`}
+                  parentName={student.family.primaryParentName}
+                />
+          </>
+        )}
+
+        {activeTab === 'settings' && (
+          <StudentSettingsTab student={student} />
+        )}
+
+        {activeTab === 'payments' && (
+          <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
+            <p className="text-gray-500">Payment History tab coming next.</p>
+          </div>
+        )}
 
       </div>
     </main>

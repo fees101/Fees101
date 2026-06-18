@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 
-export async function getStudents() {
+export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'graduated' | 'all' = 'active') {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -21,7 +21,14 @@ export async function getStudents() {
       .single()
     schoolId = firstSchool?.id
   }
-  if (!schoolId) return { students: [], classes: [], currentTermName: '', classCount: 0 }
+  if (!schoolId) return { 
+    students: [], 
+    classes: [], 
+    currentTermName: '', 
+    classCount: 0,
+    statusCounts: { active: 0, withdrawn: 0, graduated: 0, all: 0 },
+    activeStatusFilter: statusFilter,
+  }
 
   // Get current billing cycle
   const { data: currentCycle } = await supabase
@@ -41,8 +48,21 @@ export async function getStudents() {
     .eq('is_active', true)
     .order('display_order')
 
-  // Get all students with class and family info
-  const { data: students } = await supabase
+  // Get status counts (always all statuses, regardless of filter)
+  const { data: allStudentsForCount } = await supabase
+    .from('students')
+    .select('status')
+    .eq('school_id', schoolId)
+
+  const statusCounts = {
+    active: allStudentsForCount?.filter(s => s.status === 'active').length || 0,
+    withdrawn: allStudentsForCount?.filter(s => s.status === 'withdrawn').length || 0,
+    graduated: allStudentsForCount?.filter(s => s.status === 'graduated').length || 0,
+    all: allStudentsForCount?.length || 0,
+  }
+
+  // Get students with class and family info, filtered by status
+  let studentsQuery = supabase
     .from('students')
     .select(`
       id,
@@ -54,13 +74,20 @@ export async function getStudents() {
       families!inner(primary_parent_name, primary_parent_phone)
     `)
     .eq('school_id', schoolId)
-    .order('last_name')
+
+  if (statusFilter !== 'all') {
+    studentsQuery = studentsQuery.eq('status', statusFilter)
+  }
+
+  const { data: students } = await studentsQuery.order('last_name')
 
   if (!students) return { 
     students: [], 
     classes: classes || [], 
     currentTermName: currentCycle?.name || '',
     classCount: classes?.length || 0,
+    statusCounts,
+    activeStatusFilter: statusFilter,
   }
 
   // Get invoices for current cycle
@@ -99,6 +126,8 @@ export async function getStudents() {
     classes: classes || [],
     currentTermName: currentCycle?.name || '',
     classCount: classes?.length || 0,
+    statusCounts,
+    activeStatusFilter: statusFilter,
   }
 }
 

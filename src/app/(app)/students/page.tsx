@@ -2,18 +2,29 @@ import { getStudents } from '@/lib/queries/students'
 import StudentsTable from '@/components/StudentsTable'
 import StudentsHeader from '@/components/StudentsHeader'
 
-export default async function StudentsPage() {
-  const { students, classes, currentTermName, classCount } = await getStudents()
+interface PageProps {
+  searchParams: Promise<{ status?: string }>
+}
+
+export default async function StudentsPage({ searchParams }: PageProps) {
+  const { status } = await searchParams
+  const validStatus = (status === 'withdrawn' || status === 'graduated' || status === 'all') 
+    ? status 
+    : 'active'
+  
+  const { students, classes, currentTermName, classCount, statusCounts } = await getStudents(validStatus)
 
   return (
     <main className="px-6 py-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[1440px] mx-auto">
         
         <StudentsHeader 
           studentCount={students.length}
           classCount={classCount}
           currentTermName={currentTermName}
           classes={classes}
+          statusCounts={statusCounts}
+          activeStatusFilter={validStatus}
         />
 
         <StudentsTable students={students} classes={classes} />
