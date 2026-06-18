@@ -1,9 +1,9 @@
-import { getStudentById } from '@/lib/queries/students'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import StudentActivityTimeline from '@/components/StudentActivityTimeline'
 import StudentSettingsTab from '@/components/StudentSettingsTab'
-
+import { getStudentById, getStudentPaymentHistory } from '@/lib/queries/students'
+import StudentPaymentHistoryTab from '@/components/StudentPaymentHistoryTab'
 interface PageProps {
   params: Promise<{ id: string }>
   searchParams: Promise<{ tab?: string }>
@@ -27,6 +27,7 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
   const { tab } = await searchParams
   const activeTab = tab === 'settings' ? 'settings' : tab === 'payments' ? 'payments' : 'overview'
   const student = await getStudentById(id)
+  const paymentHistory = activeTab === 'payments' ? await getStudentPaymentHistory(id) : null
 
   if (!student) {
     notFound()
@@ -356,10 +357,8 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
           <StudentSettingsTab student={student} />
         )}
 
-        {activeTab === 'payments' && (
-          <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
-            <p className="text-gray-500">Payment History tab coming next.</p>
-          </div>
+        {activeTab === 'payments' && paymentHistory && (
+          <StudentPaymentHistoryTab data={paymentHistory} />
         )}
 
       </div>

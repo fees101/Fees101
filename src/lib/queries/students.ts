@@ -302,3 +302,116 @@ export async function getStudentById(studentId: string) {
     payments,
   }
 }
+export async function getStudentPaymentHistory(studentId: string) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data: userProfile } = await supabase
+    .from('users')
+    .select('school_id, role')
+    .eq('id', user.id)
+    .single()
+
+  let schoolId = userProfile?.school_id
+  if (!schoolId && userProfile?.role === 'super_admin') {
+    const { data: firstSchool } = await supabase
+      .from('schools')
+      .select('id')
+      .limit(1)
+      .single()
+    schoolId = firstSchool?.id
+  }
+  if (!schoolId) return null
+
+  // Verify student belongs to this school
+  const { data: student } = await supabase
+    .from('students')
+    .select('id')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .single()
+  
+  if (!student) return null
+
+  // Get all invoices for this student, with billing cycle info
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select(`
+      id,
+      total_amount,
+      paid_amount,
+      status,
+      generated_at,
+      fully_paid_at,
+      line_items,
+      billing_cycle_id,
+      billing_cycles!inner(id, name)
+    `)
+    .eq('student_id', studentId)
+    .order('generated_at', { ascending: false })
+
+  // Get all payments for this student
+  const { data: payments } = await supabase
+    .from('payments')
+    .select(`
+      id,
+      amount,
+      method,
+      paid_at,
+      paystack_reference,
+      invoice_id
+    `)
+    .eq('student_id', studentId)
+    .eq('match_status', 'matched')
+    .order('paid_at', { ascending: false })
+
+  // Compute summary numbers
+  const totalInvoiced = invoices?.reduce((sum, inv) => sum + Number(inv.total_amount), 0) || 0
+  const totalPaid = invoices?.reduce((sum, inv) => sum + Number(inv.paid_amount), 0) || 0
+  const outstanding = totalInvoiced - totalPaid
+  const termsInvoiced = invoices?.length || 0
+
+  // Format invoices
+  const formattedInvoices = invoices?.map(inv => ({
+    id: inv.id,
+    // @ts-expect-error — joined object
+    termName: inv.billing_cycles?.name || '',
+    totalAmount: Number(inv.total_amount),
+    paidAmount: Number(inv.paid_amount),
+    status: inv.status,
+    generatedAt: inv.generated_at,
+    fullyPaidAt: inv.fully_paid_at,
+    lineItems: inv.line_items || [],
+  })) || []
+
+  // Format payments with which invoice (term) they applied to
+  const invoiceLookup = new Map(
+    invoices?.map(inv => [
+      inv.id, 
+      // @ts-expect-error — joined object
+      inv.billing_cycles?.name || ''
+    ]) || []
+  )
+
+  const formattedPayments = payments?.map(p => ({
+    id: p.id,
+    amount: Number(p.amount),
+    method: p.method,
+    paidAt: p.paid_at,
+    reference: p.paystack_reference || '',
+    appliedTo: p.invoice_id ? invoiceLookup.get(p.invoice_id) || 'Unknown term' : 'Unassigned',
+  })) || []
+
+  return {
+    summary: {
+      totalInvoiced,
+      totalPaid,
+      outstanding,
+      termsInvoiced,
+    },
+    invoices: formattedInvoices,
+    payments: formattedPayments,
+  }
+}
