@@ -15,16 +15,15 @@ interface AppNavProps {
 export default function AppNav({ userName, userEmail, userRole, schoolName, currentTermName }: AppNavProps) {
   const pathname = usePathname()
 
-  const navItems = [
+const navItems = [
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/students', label: 'Students' },
     { href: '/fees', label: 'Fees' },
-    { href: '/settings', label: 'Settings' },
   ]
 
   return (
     <nav className="bg-white border-b border-gray-200 px-6 py-4">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-6">
+    <div className="max-w-[1440px] mx-auto flex items-center justify-between gap-6">
         
         {/* Logo */}
         <Link href="/dashboard" className="flex items-center gap-2 flex-shrink-0">
