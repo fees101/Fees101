@@ -32,7 +32,6 @@ export async function getFeesOverview() {
     }
   }
 
-  // Get current billing cycle
   const { data: currentCycle } = await supabase
     .from('billing_cycles')
     .select('id, name')
@@ -42,21 +41,18 @@ export async function getFeesOverview() {
     .limit(1)
     .single()
 
-  // Get active classes count
   const { count: activeClasses } = await supabase
     .from('classes')
     .select('*', { count: 'exact', head: true })
     .eq('school_id', schoolId)
     .eq('is_active', true)
 
-  // Get active students count
   const { count: totalActiveStudents } = await supabase
     .from('students')
     .select('*', { count: 'exact', head: true })
     .eq('school_id', schoolId)
     .eq('status', 'active')
 
-  // Get invoice info for current cycle
   let totalExpectedThisTerm = 0
   let studentsWithInvoices = 0
 
@@ -79,6 +75,7 @@ export async function getFeesOverview() {
     hasCurrentTerm: !!currentCycle,
   }
 }
+
 export async function getClasses() {
   const supabase = await createClient()
 
@@ -102,14 +99,12 @@ export async function getClasses() {
   }
   if (!schoolId) return { classes: [], sections: [] }
 
-  // Get all sections for the dropdown when adding a class
   const { data: sections } = await supabase
     .from('sections')
     .select('id, name')
     .eq('school_id', schoolId)
     .order('display_order')
 
-  // Get all classes (active and inactive) with student count + fee item count
   const { data: classes } = await supabase
     .from('classes')
     .select(`
@@ -125,7 +120,6 @@ export async function getClasses() {
 
   if (!classes) return { classes: [], sections: sections || [] }
 
-  // Get student counts per class (active students only)
   const classIds = classes.map(c => c.id)
   const { data: studentCounts } = await supabase
     .from('students')
@@ -133,13 +127,11 @@ export async function getClasses() {
     .in('class_id', classIds)
     .eq('status', 'active')
 
-  // Get fee item counts per class
   const { data: feeItemCounts } = await supabase
     .from('fee_items')
     .select('class_id')
     .in('class_id', classIds)
 
-  // Build counts maps
   const studentCountMap: Record<string, number> = {}
   studentCounts?.forEach(s => {
     if (s.class_id) {
@@ -169,5 +161,126 @@ export async function getClasses() {
   return {
     classes: classesWithCounts,
     sections: sections || [],
+  }
+}
+
+export async function getFeeStructure(billingCycleId?: string) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data: userProfile } = await supabase
+    .from('users')
+    .select('school_id, role')
+    .eq('id', user.id)
+    .single()
+
+  let schoolId = userProfile?.school_id
+  if (!schoolId && userProfile?.role === 'super_admin') {
+    const { data: firstSchool } = await supabase
+      .from('schools')
+      .select('id')
+      .limit(1)
+      .single()
+    schoolId = firstSchool?.id
+  }
+  if (!schoolId) return null
+
+  let cycle
+  if (billingCycleId) {
+    const { data } = await supabase
+      .from('billing_cycles')
+      .select('id, name, status')
+      .eq('id', billingCycleId)
+      .eq('school_id', schoolId)
+      .single()
+    cycle = data
+  } else {
+    const { data } = await supabase
+      .from('billing_cycles')
+      .select('id, name, status')
+      .eq('school_id', schoolId)
+      .in('status', ['active', 'draft'])
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .single()
+    cycle = data
+  }
+
+  if (!cycle) {
+    return {
+      cycle: null,
+      classes: [],
+      allFees: [],
+      studentCountByClass: {},
+      totalActiveStudents: 0,
+    }
+  }
+
+  const { data: classes } = await supabase
+    .from('classes')
+    .select('id, name, display_order')
+    .eq('school_id', schoolId)
+    .eq('is_active', true)
+    .order('display_order')
+
+  const { data: feeItems } = await supabase
+    .from('fee_items')
+    .select('id, class_id, name, amount, is_mandatory, is_optional_extra')
+    .eq('school_id', schoolId)
+    .eq('billing_cycle_id', cycle.id)
+
+  // Get active students per class (for revenue calculation)
+  const { data: students } = await supabase
+    .from('students')
+    .select('class_id')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+
+  const studentCountByClass: Record<string, number> = {}
+  let totalActiveStudents = 0
+  students?.forEach(s => {
+    totalActiveStudents++
+    if (s.class_id) {
+      studentCountByClass[s.class_id] = (studentCountByClass[s.class_id] || 0) + 1
+    }
+  })
+
+  const allFees = feeItems || []
+
+  // Get opt-in counts for optional fees
+  const optionalFeeIds = allFees.filter(f => f.is_optional_extra).map(f => f.id)
+  const optInCountMap: Record<string, number> = {}
+  if (optionalFeeIds.length > 0) {
+    const { data: optIns } = await supabase
+      .from('student_fee_adjustments')
+      .select('fee_item_id')
+      .in('fee_item_id', optionalFeeIds)
+      .eq('adjustment_type', 'opt_in')
+    optIns?.forEach(o => {
+      optInCountMap[o.fee_item_id] = (optInCountMap[o.fee_item_id] || 0) + 1
+    })
+  }
+
+  return {
+    cycle,
+    classes: (classes || []).map(c => ({
+      id: c.id,
+      name: c.name,
+      displayOrder: c.display_order,
+    })),
+    allFees: allFees.map(f => ({
+      id: f.id,
+      classId: f.class_id,
+      name: f.name,
+      amount: Number(f.amount),
+      isRequired: f.is_mandatory,
+      isOptional: f.is_optional_extra,
+      isSchoolWide: f.class_id === null,
+      optInCount: optInCountMap[f.id] || 0,
+    })),
+    studentCountByClass,
+    totalActiveStudents,
   }
 }

@@ -1,15 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { updateClass, addSection, deleteSection } from '@/app/(app)/fees/classes/actions'
-
-interface ClassRow {
-  id: string
-  name: string
-  displayOrder: number
-  isActive: boolean
-  sectionId: string
-}
+import { addClass, addSection, deleteSection } from '@/app/(app)/fees/classes/actions'
 
 interface Section {
   id: string
@@ -17,28 +9,29 @@ interface Section {
 }
 
 interface Props {
-  classData: ClassRow
   sections: Section[]
+  existingDisplayOrders: number[]
   onClose: () => void
   onSuccess: () => void
 }
 
-export default function EditClassModal({ classData, sections: initialSections, onClose, onSuccess }: Props) {
+export default function AddClassPanel({ sections: initialSections, existingDisplayOrders, onClose, onSuccess }: Props) {
+  const maxOrder = existingDisplayOrders.length > 0 ? Math.max(...existingDisplayOrders) : 0
+
   const [sections, setSections] = useState<Section[]>(initialSections)
   const [form, setForm] = useState({
-    name: classData.name,
-    sectionId: classData.sectionId,
-    displayOrder: classData.displayOrder,
-    isActive: classData.isActive,
+    name: '',
+    sectionId: initialSections[0]?.id || '',
+    displayOrder: maxOrder + 1,
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Inline add section
   const [showAddSection, setShowAddSection] = useState(false)
   const [newSectionName, setNewSectionName] = useState('')
   const [addingSectionLoading, setAddingSectionLoading] = useState(false)
   const [sectionError, setSectionError] = useState<string | null>(null)
+
   const [showManageSections, setShowManageSections] = useState(false)
 
   async function handleAddSection() {
@@ -74,9 +67,13 @@ export default function EditClassModal({ classData, sections: initialSections, o
       setError('Class name is required')
       return
     }
+    if (!form.sectionId) {
+      setError('Section is required')
+      return
+    }
     setError(null)
     setLoading(true)
-    const result = await updateClass(classData.id, form)
+    const result = await addClass(form)
     if (result.error) {
       setError(result.error)
       setLoading(false)
@@ -86,10 +83,10 @@ export default function EditClassModal({ classData, sections: initialSections, o
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-navy">Edit class</h3>
+    <>
+      <div className="bg-white rounded-xl border border-gray-200 flex flex-col h-fit sticky top-6">
+        <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+          <h3 className="text-base font-semibold text-navy">Add class</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -97,20 +94,22 @@ export default function EditClassModal({ classData, sections: initialSections, o
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-5 space-y-4">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Class name *</label>
-            <input 
-              type="text" 
-              value={form.name} 
+            <input
+              type="text"
+              value={form.name}
               onChange={(e) => setForm({...form, name: e.target.value})}
+              placeholder="e.g. Grade 1"
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              autoFocus
             />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs text-gray-500">Section</label>
+              <label className="block text-xs text-gray-500">Section *</label>
               {sections.length > 0 && (
                 <button
                   type="button"
@@ -122,8 +121,8 @@ export default function EditClassModal({ classData, sections: initialSections, o
               )}
             </div>
             {sections.length > 0 ? (
-              <select 
-                value={form.sectionId} 
+              <select
+                value={form.sectionId}
                 onChange={(e) => setForm({...form, sectionId: e.target.value})}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
               >
@@ -132,7 +131,7 @@ export default function EditClassModal({ classData, sections: initialSections, o
                 ))}
               </select>
             ) : (
-              <p className="text-sm text-gray-400 italic py-2">No sections yet.</p>
+              <p className="text-sm text-gray-400 italic py-2">No sections yet. Add one below.</p>
             )}
 
             {showAddSection ? (
@@ -180,26 +179,13 @@ export default function EditClassModal({ classData, sections: initialSections, o
 
           <div>
             <label className="block text-xs text-gray-500 mb-1">Display order</label>
-            <input 
-              type="number" 
-              value={form.displayOrder} 
+            <input
+              type="number"
+              value={form.displayOrder}
               onChange={(e) => setForm({...form, displayOrder: parseInt(e.target.value) || 0})}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
             />
-          </div>
-
-          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-            <div>
-              <p className="text-sm font-medium text-navy">Active</p>
-              <p className="text-xs text-gray-500">Inactive classes are hidden from forms</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setForm({...form, isActive: !form.isActive})}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.isActive ? 'bg-mint' : 'bg-gray-300'}`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.isActive ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
+            <p className="text-xs text-gray-500 mt-1">Lower numbers appear first in lists</p>
           </div>
 
           {error && (
@@ -209,16 +195,16 @@ export default function EditClassModal({ classData, sections: initialSections, o
           )}
         </div>
 
-        <div className="p-6 border-t border-gray-100 flex items-center justify-end gap-2">
+        <div className="p-5 border-t border-gray-100 flex items-center justify-end gap-2 flex-shrink-0">
           <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
             Cancel
           </button>
-          <button 
-            onClick={handleSubmit} 
-            disabled={loading} 
+          <button
+            onClick={handleSubmit}
+            disabled={loading || sections.length === 0}
             className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
           >
-            {loading ? 'Saving...' : 'Save changes'}
+            {loading ? 'Adding...' : 'Add class'}
           </button>
         </div>
       </div>
@@ -230,7 +216,7 @@ export default function EditClassModal({ classData, sections: initialSections, o
           onSectionDeleted={handleSectionDeleted}
         />
       )}
-    </div>
+    </>
   )
 }
 
