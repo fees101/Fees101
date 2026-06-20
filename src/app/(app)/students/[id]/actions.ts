@@ -162,3 +162,137 @@ export async function getClassesList() {
 
   return classes || []
 }
+// ============ STUDENT FEE ADJUSTMENTS ============
+
+async function getStudentFeeContext() {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data: userProfile } = await supabase
+    .from('users')
+    .select('school_id, role')
+    .eq('id', user.id)
+    .single()
+
+  let schoolId = userProfile?.school_id
+  if (!schoolId && userProfile?.role === 'super_admin') {
+    const { data: firstSchool } = await supabase
+      .from('schools')
+      .select('id')
+      .limit(1)
+      .single()
+    schoolId = firstSchool?.id
+  }
+  if (!schoolId) return null
+
+  return { supabase, schoolId, userId: user.id }
+}
+
+export async function toggleStudentOptIn(studentId: string, feeItemId: string) {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: existing } = await supabase
+    .from('student_fee_adjustments')
+    .select('id')
+    .eq('student_id', studentId)
+    .eq('fee_item_id', feeItemId)
+    .eq('adjustment_type', 'opt_in')
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase
+      .from('student_fee_adjustments')
+      .delete()
+      .eq('id', existing.id)
+    if (error) return { error: error.message }
+  } else {
+    // Remove any conflicting exemption first
+    await supabase
+      .from('student_fee_adjustments')
+      .delete()
+      .eq('student_id', studentId)
+      .eq('fee_item_id', feeItemId)
+      .eq('adjustment_type', 'exempt')
+
+    const { error } = await supabase
+      .from('student_fee_adjustments')
+      .insert({
+        school_id: schoolId,
+        student_id: studentId,
+        fee_item_id: feeItemId,
+        adjustment_type: 'opt_in',
+        created_by: userId,
+      })
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath(`/students/${studentId}`)
+  return { success: true }
+}
+
+export async function setStudentExemption(studentId: string, feeItemId: string, notes?: string) {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: existing } = await supabase
+    .from('student_fee_adjustments')
+    .select('id')
+    .eq('student_id', studentId)
+    .eq('fee_item_id', feeItemId)
+    .eq('adjustment_type', 'exempt')
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase
+      .from('student_fee_adjustments')
+      .update({ notes: notes?.trim() || null })
+      .eq('id', existing.id)
+    if (error) return { error: error.message }
+  } else {
+    // Remove any opt-in on same fee
+    await supabase
+      .from('student_fee_adjustments')
+      .delete()
+      .eq('student_id', studentId)
+      .eq('fee_item_id', feeItemId)
+      .eq('adjustment_type', 'opt_in')
+
+    const { error } = await supabase
+      .from('student_fee_adjustments')
+      .insert({
+        school_id: schoolId,
+        student_id: studentId,
+        fee_item_id: feeItemId,
+        adjustment_type: 'exempt',
+        notes: notes?.trim() || null,
+        created_by: userId,
+      })
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath(`/students/${studentId}`)
+  return { success: true }
+}
+
+export async function removeStudentExemption(studentId: string, feeItemId: string) {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase } = ctx
+
+  const { error } = await supabase
+    .from('student_fee_adjustments')
+    .delete()
+    .eq('student_id', studentId)
+    .eq('fee_item_id', feeItemId)
+    .eq('adjustment_type', 'exempt')
+
+  if (error) return { error: error.message }
+
+  revalidatePath(`/students/${studentId}`)
+  return { success: true }
+}

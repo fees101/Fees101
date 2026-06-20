@@ -415,3 +415,204 @@ export async function getStudentPaymentHistory(studentId: string) {
     payments: formattedPayments,
   }
 }
+// ============ STUDENT FEES (for Fees tab) ============
+
+export interface StudentFeeItem {
+  id: string
+  name: string
+  amount: number
+  isSchoolWide: boolean
+  isRequired: boolean
+  isOptional: boolean
+  isExempted: boolean
+  exemptionNotes?: string
+  isOptedIn: boolean
+  optInNotes?: string
+}
+
+export interface StudentFeesData {
+  student: {
+    id: string
+    firstName: string
+    lastName: string
+    admissionNumber: string
+    classId: string | null
+    className: string
+    status: string
+  }
+  cycle: {
+    id: string
+    name: string
+    status: string
+  } | null
+  requiredFees: StudentFeeItem[]
+  optionalFees: StudentFeeItem[]
+  requiredTotal: number
+  exemptionTotal: number
+  optInTotal: number
+  expectedBill: number
+}
+
+export async function getStudentFees(studentId: string): Promise<StudentFeesData | null> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data: userProfile } = await supabase
+    .from('users')
+    .select('school_id, role')
+    .eq('id', user.id)
+    .single()
+
+  let schoolId = userProfile?.school_id
+  if (!schoolId && userProfile?.role === 'super_admin') {
+    const { data: firstSchool } = await supabase
+      .from('schools')
+      .select('id')
+      .limit(1)
+      .single()
+    schoolId = firstSchool?.id
+  }
+  if (!schoolId) return null
+
+  // Get student with class
+  const { data: studentData } = await supabase
+    .from('students')
+    .select(`
+      id,
+      first_name,
+      last_name,
+      admission_number,
+      class_id,
+      status,
+      classes(id, name)
+    `)
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!studentData) return null
+
+  const student = {
+    id: studentData.id,
+    firstName: studentData.first_name,
+    lastName: studentData.last_name,
+    admissionNumber: studentData.admission_number,
+    classId: studentData.class_id,
+    // @ts-expect-error — joined
+    className: studentData.classes?.name || '',
+    status: studentData.status,
+  }
+
+  // Get active billing cycle
+  const { data: cycle } = await supabase
+    .from('billing_cycles')
+    .select('id, name, status')
+    .eq('school_id', schoolId)
+    .in('status', ['active', 'draft'])
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (!cycle) {
+    return {
+      student,
+      cycle: null,
+      requiredFees: [],
+      optionalFees: [],
+      requiredTotal: 0,
+      exemptionTotal: 0,
+      optInTotal: 0,
+      expectedBill: 0,
+    }
+  }
+
+  // Get fee items that apply to this student
+  let feeItemsQuery = supabase
+    .from('fee_items')
+    .select('id, class_id, name, amount, is_mandatory, is_optional_extra')
+    .eq('school_id', schoolId)
+    .eq('billing_cycle_id', cycle.id)
+
+  if (student.classId) {
+    feeItemsQuery = feeItemsQuery.or(`class_id.eq.${student.classId},class_id.is.null`)
+  } else {
+    feeItemsQuery = feeItemsQuery.is('class_id', null)
+  }
+
+  const { data: feeItems } = await feeItemsQuery
+
+  // Get adjustments for this student
+  const { data: adjustments } = await supabase
+    .from('student_fee_adjustments')
+    .select('fee_item_id, adjustment_type, notes')
+    .eq('student_id', studentId)
+    .eq('school_id', schoolId)
+
+  const optInsByFeeItem = new Map<string, { notes?: string }>()
+  const exemptionsByFeeItem = new Map<string, { notes?: string }>()
+  adjustments?.forEach(adj => {
+    if (adj.adjustment_type === 'opt_in') {
+      optInsByFeeItem.set(adj.fee_item_id, { notes: adj.notes || undefined })
+    } else if (adj.adjustment_type === 'exempt') {
+      exemptionsByFeeItem.set(adj.fee_item_id, { notes: adj.notes || undefined })
+    }
+  })
+
+  const requiredFees: StudentFeeItem[] = []
+  const optionalFees: StudentFeeItem[] = []
+
+  feeItems?.forEach(f => {
+    const exemption = exemptionsByFeeItem.get(f.id)
+    const optIn = optInsByFeeItem.get(f.id)
+    const isSchoolWide = f.class_id === null
+
+    const item: StudentFeeItem = {
+      id: f.id,
+      name: f.name,
+      amount: Number(f.amount),
+      isSchoolWide,
+      isRequired: f.is_mandatory,
+      isOptional: f.is_optional_extra,
+      isExempted: !!exemption,
+      exemptionNotes: exemption?.notes,
+      isOptedIn: !!optIn,
+      optInNotes: optIn?.notes,
+    }
+
+    if (f.is_mandatory) {
+      requiredFees.push(item)
+    } else {
+      optionalFees.push(item)
+    }
+  })
+
+  function sortFn(a: StudentFeeItem, b: StudentFeeItem) {
+    if (a.isSchoolWide !== b.isSchoolWide) return a.isSchoolWide ? -1 : 1
+    return a.name.localeCompare(b.name)
+  }
+  requiredFees.sort(sortFn)
+  optionalFees.sort(sortFn)
+
+  const requiredTotal = requiredFees.reduce((sum, f) => sum + f.amount, 0)
+  const exemptionTotal = requiredFees
+    .filter(f => f.isExempted)
+    .reduce((sum, f) => sum + f.amount, 0)
+  const optInTotal = optionalFees
+    .filter(f => f.isOptedIn)
+    .reduce((sum, f) => sum + f.amount, 0)
+
+  const expectedBill = requiredTotal - exemptionTotal + optInTotal
+
+  return {
+    student,
+    cycle: { id: cycle.id, name: cycle.name, status: cycle.status },
+    requiredFees,
+    optionalFees,
+    requiredTotal,
+    exemptionTotal,
+    optInTotal,
+    expectedBill,
+  }
+}

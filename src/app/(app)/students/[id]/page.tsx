@@ -2,8 +2,10 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import StudentActivityTimeline from '@/components/StudentActivityTimeline'
 import StudentSettingsTab from '@/components/StudentSettingsTab'
-import { getStudentById, getStudentPaymentHistory } from '@/lib/queries/students'
 import StudentPaymentHistoryTab from '@/components/StudentPaymentHistoryTab'
+import StudentFeesTab from '@/components/StudentFeesTab'
+import { getStudentById, getStudentPaymentHistory, getStudentFees } from '@/lib/queries/students'
+
 interface PageProps {
   params: Promise<{ id: string }>
   searchParams: Promise<{ tab?: string }>
@@ -25,9 +27,10 @@ function getInitials(firstName: string, lastName: string): string {
 export default async function StudentDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params
   const { tab } = await searchParams
-  const activeTab = tab === 'settings' ? 'settings' : tab === 'payments' ? 'payments' : 'overview'
+  const activeTab = tab === 'settings' ? 'settings' : tab === 'payments' ? 'payments' : tab === 'fees' ? 'fees' : 'overview'
   const student = await getStudentById(id)
   const paymentHistory = activeTab === 'payments' ? await getStudentPaymentHistory(id) : null
+  const feesData = activeTab === 'fees' ? await getStudentFees(id) : null
 
   if (!student) {
     notFound()
@@ -124,6 +127,12 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
               className={`px-1 py-3 text-sm font-medium ${activeTab === 'payments' ? 'text-navy border-b-2 border-mint' : 'text-gray-500 hover:text-navy'}`}
             >
               Payment History
+            </Link>
+            <Link 
+              href={`/students/${id}?tab=fees`}
+              className={`px-1 py-3 text-sm font-medium ${activeTab === 'fees' ? 'text-navy border-b-2 border-mint' : 'text-gray-500 hover:text-navy'}`}
+            >
+              Fees
             </Link>
             <Link 
               href={`/students/${id}?tab=settings`}
@@ -359,6 +368,9 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
 
         {activeTab === 'payments' && paymentHistory && (
           <StudentPaymentHistoryTab data={paymentHistory} />
+        )}
+        {activeTab === 'fees' && feesData && (
+          <StudentFeesTab data={feesData} />
         )}
 
       </div>
