@@ -1,12 +1,25 @@
 import Link from 'next/link'
-import { getFeesOverview } from '@/lib/queries/fees'
+import { getFeesOverview, getAllCycles } from '@/lib/queries/fees'
+import TermSelector from '@/components/TermSelector'
+
+interface PageProps {
+  searchParams: Promise<{ cycle?: string }>
+}
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
-export default async function FeesOverviewPage() {
-  const data = await getFeesOverview()
+export default async function FeesOverviewPage({ searchParams }: PageProps) {
+  const { cycle: cycleParam } = await searchParams
+  
+  const [data, allCycles] = await Promise.all([
+    getFeesOverview(cycleParam),
+    getAllCycles(),
+  ])
+
+  const currentCycleId = allCycles.find(c => c.name === data.currentTermName)?.id || null
+  const isClosedTerm = data.currentTermStatus === 'closed'
 
   return (
     <main className="px-6 py-6">
@@ -20,30 +33,61 @@ export default async function FeesOverviewPage() {
               Manage classes, fees, and invoices
             </p>
           </div>
-          {data.hasCurrentTerm && (
-            <div className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm">
-              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <span className="text-gray-600">Current term:</span>
-              <span className="text-navy font-medium">{data.currentTermName}</span>
-            </div>
+          {allCycles.length > 0 && (
+            <TermSelector
+              cycles={allCycles}
+              currentCycleId={currentCycleId}
+              paramName="cycle"
+            />
           )}
         </header>
 
+        {isClosedTerm && (
+          <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-start gap-3">
+            <svg className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-navy">Viewing closed term — read only</p>
+              <p className="text-xs text-gray-600 mt-0.5">
+                Historical data for {data.currentTermName}. Switch to an active term to make changes.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* KPI cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           
           <div className="bg-white p-5 rounded-xl border border-gray-200">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs text-gray-500 mb-1">Total expected this term</p>
+                <p className="text-xs text-gray-500 mb-1">Total expected</p>
                 <p className="text-2xl font-bold text-navy">{formatNaira(data.totalExpectedThisTerm)}</p>
-                <p className="text-xs text-gray-500 mt-1">Across all classes</p>
+                <p className="text-xs text-gray-500 mt-1">For {data.currentTermName || 'this term'}</p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-mint-light flex items-center justify-center flex-shrink-0">
                 <svg className="w-5 h-5 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl border border-gray-200">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Total collected</p>
+                <p className="text-2xl font-bold text-mint">{formatNaira(data.totalCollected)}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {data.totalExpectedThisTerm > 0
+                    ? `${Math.round((data.totalCollected / data.totalExpectedThisTerm) * 100)}% collected`
+                    : 'Nothing collected yet'}
+                </p>
+              </div>
+              <div className="w-10 h-10 rounded-lg bg-mint-light flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
             </div>
@@ -110,7 +154,7 @@ export default async function FeesOverviewPage() {
           </Link>
 
           <Link 
-            href="/fees/structure"
+            href={currentCycleId ? `/fees/structure?cycle=${currentCycleId}` : '/fees/structure'}
             className="bg-white p-6 rounded-xl border border-gray-200 hover:border-mint hover:shadow-sm transition-all group"
           >
             <div className="flex items-start justify-between mb-4">

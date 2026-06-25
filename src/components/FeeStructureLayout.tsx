@@ -33,13 +33,14 @@ interface Props {
   data: Data
   initialView: 'class' | 'item'
   initialClassId?: string
+  readOnly?: boolean
 }
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
-export default function FeeStructureLayout({ data, initialView, initialClassId }: Props) {
+export default function FeeStructureLayout({ data, initialView, initialClassId, readOnly = false }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { cycle, classes, allFees, studentCountByClass, totalActiveStudents } = data
@@ -55,10 +56,8 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
     isSchoolWide: boolean
     isOptional: boolean
   } | null>(null)
-  // Single-item opt-ins state (used from By class view)
   const [managingOptInsFor, setManagingOptInsFor] = useState<FeeItem | null>(null)
   const [optInsScopedToClass, setOptInsScopedToClass] = useState<boolean>(false)
-  // Group opt-ins state (used from By fee item view)
   const [managingOptInsGroup, setManagingOptInsGroup] = useState<{
     name: string
     items: FeeItem[]
@@ -153,6 +152,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
   const optionalRevenueTotal = optionalGroups.reduce((sum, g) => sum + g.totalRevenue, 0)
 
   function handleDelete(item: FeeItem) {
+    if (readOnly) return
     setError(null)
     const message = item.optInCount > 0
       ? `${item.optInCount} ${item.optInCount === 1 ? 'student has' : 'students have'} opted in. Their opt-ins will be removed too. This cannot be undone.`
@@ -175,6 +175,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
   }
 
   function handleBulkDelete(name: string) {
+    if (readOnly) return
     setError(null)
     const matches = allFees.filter(f => f.name === name)
     const count = matches.length
@@ -219,18 +220,21 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
   }
 
   function openAddPanel() {
+    if (readOnly) return
     closeAllPanels()
     setEditingItem(null)
     setPanelMode('add')
   }
 
   function openEditPanel(item: FeeItem) {
+    if (readOnly) return
     closeAllPanels()
     setEditingItem(item)
     setPanelMode('edit')
   }
 
   function openEditGroupPanel(group: { name: string, isSchoolWide: boolean, isOptional: boolean }) {
+    if (readOnly) return
     closeAllPanels()
     setEditingGroup(group)
   }
@@ -245,12 +249,14 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
   }
 
   function openOptIns(item: FeeItem, scoped: boolean) {
+    if (readOnly) return
     closeAllPanels()
     setManagingOptInsFor(item)
     setOptInsScopedToClass(scoped)
   }
 
   function openGroupOptIns(group: { name: string, items: FeeItem[] }) {
+    if (readOnly) return
     closeAllPanels()
     setManagingOptInsGroup(group)
   }
@@ -343,7 +349,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                     <h2 className="text-navy font-semibold text-lg">
                       {selectedClass?.name || 'Select a class'} — required fees
                     </h2>
-                    {selectedClass && (
+                    {selectedClass && !readOnly && (
                       <button
                         onClick={openAddPanel}
                         className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
@@ -361,7 +367,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                         <tr className="border-b border-gray-100">
                           <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Item name</th>
                           <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Amount</th>
-                          <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Actions</th>
+                          {!readOnly && <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Actions</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
@@ -374,23 +380,25 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                               )}
                             </td>
                             <td className="py-3 text-sm text-right text-navy font-medium">{formatNaira(item.amount)}</td>
-                            <td className="py-3 text-right">
-                              <div className="inline-flex items-center gap-2">
-                                <button
-                                  onClick={() => openEditPanel(item)}
-                                  className="text-xs text-gray-600 font-medium hover:underline"
-                                >
-                                  Edit
-                                </button>
-                                <span className="text-gray-300">·</span>
-                                <button
-                                  onClick={() => handleDelete(item)}
-                                  className="text-xs text-red-600 font-medium hover:underline"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
+                            {!readOnly && (
+                              <td className="py-3 text-right">
+                                <div className="inline-flex items-center gap-2">
+                                  <button
+                                    onClick={() => openEditPanel(item)}
+                                    className="text-xs text-gray-600 font-medium hover:underline"
+                                  >
+                                    Edit
+                                  </button>
+                                  <span className="text-gray-300">·</span>
+                                  <button
+                                    onClick={() => handleDelete(item)}
+                                    className="text-xs text-red-600 font-medium hover:underline"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -398,7 +406,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                         <tr>
                           <td className="py-3 text-sm font-bold text-navy">Total per student</td>
                           <td className="py-3 text-sm font-bold text-right text-navy">{formatNaira(requiredTotal)}</td>
-                          <td></td>
+                          {!readOnly && <td></td>}
                         </tr>
                       </tfoot>
                     </table>
@@ -411,7 +419,8 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                       <h2 className="text-navy font-semibold text-lg">Optional fees</h2>
                     </div>
                     <p className="text-xs text-gray-500 mb-4">
-                      Available to students in {selectedClass?.name}. Use &quot;Manage opt-ins&quot; to enroll students from this class.
+                      Available to students in {selectedClass?.name}.
+                      {!readOnly && ' Use "Manage opt-ins" to enroll students from this class.'}
                     </p>
 
                     <table className="w-full">
@@ -420,7 +429,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                           <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Item name</th>
                           <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Opt-ins (total)</th>
                           <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Amount</th>
-                          <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Actions</th>
+                          {!readOnly && <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Actions</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
@@ -436,30 +445,32 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                               {item.optInCount} {item.optInCount === 1 ? 'student' : 'students'}
                             </td>
                             <td className="py-3 text-sm text-right text-navy font-medium">{formatNaira(item.amount)}</td>
-                            <td className="py-3 text-right">
-                              <div className="inline-flex items-center gap-2">
-                                <button
-                                  onClick={() => openOptIns(item, true)}
-                                  className="text-xs text-mint font-medium hover:underline"
-                                >
-                                  Manage opt-ins
-                                </button>
-                                <span className="text-gray-300">·</span>
-                                <button
-                                  onClick={() => openEditPanel(item)}
-                                  className="text-xs text-gray-600 font-medium hover:underline"
-                                >
-                                  Edit
-                                </button>
-                                <span className="text-gray-300">·</span>
-                                <button
-                                  onClick={() => handleDelete(item)}
-                                  className="text-xs text-red-600 font-medium hover:underline"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
+                            {!readOnly && (
+                              <td className="py-3 text-right">
+                                <div className="inline-flex items-center gap-2">
+                                  <button
+                                    onClick={() => openOptIns(item, true)}
+                                    className="text-xs text-mint font-medium hover:underline"
+                                  >
+                                    Manage opt-ins
+                                  </button>
+                                  <span className="text-gray-300">·</span>
+                                  <button
+                                    onClick={() => openEditPanel(item)}
+                                    className="text-xs text-gray-600 font-medium hover:underline"
+                                  >
+                                    Edit
+                                  </button>
+                                  <span className="text-gray-300">·</span>
+                                  <button
+                                    onClick={() => handleDelete(item)}
+                                    className="text-xs text-red-600 font-medium hover:underline"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -469,7 +480,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                             Per student who opts in to all
                           </td>
                           <td className="py-2 text-xs text-right text-gray-500">{formatNaira(optionalTotal)}</td>
-                          <td></td>
+                          {!readOnly && <td></td>}
                         </tr>
                       </tfoot>
                     </table>
@@ -501,7 +512,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                         <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Applied to</th>
                         <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Amount</th>
                         <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Total expected</th>
-                        <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Actions</th>
+                        {!readOnly && <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Actions</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -523,27 +534,29 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                           <td className="py-3 text-sm text-right text-navy font-medium">
                             {formatNaira(group.totalRevenue)}
                           </td>
-                          <td className="py-3 text-right">
-                            <div className="inline-flex items-center gap-2">
-                              <button
-                                onClick={() => openEditGroupPanel({
-                                  name: group.name,
-                                  isSchoolWide: group.isSchoolWide,
-                                  isOptional: false,
-                                })}
-                                className="text-xs text-mint font-medium hover:underline"
-                              >
-                                Edit
-                              </button>
-                              <span className="text-gray-300">·</span>
-                              <button
-                                onClick={() => handleBulkDelete(group.name)}
-                                className="text-xs text-red-600 font-medium hover:underline"
-                              >
-                                Delete all
-                              </button>
-                            </div>
-                          </td>
+                          {!readOnly && (
+                            <td className="py-3 text-right">
+                              <div className="inline-flex items-center gap-2">
+                                <button
+                                  onClick={() => openEditGroupPanel({
+                                    name: group.name,
+                                    isSchoolWide: group.isSchoolWide,
+                                    isOptional: false,
+                                  })}
+                                  className="text-xs text-mint font-medium hover:underline"
+                                >
+                                  Edit
+                                </button>
+                                <span className="text-gray-300">·</span>
+                                <button
+                                  onClick={() => handleBulkDelete(group.name)}
+                                  className="text-xs text-red-600 font-medium hover:underline"
+                                >
+                                  Delete all
+                                </button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -551,7 +564,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                       <tr>
                         <td colSpan={3} className="py-3 text-sm font-bold text-navy">Total expected from required fees</td>
                         <td className="py-3 text-sm font-bold text-right text-navy">{formatNaira(requiredRevenueTotal)}</td>
-                        <td></td>
+                        {!readOnly && <td></td>}
                       </tr>
                     </tfoot>
                   </table>
@@ -566,9 +579,11 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                       {optionalGroups.length} {optionalGroups.length === 1 ? 'item' : 'items'}
                     </p>
                   </div>
-                  <p className="text-xs text-gray-500 mb-4">
-                    Click &quot;Manage opt-ins&quot; to enroll students. For per-class fees, only students in the applied classes will appear.
-                  </p>
+                  {!readOnly && (
+                    <p className="text-xs text-gray-500 mb-4">
+                      Click &quot;Manage opt-ins&quot; to enroll students. For per-class fees, only students in the applied classes will appear.
+                    </p>
+                  )}
 
                   <table className="w-full">
                     <thead>
@@ -578,7 +593,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                         <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Opt-ins</th>
                         <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Amount</th>
                         <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Total expected</th>
-                        <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Actions</th>
+                        {!readOnly && <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2">Actions</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -605,34 +620,36 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                             <td className="py-3 text-sm text-right text-navy font-medium">
                               {formatNaira(group.totalRevenue)}
                             </td>
-                            <td className="py-3 text-right">
-                              <div className="inline-flex items-center gap-2">
-                                <button
-                                  onClick={() => openGroupOptIns({ name: group.name, items: group.items })}
-                                  className="text-xs text-mint font-medium hover:underline"
-                                >
-                                  Manage opt-ins
-                                </button>
-                                <span className="text-gray-300">·</span>
-                                <button
-                                  onClick={() => openEditGroupPanel({
-                                    name: group.name,
-                                    isSchoolWide: group.isSchoolWide,
-                                    isOptional: true,
-                                  })}
-                                  className="text-xs text-gray-600 font-medium hover:underline"
-                                >
-                                  Edit
-                                </button>
-                                <span className="text-gray-300">·</span>
-                                <button
-                                  onClick={() => handleBulkDelete(group.name)}
-                                  className="text-xs text-red-600 font-medium hover:underline"
-                                >
-                                  Delete all
-                                </button>
-                              </div>
-                            </td>
+                            {!readOnly && (
+                              <td className="py-3 text-right">
+                                <div className="inline-flex items-center gap-2">
+                                  <button
+                                    onClick={() => openGroupOptIns({ name: group.name, items: group.items })}
+                                    className="text-xs text-mint font-medium hover:underline"
+                                  >
+                                    Manage opt-ins
+                                  </button>
+                                  <span className="text-gray-300">·</span>
+                                  <button
+                                    onClick={() => openEditGroupPanel({
+                                      name: group.name,
+                                      isSchoolWide: group.isSchoolWide,
+                                      isOptional: true,
+                                    })}
+                                    className="text-xs text-gray-600 font-medium hover:underline"
+                                  >
+                                    Edit
+                                  </button>
+                                  <span className="text-gray-300">·</span>
+                                  <button
+                                    onClick={() => handleBulkDelete(group.name)}
+                                    className="text-xs text-red-600 font-medium hover:underline"
+                                  >
+                                    Delete all
+                                  </button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         )
                       })}
@@ -641,7 +658,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId }
                       <tr>
                         <td colSpan={4} className="py-3 text-sm font-bold text-navy">Total expected from opt-ins</td>
                         <td className="py-3 text-sm font-bold text-right text-navy">{formatNaira(optionalRevenueTotal)}</td>
-                        <td></td>
+                        {!readOnly && <td></td>}
                       </tr>
                     </tfoot>
                   </table>
