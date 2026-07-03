@@ -35,7 +35,7 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
     .from('billing_cycles')
     .select('id, name')
     .eq('school_id', schoolId)
-    .in('status', ['active', 'draft'])
+    .eq('status', 'active')
     .order('start_date', { ascending: false })
     .limit(1)
     .single()
@@ -187,7 +187,7 @@ export async function getStudentById(studentId: string) {
     .from('billing_cycles')
     .select('id, name')
     .eq('school_id', schoolId)
-    .in('status', ['active', 'draft'])
+    .eq('status', 'active')
     .order('start_date', { ascending: false })
     .limit(1)
     .single()
@@ -211,6 +211,7 @@ export async function getStudentById(studentId: string) {
       last_name,
       classes!inner(name)
     `)
+    .eq('school_id', schoolId)
     .eq('family_id', familyId)
     .neq('id', studentId)
     .eq('status', 'active')
@@ -451,6 +452,17 @@ export interface StudentFeesData {
   exemptionTotal: number
   optInTotal: number
   expectedBill: number
+  existingInvoice: {
+    id: string
+    totalAmount: number
+    paidAmount: number
+    outstandingAmount: number
+    status: 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled'
+    sentAt: string | null
+    needsResend: boolean
+    previousBalance: number
+    generatedAt: string
+  } | null
 }
 
 export async function getStudentFees(studentId: string): Promise<StudentFeesData | null> {
@@ -508,12 +520,11 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
   // Get active billing cycle
   const { data: cycle } = await supabase
     .from('billing_cycles')
-    .select('id, name, status')
+    .select('id, name, status, start_date')
     .eq('school_id', schoolId)
-    .in('status', ['active', 'draft'])
-    .order('start_date', { ascending: false })
+    .eq('status', 'active')
     .limit(1)
-    .single()
+    .maybeSingle()
 
   if (!cycle) {
     return {
@@ -525,6 +536,7 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
       exemptionTotal: 0,
       optInTotal: 0,
       expectedBill: 0,
+      existingInvoice: null,
     }
   }
 
@@ -603,9 +615,59 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
     .filter(f => f.isOptedIn)
     .reduce((sum, f) => sum + f.amount, 0)
 
-  const expectedBill = requiredTotal - exemptionTotal + optInTotal
+    
+  // After you have cycle.id, before computing expectedBill
 
-  return {
+  // Look up carry-forward from most recent closed term
+  let carryForwardAmount = 0
+  const { data: priorClosedCycle } = await supabase
+    .from('billing_cycles')
+    .select('id, start_date')
+    .eq('school_id', schoolId)
+    .eq('status', 'closed')
+    .lt('start_date', cycle.start_date)  // needs cycle.start_date available
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (priorClosedCycle) {
+    const { data: priorInvoice } = await supabase
+      .from('invoices')
+      .select('total_amount, paid_amount')
+      .eq('student_id', studentId)
+      .eq('billing_cycle_id', priorClosedCycle.id)
+      .maybeSingle()
+
+    if (priorInvoice) {
+      const outstanding = Number(priorInvoice.total_amount) - Number(priorInvoice.paid_amount || 0)
+      if (outstanding > 0) carryForwardAmount = outstanding
+    }
+  }
+
+  // Then:
+  const expectedBill = requiredTotal - exemptionTotal + optInTotal + carryForwardAmount
+
+  // Check if an invoice already exists for this student + cycle
+  const { data: existingInvoice } = await supabase
+    .from('invoices')
+    .select('id, total_amount, paid_amount, status, sent_at, needs_resend, previous_balance, line_items, generated_at')
+    .eq('student_id', studentId)
+    .eq('billing_cycle_id', cycle.id)
+    .maybeSingle()
+
+  const existingInvoiceInfo = existingInvoice ? {
+    id: existingInvoice.id,
+    totalAmount: Number(existingInvoice.total_amount),
+    paidAmount: Number(existingInvoice.paid_amount || 0),
+    outstandingAmount: Number(existingInvoice.total_amount) - Number(existingInvoice.paid_amount || 0),
+    status: existingInvoice.status as 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled',
+    sentAt: existingInvoice.sent_at,
+    needsResend: existingInvoice.needs_resend,
+    previousBalance: Number(existingInvoice.previous_balance || 0),
+    generatedAt: existingInvoice.generated_at,
+  } : null
+
+return {
     student,
     cycle: { id: cycle.id, name: cycle.name, status: cycle.status },
     requiredFees,
@@ -614,5 +676,6 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
     exemptionTotal,
     optInTotal,
     expectedBill,
+    existingInvoice: existingInvoiceInfo,
   }
 }

@@ -34,6 +34,7 @@ export async function getFeesOverview(cycleId?: string) {
     }
   }
 
+  // ONLY load active term as default. Draft terms are not "current."
   let cycle
   if (cycleId) {
     const { data } = await supabase
@@ -48,10 +49,9 @@ export async function getFeesOverview(cycleId?: string) {
       .from('billing_cycles')
       .select('id, name, status')
       .eq('school_id', schoolId)
-      .in('status', ['active', 'draft'])
-      .order('start_date', { ascending: false })
+      .eq('status', 'active')
       .limit(1)
-      .single()
+      .maybeSingle()
     cycle = data
   }
 
@@ -219,7 +219,7 @@ export async function getFeeStructure(billingCycleId?: string) {
       .from('billing_cycles')
       .select('id, name, status')
       .eq('school_id', schoolId)
-      .in('status', ['active', 'draft'])
+      .eq('status', 'active')
       .order('start_date', { ascending: false })
       .limit(1)
       .single()
@@ -457,4 +457,185 @@ export async function getAllCycles(): Promise<CycleRow[]> {
 export async function getCycleById(id: string): Promise<CycleRow | null> {
   const all = await getAllCycles()
   return all.find(c => c.id === id) || null
+}
+// ============ CYCLE DETAIL (for /fees/cycles/[id] page) ============
+
+export interface InvoiceRow {
+  id: string
+  studentId: string
+  studentFirstName: string
+  studentLastName: string
+  studentAdmissionNumber: string
+  className: string
+  totalAmount: number
+  paidAmount: number
+  outstandingAmount: number
+  status: 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled'
+  sentAt: string | null
+  needsResend: boolean
+  previousBalance: number
+  generatedAt: string
+  lineItems: Array<{ name: string, amount: number, kind?: string }>
+}
+
+export interface CycleDetailData {
+  cycle: CycleRow | null
+  invoices: InvoiceRow[]
+  studentsWithoutInvoices: Array<{
+    id: string
+    firstName: string
+    lastName: string
+    admissionNumber: string
+    classId: string | null
+    className: string
+  }>
+  totalActiveStudents: number
+  totalsByStatus: {
+    paid: number
+    partial: number
+    pending: number
+    overdue: number
+    needsResend: number
+  }
+}
+
+export async function getCycleDetailById(cycleId: string): Promise<CycleDetailData | null> {
+  const ctx = await getSchoolContext()
+  if (!ctx) return null
+  const { supabase, schoolId } = ctx
+
+  // Get cycle
+  const { data: cycleData } = await supabase
+    .from('billing_cycles')
+    .select(`
+      id,
+      name,
+      start_date,
+      end_date,
+      due_date,
+      status,
+      session_id,
+      sessions(name)
+    `)
+    .eq('id', cycleId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!cycleData) return null
+
+  // Get total active students for the school
+  const { count: totalActiveStudents } = await supabase
+    .from('students')
+    .select('*', { count: 'exact', head: true })
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+
+  // Get all invoices for this cycle
+  const { data: invoiceData } = await supabase
+    .from('invoices')
+    .select(`
+      id,
+      student_id,
+      total_amount,
+      paid_amount,
+      outstanding_amount,
+      status,
+      sent_at,
+      needs_resend,
+      previous_balance,
+      generated_at,
+      line_items,
+      students(first_name, last_name, admission_number, class_id, classes(name))
+    `)
+    .eq('billing_cycle_id', cycleId)
+    .order('generated_at', { ascending: false })
+
+  const invoices: InvoiceRow[] = (invoiceData || []).map(inv => ({
+    id: inv.id,
+    studentId: inv.student_id,
+    // @ts-expect-error — joined
+    studentFirstName: inv.students?.first_name || '',
+    // @ts-expect-error — joined
+    studentLastName: inv.students?.last_name || '',
+    // @ts-expect-error — joined
+    studentAdmissionNumber: inv.students?.admission_number || '',
+    // @ts-expect-error — joined
+    className: inv.students?.classes?.name || '',
+    totalAmount: Number(inv.total_amount),
+    paidAmount: Number(inv.paid_amount || 0),
+    outstandingAmount: Number(inv.outstanding_amount || (Number(inv.total_amount) - Number(inv.paid_amount || 0))),
+    status: inv.status as InvoiceRow['status'],
+    sentAt: inv.sent_at,
+    needsResend: inv.needs_resend,
+    previousBalance: Number(inv.previous_balance || 0),
+    generatedAt: inv.generated_at,
+    lineItems: (inv.line_items as InvoiceRow['lineItems']) || [],
+  }))
+
+  // Get students who DON'T have an invoice for this cycle
+  const invoicedStudentIds = new Set(invoices.map(i => i.studentId))
+
+  const { data: allActiveStudents } = await supabase
+    .from('students')
+    .select(`
+      id,
+      first_name,
+      last_name,
+      admission_number,
+      class_id,
+      classes(name)
+    `)
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+
+  const studentsWithoutInvoices = (allActiveStudents || [])
+    .filter(s => !invoicedStudentIds.has(s.id))
+    .map(s => ({
+      id: s.id,
+      firstName: s.first_name,
+      lastName: s.last_name,
+      admissionNumber: s.admission_number,
+      classId: s.class_id,
+      // @ts-expect-error — joined
+      className: s.classes?.name || '',
+    }))
+
+  // Stats by status
+  const totalsByStatus = {
+    paid: invoices.filter(i => i.status === 'paid').length,
+    partial: invoices.filter(i => i.status === 'partial').length,
+    pending: invoices.filter(i => i.status === 'pending').length,
+    overdue: invoices.filter(i => i.status === 'overdue').length,
+    needsResend: invoices.filter(i => i.needsResend).length,
+  }
+
+  // Reuse the getAllCycles shape for cycle stats — compute here from invoices
+  const totalExpected = invoices.reduce((s, i) => s + i.totalAmount, 0)
+  const totalCollected = invoices.reduce((s, i) => s + i.paidAmount, 0)
+
+  const cycle: CycleRow = {
+    id: cycleData.id,
+    name: cycleData.name,
+    startDate: cycleData.start_date,
+    endDate: cycleData.end_date,
+    dueDate: cycleData.due_date,
+    status: cycleData.status as 'draft' | 'active' | 'closed',
+    sessionId: cycleData.session_id,
+    // @ts-expect-error — joined
+    sessionName: cycleData.sessions?.name || null,
+    invoiceCount: invoices.length,
+    studentsInvoiced: invoices.length,
+    totalActiveStudents: totalActiveStudents || 0,
+    totalExpected,
+    totalCollected,
+    feeItemCount: 0, // not needed here
+  }
+
+  return {
+    cycle,
+    invoices,
+    studentsWithoutInvoices,
+    totalActiveStudents: totalActiveStudents || 0,
+    totalsByStatus,
+  }
 }

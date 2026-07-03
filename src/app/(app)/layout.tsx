@@ -36,7 +36,7 @@ export default async function AppLayout({
     .from('billing_cycles')
     .select('name')
     .eq('school_id', schoolId || '')
-    .in('status', ['active', 'draft'])
+    .eq('status', 'active')
     .order('start_date', { ascending: false })
     .limit(1)
     .single()

@@ -9,7 +9,12 @@ import {
   setStudentExemption, 
   removeStudentExemption 
 } from '@/app/(app)/students/[id]/actions'
-import ConfirmDialog from './ConfirmDialog'
+import { 
+  previewInvoiceForStudent, 
+  generateInvoiceForStudent, 
+  regenerateInvoice 
+} from '@/app/(app)/fees/cycles/actions'
+import ConfirmDialog from '@/components/ConfirmDialog'
 
 interface Props {
   data: StudentFeesData
@@ -19,19 +24,28 @@ function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
+interface PreviewState {
+  cycleName: string
+  lineItems: Array<{ name: string, amount: number, kind?: string }>
+  subtotal: number
+  previousBalance: number
+  total: number
+}
+
 export default function StudentFeesTab({ data }: Props) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
-  
-  // Exemption dialog state
   const [exemptionDialog, setExemptionDialog] = useState<{
     fee: StudentFeeItem
     notes: string
   } | null>(null)
-
-  // Confirm remove exemption
   const [removeExemptionConfirm, setRemoveExemptionConfirm] = useState<StudentFeeItem | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const [previewData, setPreviewData] = useState<PreviewState | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [generateConfirm, setGenerateConfirm] = useState(false)
+  const [updateConfirm, setUpdateConfirm] = useState(false)
 
   if (!data.cycle) {
     return (
@@ -53,12 +67,21 @@ export default function StudentFeesTab({ data }: Props) {
     )
   }
 
+  // Smart button state
+  const existingInvoice = data.existingInvoice
+  const isInvoiceUpToDate = existingInvoice && existingInvoice.totalAmount === data.expectedBill
+  const diffAmount = existingInvoice ? data.expectedBill - existingInvoice.totalAmount : 0
+  const newOutstanding = existingInvoice ? data.expectedBill - existingInvoice.paidAmount : 0
+
   async function handleToggleOptIn(fee: StudentFeeItem) {
     setError(null)
     setPendingId(fee.id)
     const result = await toggleStudentOptIn(data.student.id, fee.id)
-    if (result.error) setError(result.error)
-    else router.refresh()
+    if ('error' in result && result.error) {
+      setError(result.error)
+    } else {
+      router.refresh()
+    }
     setPendingId(null)
   }
 
@@ -67,12 +90,15 @@ export default function StudentFeesTab({ data }: Props) {
     setError(null)
     setPendingId(exemptionDialog.fee.id)
     const result = await setStudentExemption(
-      data.student.id, 
-      exemptionDialog.fee.id, 
+      data.student.id,
+      exemptionDialog.fee.id,
       exemptionDialog.notes
     )
-    if (result.error) setError(result.error)
-    else router.refresh()
+    if ('error' in result && result.error) {
+      setError(result.error)
+    } else {
+      router.refresh()
+    }
     setExemptionDialog(null)
     setPendingId(null)
   }
@@ -82,10 +108,58 @@ export default function StudentFeesTab({ data }: Props) {
     setError(null)
     setPendingId(removeExemptionConfirm.id)
     const result = await removeStudentExemption(data.student.id, removeExemptionConfirm.id)
-    if (result.error) setError(result.error)
-    else router.refresh()
+    if ('error' in result && result.error) {
+      setError(result.error)
+    } else {
+      router.refresh()
+    }
     setRemoveExemptionConfirm(null)
     setPendingId(null)
+  }
+
+  async function handlePreview() {
+    setError(null)
+    setPreviewing(true)
+    const result = await previewInvoiceForStudent(data.student.id)
+    if ('error' in result && result.error) {
+      setError(result.error)
+    } else if (!('error' in result)) {
+      setPreviewData({
+        cycleName: result.cycleName,
+        lineItems: result.preview.lineItems,
+        subtotal: result.preview.subtotal,
+        previousBalance: result.preview.previousBalance,
+        total: result.preview.total,
+      })
+    }
+    setPreviewing(false)
+  }
+
+  async function handleGenerateInvoice() {
+    setError(null)
+    setGenerating(true)
+    const result = await generateInvoiceForStudent(data.student.id)
+    if ('error' in result && result.error) {
+      setError(result.error)
+    } else {
+      router.refresh()
+    }
+    setGenerating(false)
+    setGenerateConfirm(false)
+  }
+
+  async function handleUpdateInvoice() {
+    if (!existingInvoice) return
+    setError(null)
+    setGenerating(true)
+    const result = await regenerateInvoice(existingInvoice.id)
+    if ('error' in result && result.error) {
+      setError(result.error)
+    } else {
+      router.refresh()
+    }
+    setGenerating(false)
+    setUpdateConfirm(false)
   }
 
   return (
@@ -98,22 +172,89 @@ export default function StudentFeesTab({ data }: Props) {
           </div>
         )}
 
-        {/* Term header */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-navy font-semibold text-lg">{data.cycle.name}</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Fees that apply to this student for the current term
+              Fees that apply to this student for this term
             </p>
           </div>
-          <button
-            disabled
-            className="px-4 py-2 border border-mint text-mint rounded-lg text-sm font-medium opacity-50 cursor-not-allowed"
-            title="Coming soon — preview invoice before generation"
-          >
-            Preview invoice
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePreview}
+              disabled={previewing}
+              className="px-3 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+            >
+              {previewing ? 'Loading...' : 'Preview invoice'}
+            </button>
+            {!existingInvoice && (
+              <button
+                onClick={() => setGenerateConfirm(true)}
+                disabled={generating}
+                className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+              >
+                Generate invoice
+              </button>
+            )}
+            {existingInvoice && !isInvoiceUpToDate && (
+              <button
+                onClick={() => setUpdateConfirm(true)}
+                disabled={generating}
+                className="px-4 py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50"
+              >
+                Update invoice
+              </button>
+            )}
+            {existingInvoice && isInvoiceUpToDate && (
+              <span className="px-3 py-2 text-sm text-gray-500 italic">
+                Invoice up to date
+              </span>
+            )}
+          </div>
         </div>
+
+        {/* Existing invoice info */}
+        {existingInvoice && (
+          <div className={`p-4 rounded-xl border ${
+            isInvoiceUpToDate 
+              ? 'bg-mint-light/30 border-mint/30' 
+              : 'bg-amber-50 border-amber-200'
+          }`}>
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-gray-600 uppercase tracking-wider mb-1">Current invoice</p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-sm font-semibold text-navy">
+                    Total: {formatNaira(existingInvoice.totalAmount)}
+                  </span>
+                  <span className="text-gray-300">·</span>
+                  <span className="text-sm text-mint">
+                    Paid: {formatNaira(existingInvoice.paidAmount)}
+                  </span>
+                  <span className="text-gray-300">·</span>
+                  <span className={`text-sm font-medium ${existingInvoice.outstandingAmount > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                    Outstanding: {formatNaira(existingInvoice.outstandingAmount)}
+                  </span>
+                  {existingInvoice.needsResend && (
+                    <>
+                      <span className="text-gray-300">·</span>
+                      <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">
+                        needs resend
+                      </span>
+                    </>
+                  )}
+                </div>
+                {!isInvoiceUpToDate && (
+                  <p className="text-xs text-amber-700 mt-2">
+                    Adjustments have been made. Current invoice ({formatNaira(existingInvoice.totalAmount)}) 
+                    differs from expected ({formatNaira(data.expectedBill)}). 
+                    Click &quot;Update invoice&quot; to apply.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Required fees */}
         <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -272,7 +413,7 @@ export default function StudentFeesTab({ data }: Props) {
           </div>
         )}
 
-        {/* Expected bill summary */}
+        {/* Expected bill */}
         <div className="bg-mint-light/40 border border-mint/30 rounded-xl p-6">
           <div className="flex items-end justify-between">
             <div>
@@ -288,7 +429,7 @@ export default function StudentFeesTab({ data }: Props) {
         </div>
       </div>
 
-      {/* Exemption dialog with notes */}
+      {/* Exemption dialog */}
       {exemptionDialog && (
         <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
@@ -340,6 +481,170 @@ export default function StudentFeesTab({ data }: Props) {
           onConfirm={handleRemoveExemption}
           onCancel={() => setRemoveExemptionConfirm(null)}
         />
+      )}
+
+      {/* Preview modal */}
+      {previewData && (
+        <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-navy">Invoice preview</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{previewData.cycleName}</p>
+              </div>
+              <button onClick={() => setPreviewData(null)} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-5">
+              <p className="text-sm text-gray-700 mb-3">
+                <strong>{data.student.firstName} {data.student.lastName}</strong> · {data.student.className}
+              </p>
+              <table className="w-full text-sm mb-4">
+                <tbody className="divide-y divide-gray-100">
+                  {previewData.lineItems.map((li, idx) => (
+                    <tr key={idx}>
+                      <td className="py-2">
+                        {li.name}
+                        {li.kind === 'opt_in' && (
+                          <span className="ml-2 text-xs text-gray-500">(opt-in)</span>
+                        )}
+                        {li.kind === 'previous_balance' && (
+                          <span className="ml-2 text-xs text-amber-600">(carry-forward)</span>
+                        )}
+                      </td>
+                      <td className="py-2 text-right text-navy">{formatNaira(li.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-t-2 border-gray-200">
+                  <tr>
+                    <td className="py-3 font-bold text-navy">Total</td>
+                    <td className="py-3 text-right font-bold text-navy">{formatNaira(previewData.total)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+              <p className="text-xs text-gray-500">
+                This is a preview only. {existingInvoice ? 'Click Update invoice to apply.' : 'Click Generate invoice to save.'}
+              </p>
+            </div>
+            <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setPreviewData(null)}
+                className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
+              >
+                Close
+              </button>
+              {!existingInvoice && (
+                <button
+                  onClick={() => {
+                    setPreviewData(null)
+                    setGenerateConfirm(true)
+                  }}
+                  className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
+                >
+                  Generate this invoice
+                </button>
+              )}
+              {existingInvoice && !isInvoiceUpToDate && (
+                <button
+                  onClick={() => {
+                    setPreviewData(null)
+                    setUpdateConfirm(true)
+                  }}
+                  className="px-4 py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600"
+                >
+                  Update invoice
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generate confirm */}
+      {generateConfirm && (
+        <ConfirmDialog
+          title={`Generate invoice for ${data.student.firstName} ${data.student.lastName}?`}
+          message={`An invoice for ${formatNaira(data.expectedBill)} will be created using current fees, opt-ins, and exemptions.`}
+          confirmLabel="Generate"
+          onConfirm={handleGenerateInvoice}
+          onCancel={() => setGenerateConfirm(false)}
+        />
+      )}
+
+      {/* Update confirm with diff */}
+      {updateConfirm && existingInvoice && (
+        <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <h3 className="text-base font-semibold text-navy mb-2">
+                Update invoice for {data.student.firstName} {data.student.lastName}?
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                The invoice will be recalculated using current fees, opt-ins, and exemptions. Payments already made are preserved.
+              </p>
+
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2 mb-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Current total</span>
+                  <span className="text-navy">{formatNaira(existingInvoice.totalAmount)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">New total</span>
+                  <span className="text-navy font-semibold">{formatNaira(data.expectedBill)}</span>
+                </div>
+                <div className="flex justify-between text-sm pt-2 border-t border-gray-200">
+                  <span className="text-gray-600">Change</span>
+                  <span className={diffAmount >= 0 ? 'text-amber-600' : 'text-mint'}>
+                    {diffAmount >= 0 ? '+' : ''}{formatNaira(diffAmount)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Paid (unchanged)</span>
+                  <span className="text-mint">{formatNaira(existingInvoice.paidAmount)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">New outstanding</span>
+                  <span className={newOutstanding > 0 ? 'text-amber-600 font-semibold' : 'text-gray-400'}>
+                    {formatNaira(newOutstanding)}
+                  </span>
+                </div>
+              </div>
+
+              {existingInvoice.sentAt && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 mb-4">
+                  ⚠️ This invoice was already sent to parents. Updating will flag it for resending.
+                </div>
+              )}
+
+              {newOutstanding < 0 && (
+                <div className="p-3 bg-mint-light border border-mint/30 rounded-lg text-xs text-navy mb-4">
+                  Note: The new total is less than already paid. Student will have a credit of {formatNaira(Math.abs(newOutstanding))}.
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setUpdateConfirm(false)}
+                disabled={generating}
+                className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateInvoice}
+                disabled={generating}
+                className="px-4 py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50"
+              >
+                {generating ? 'Updating...' : 'Update invoice'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   )

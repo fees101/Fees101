@@ -228,12 +228,24 @@ export async function activateTerm(id: string) {
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
-  await supabase
+  // Find currently active term (the one that will be closed)
+  const { data: currentActive } = await supabase
     .from('billing_cycles')
-    .update({ status: 'closed' })
+    .select('id, name')
     .eq('school_id', schoolId)
     .eq('status', 'active')
+    .maybeSingle()
 
+  // Close current active (if any)
+  if (currentActive) {
+    await supabase
+      .from('billing_cycles')
+      .update({ status: 'closed', closed_at: new Date().toISOString() })
+      .eq('id', currentActive.id)
+      .eq('school_id', schoolId)
+  }
+
+  // Activate the new term
   const { error } = await supabase
     .from('billing_cycles')
     .update({ status: 'active' })
@@ -242,9 +254,84 @@ export async function activateTerm(id: string) {
 
   if (error) return { error: error.message }
 
+  // Auto-update carry-forward for invoices in the newly-active term
+  const summary = {
+    closedTermName: currentActive?.name || null,
+    invoicesUpdated: 0,
+    invoicesNeedingResend: 0,
+    studentsWithCarryForward: 0,
+    totalCarryForward: 0,
+  }
+
+  if (currentActive) {
+    // Find students with outstanding balance from the just-closed term
+    const { data: outstandingInvoices } = await supabase
+      .from('invoices')
+      .select('student_id, total_amount, paid_amount')
+      .eq('billing_cycle_id', currentActive.id)
+      .eq('school_id', schoolId)
+
+    const studentsWithOutstanding = (outstandingInvoices || [])
+      .map(inv => ({
+        studentId: inv.student_id,
+        outstanding: Number(inv.total_amount) - Number(inv.paid_amount || 0),
+      }))
+      .filter(s => s.outstanding > 0)
+
+    summary.studentsWithCarryForward = studentsWithOutstanding.length
+    summary.totalCarryForward = studentsWithOutstanding.reduce((s, x) => s + x.outstanding, 0)
+
+    // For each such student, find their invoice in the NEWLY ACTIVE term (if exists) and regenerate
+    for (const s of studentsWithOutstanding) {
+      const { data: newTermInvoice } = await supabase
+        .from('invoices')
+        .select('id, sent_at')
+        .eq('student_id', s.studentId)
+        .eq('billing_cycle_id', id)
+        .maybeSingle()
+
+      if (!newTermInvoice) continue
+
+      // Recompute
+      const computed = await computeInvoiceForStudent(supabase, schoolId, s.studentId, id)
+      if ('error' in computed) continue
+
+      const { data: existing } = await supabase
+        .from('invoices')
+        .select('paid_amount')
+        .eq('id', newTermInvoice.id)
+        .single()
+
+      const paid = Number(existing?.paid_amount || 0)
+      let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
+      if (paid >= computed.total) newStatus = 'paid'
+      else if (paid > 0) newStatus = 'partial'
+
+      const wasSent = !!newTermInvoice.sent_at
+
+      await supabase
+        .from('invoices')
+        .update({
+          line_items: computed.lineItems,
+          subtotal: computed.subtotal,
+          previous_balance: computed.previousBalance,
+          total_amount: computed.total,
+          status: newStatus,
+          needs_resend: wasSent,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', newTermInvoice.id)
+
+      summary.invoicesUpdated++
+      if (wasSent) summary.invoicesNeedingResend++
+    }
+  }
+
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
-  return { success: true }
+  revalidatePath(`/fees/cycles/${id}`)
+
+  return { success: true, summary }
 }
 
 export async function closeTerm(id: string) {
@@ -330,7 +417,7 @@ export async function deleteTermDraft(id: string) {
 
   const { data: cycle } = await supabase
     .from('billing_cycles')
-    .select('id, status')
+    .select('id, status, name')
     .eq('id', id)
     .eq('school_id', schoolId)
     .single()
@@ -340,15 +427,39 @@ export async function deleteTermDraft(id: string) {
     return { error: 'Only draft terms can be deleted. Close the term first if needed.' }
   }
 
-  const { count: invoiceCount } = await supabase
+  // Block ONLY if any invoices have been sent. Draft invoices are fine to delete.
+  const { data: sentInvoices } = await supabase
     .from('invoices')
-    .select('*', { count: 'exact', head: true })
+    .select('id, student_id')
     .eq('billing_cycle_id', id)
+    .not('sent_at', 'is', null)
+    .limit(1)
 
-  if ((invoiceCount || 0) > 0) {
-    return { error: `Cannot delete — ${invoiceCount} invoices already generated for this term` }
+  if (sentInvoices && sentInvoices.length > 0) {
+    return { error: 'Cannot delete — at least one invoice has already been sent to parents for this term.' }
   }
 
+  // Get all invoices for this cycle (draft ones)
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select('id')
+    .eq('billing_cycle_id', id)
+
+  // Delete payments tied to these invoices (defensive — shouldn't exist for drafts but just in case)
+  if (invoices && invoices.length > 0) {
+    const invoiceIds = invoices.map(i => i.id)
+    await supabase
+      .from('payments')
+      .delete()
+      .in('invoice_id', invoiceIds)
+
+    await supabase
+      .from('invoices')
+      .delete()
+      .in('id', invoiceIds)
+  }
+
+  // Delete fee items + their opt-ins
   const { data: feeItems } = await supabase
     .from('fee_items')
     .select('id')
@@ -366,6 +477,7 @@ export async function deleteTermDraft(id: string) {
       .eq('billing_cycle_id', id)
   }
 
+  // Delete the term
   const { error } = await supabase
     .from('billing_cycles')
     .delete()
@@ -376,4 +488,449 @@ export async function deleteTermDraft(id: string) {
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
   return { success: true }
+}
+// ============ INVOICE GENERATION ============
+
+interface ComputedLineItem {
+  name: string
+  amount: number
+  kind: 'required' | 'opt_in' | 'previous_balance'
+  fee_item_id?: string
+}
+
+interface ComputedInvoice {
+  studentId: string
+  studentName: string
+  className: string
+  lineItems: ComputedLineItem[]
+  subtotal: number
+  previousBalance: number
+  total: number
+  warning?: string
+}
+
+// Compute what a student's invoice would look like for a given cycle
+async function computeInvoiceForStudent(
+  supabase: any,
+  schoolId: string,
+  studentId: string,
+  cycleId: string
+): Promise<ComputedInvoice | { error: string }> {
+  // Get student
+  const { data: student } = await supabase
+    .from('students')
+    .select('id, first_name, last_name, class_id, status, classes(name)')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!student) return { error: 'Student not found' }
+  if (student.status !== 'active') return { error: `Student is ${student.status}, not active` }
+
+  const studentName = `${student.first_name} ${student.last_name}`
+  const className: string = student.classes?.name || ''
+
+  // Fee items: per-class for this student's class + school-wide
+  let feeItemsQuery = supabase
+    .from('fee_items')
+    .select('id, class_id, name, amount, is_mandatory, is_optional_extra')
+    .eq('school_id', schoolId)
+    .eq('billing_cycle_id', cycleId)
+
+  if (student.class_id) {
+    feeItemsQuery = feeItemsQuery.or(`class_id.eq.${student.class_id},class_id.is.null`)
+  } else {
+    feeItemsQuery = feeItemsQuery.is('class_id', null)
+  }
+
+  const { data: feeItems } = await feeItemsQuery
+  if (!feeItems || feeItems.length === 0) {
+    return {
+      studentId,
+      studentName,
+      className,
+      lineItems: [],
+      subtotal: 0,
+      previousBalance: 0,
+      total: 0,
+      warning: 'No fees configured for this term',
+    }
+  }
+
+  // Adjustments
+  const { data: adjustments } = await supabase
+    .from('student_fee_adjustments')
+    .select('fee_item_id, adjustment_type')
+    .eq('student_id', studentId)
+    .eq('school_id', schoolId)
+
+  const optInIds = new Set((adjustments || []).filter((a: any) => a.adjustment_type === 'opt_in').map((a: any) => a.fee_item_id))
+  const exemptIds = new Set((adjustments || []).filter((a: any) => a.adjustment_type === 'exempt').map((a: any) => a.fee_item_id))
+
+  const lineItems: ComputedLineItem[] = []
+
+  feeItems.forEach((f: any) => {
+    if (f.is_mandatory) {
+      if (!exemptIds.has(f.id)) {
+        lineItems.push({
+          name: f.name,
+          amount: Number(f.amount),
+          kind: 'required',
+          fee_item_id: f.id,
+        })
+      }
+    } else if (f.is_optional_extra && optInIds.has(f.id)) {
+      lineItems.push({
+        name: f.name,
+        amount: Number(f.amount),
+        kind: 'opt_in',
+        fee_item_id: f.id,
+      })
+    }
+  })
+
+  // Carry-forward balance from most recent closed term
+  let previousBalance = 0
+  const { data: thisCycle } = await supabase
+    .from('billing_cycles')
+    .select('start_date')
+    .eq('id', cycleId)
+    .single()
+
+  if (thisCycle) {
+    const { data: priorClosedCycle } = await supabase
+      .from('billing_cycles')
+      .select('id, name')
+      .eq('school_id', schoolId)
+      .eq('status', 'closed')
+      .lt('start_date', thisCycle.start_date)
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (priorClosedCycle) {
+      const { data: priorInvoice } = await supabase
+        .from('invoices')
+        .select('outstanding_amount, total_amount, paid_amount')
+        .eq('student_id', studentId)
+        .eq('billing_cycle_id', priorClosedCycle.id)
+        .maybeSingle()
+
+      if (priorInvoice) {
+        const outstanding = Number(priorInvoice.outstanding_amount ?? (Number(priorInvoice.total_amount) - Number(priorInvoice.paid_amount || 0)))
+        if (outstanding > 0) {
+          previousBalance = outstanding
+          lineItems.push({
+            name: `Outstanding balance from ${priorClosedCycle.name}`,
+            amount: outstanding,
+            kind: 'previous_balance',
+          })
+        }
+      }
+    }
+  }
+
+  const subtotal = lineItems.filter(li => li.kind !== 'previous_balance').reduce((s, li) => s + li.amount, 0)
+  const total = subtotal + previousBalance
+
+  return {
+    studentId,
+    studentName,
+    className,
+    lineItems,
+    subtotal,
+    previousBalance,
+    total,
+  }
+}
+
+// PREVIEW: Compute invoices for a cycle without saving
+export async function previewInvoicesForCycle(cycleId: string) {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  // Check cycle
+  const { data: cycle } = await supabase
+    .from('billing_cycles')
+    .select('id, status, name')
+    .eq('id', cycleId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!cycle) return { error: 'Term not found' }
+  if (cycle.status === 'closed') return { error: 'Cannot generate invoices for a closed term' }
+
+  // Get all active students
+  const { data: students } = await supabase
+    .from('students')
+    .select('id, first_name, last_name, class_id')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+
+  // Get students who already have an invoice
+  const { data: existingInvoices } = await supabase
+    .from('invoices')
+    .select('student_id')
+    .eq('billing_cycle_id', cycleId)
+
+  const alreadyInvoicedIds = new Set((existingInvoices || []).map(i => i.student_id))
+
+  const toGenerate: ComputedInvoice[] = []
+  const skipped: { studentId: string, reason: string }[] = []
+  let warningStudentsNoClass = 0
+  let totalExpected = 0
+
+  for (const s of students || []) {
+    if (alreadyInvoicedIds.has(s.id)) {
+      skipped.push({ studentId: s.id, reason: 'already has invoice' })
+      continue
+    }
+    if (!s.class_id) {
+      warningStudentsNoClass++
+      skipped.push({ studentId: s.id, reason: 'no class assigned' })
+      continue
+    }
+
+    const result = await computeInvoiceForStudent(supabase, schoolId, s.id, cycleId)
+    if ('error' in result) {
+      skipped.push({ studentId: s.id, reason: result.error })
+      continue
+    }
+    toGenerate.push(result)
+    totalExpected += result.total
+  }
+
+  return {
+    cycleName: cycle.name,
+    toGenerateCount: toGenerate.length,
+    alreadyHaveCount: alreadyInvoicedIds.size,
+    noClassCount: warningStudentsNoClass,
+    skippedTotalCount: skipped.length,
+    totalExpected,
+    preview: toGenerate,
+  }
+}
+
+// PREVIEW: For a single student (for the student Fees tab preview button)
+export async function previewInvoiceForStudent(studentId: string) {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  // Find the most recent active or draft cycle
+  const { data: cycle } = await supabase
+    .from('billing_cycles')
+    .select('id, name, status')
+    .eq('school_id', schoolId)
+    .in('status', ['active', 'draft'])
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (!cycle) return { error: 'No active or draft billing cycle' }
+
+  const result = await computeInvoiceForStudent(supabase, schoolId, studentId, cycle.id)
+  if ('error' in result) return { error: result.error }
+
+  return {
+    cycleName: cycle.name,
+    cycleId: cycle.id,
+    preview: result,
+  }
+}
+
+// GENERATE bulk for a cycle
+export async function generateInvoicesForCycle(cycleId: string) {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  const { data: cycle } = await supabase
+    .from('billing_cycles')
+    .select('id, status, name')
+    .eq('id', cycleId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!cycle) return { error: 'Term not found' }
+  if (cycle.status === 'closed') return { error: 'Cannot generate invoices for a closed term' }
+
+  // Get all active students with a class
+  const { data: students } = await supabase
+    .from('students')
+    .select('id, class_id')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .not('class_id', 'is', null)
+
+  // Skip those already with invoices
+  const { data: existing } = await supabase
+    .from('invoices')
+    .select('student_id')
+    .eq('billing_cycle_id', cycleId)
+
+  const alreadyInvoicedIds = new Set((existing || []).map(i => i.student_id))
+  const toProcess = (students || []).filter(s => !alreadyInvoicedIds.has(s.id))
+
+  let generated = 0
+  const errors: { studentId: string, error: string }[] = []
+
+  for (const s of toProcess) {
+    const computed = await computeInvoiceForStudent(supabase, schoolId, s.id, cycleId)
+    if ('error' in computed) {
+      errors.push({ studentId: s.id, error: computed.error })
+      continue
+    }
+
+    const status: 'pending' | 'paid' = computed.total === 0 ? 'paid' : 'pending'
+
+    const { error } = await supabase.from('invoices').insert({
+      school_id: schoolId,
+      student_id: s.id,
+      billing_cycle_id: cycleId,
+      line_items: computed.lineItems,
+      subtotal: computed.subtotal,
+      discount_amount: 0,
+      previous_balance: computed.previousBalance,
+      total_amount: computed.total,
+      paid_amount: 0,
+      status,
+      sent_at: null,
+      needs_resend: false,
+      generated_at: new Date().toISOString(),
+    })
+
+    if (error) {
+      errors.push({ studentId: s.id, error: error.message })
+      continue
+    }
+    generated++
+  }
+
+  // Mark cycle as having generated invoices
+  await supabase
+    .from('billing_cycles')
+    .update({ invoices_generated_at: new Date().toISOString() })
+    .eq('id', cycleId)
+
+  revalidatePath(`/fees/cycles/${cycleId}`)
+  revalidatePath('/fees/cycles')
+  revalidatePath('/fees')
+
+  return {
+    success: true,
+    generated,
+    alreadyHad: alreadyInvoicedIds.size,
+    errors,
+  }
+}
+
+// GENERATE single (for late joiner)
+export async function generateInvoiceForStudent(studentId: string, cycleId?: string) {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  // Resolve cycle — if not provided, use most recent active/draft
+  let targetCycleId = cycleId
+  if (!targetCycleId) {
+    const { data: cycle } = await supabase
+      .from('billing_cycles')
+      .select('id, status')
+      .eq('school_id', schoolId)
+      .in('status', ['active', 'draft'])
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .single()
+    if (!cycle) return { error: 'No active or draft term to generate for' }
+    targetCycleId = cycle.id
+  }
+
+  // Check existing
+  const { data: existing } = await supabase
+    .from('invoices')
+    .select('id')
+    .eq('student_id', studentId)
+    .eq('billing_cycle_id', targetCycleId)
+    .maybeSingle()
+
+  if (existing) {
+    return { error: 'Invoice already exists for this student. Use regenerate instead to update line items.' }
+  }
+
+  const computed = await computeInvoiceForStudent(supabase, schoolId, studentId, targetCycleId!)
+  if ('error' in computed) return { error: computed.error }
+
+  const status: 'pending' | 'paid' = computed.total === 0 ? 'paid' : 'pending'
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .insert({
+      school_id: schoolId,
+      student_id: studentId,
+      billing_cycle_id: targetCycleId,
+      line_items: computed.lineItems,
+      subtotal: computed.subtotal,
+      discount_amount: 0,
+      previous_balance: computed.previousBalance,
+      total_amount: computed.total,
+      paid_amount: 0,
+      status,
+      sent_at: null,
+      needs_resend: false,
+      generated_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single()
+
+  if (error) return { error: error.message }
+
+  revalidatePath(`/students/${studentId}`)
+  revalidatePath(`/fees/cycles/${targetCycleId}`)
+  return { success: true, invoiceId: data.id }
+}
+
+// REGENERATE existing invoice (recompute line items, keep payments)
+export async function regenerateInvoice(invoiceId: string) {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  const { data: existing } = await supabase
+    .from('invoices')
+    .select('id, student_id, billing_cycle_id, paid_amount, sent_at')
+    .eq('id', invoiceId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!existing) return { error: 'Invoice not found' }
+
+  const computed = await computeInvoiceForStudent(supabase, schoolId, existing.student_id, existing.billing_cycle_id)
+  if ('error' in computed) return { error: computed.error }
+
+  const paid = Number(existing.paid_amount || 0)
+  // Determine new status
+  let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
+  if (paid >= computed.total) newStatus = 'paid'
+  else if (paid > 0) newStatus = 'partial'
+
+  const { error } = await supabase
+    .from('invoices')
+    .update({
+      line_items: computed.lineItems,
+      subtotal: computed.subtotal,
+      previous_balance: computed.previousBalance,
+      total_amount: computed.total,
+      status: newStatus,
+      needs_resend: !!existing.sent_at,  // flag if was previously sent
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', invoiceId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath(`/students/${existing.student_id}`)
+  revalidatePath(`/fees/cycles/${existing.billing_cycle_id}`)
+  return { success: true, newTotal: computed.total, wasOverpaid: paid > computed.total }
 }

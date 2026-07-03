@@ -42,6 +42,14 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
     onConfirm: () => Promise<void>
   } | null>(null)
 
+  const [activationSummary, setActivationSummary] = useState<{
+    closedTermName: string | null
+    invoicesUpdated: number
+    invoicesNeedingResend: number
+    studentsWithCarryForward: number
+    totalCarryForward: number
+  } | null>(null)
+
   const cyclesBySession = useMemo(() => {
     const grouped: Record<string, { sessionName: string, sessionId: string | null, cycles: CycleRow[] }> = {}
     const ungrouped: CycleRow[] = []
@@ -89,7 +97,7 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
     const currentlyActive = cycles.find(c => c.status === 'active')
     let message = `Make "${cycle.name}" the active term.`
     if (currentlyActive && currentlyActive.id !== cycle.id) {
-      message += ` "${currentlyActive.name}" will be closed.`
+      message += ` "${currentlyActive.name}" will be closed. If any students have outstanding balances, their invoices in "${cycle.name}" (if generated) will be automatically updated to include the carry-forward.`
     }
     setConfirmDialog({
       title: 'Activate this term?',
@@ -97,8 +105,15 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
       confirmLabel: 'Activate',
       onConfirm: async () => {
         const result = await activateTerm(cycle.id)
-        if (result.error) setError(result.error)
-        else router.refresh()
+        if (result.error) {
+          setError(result.error)
+        } else if (result.summary && result.summary.closedTermName) {
+          // Show detailed summary
+          setActivationSummary(result.summary)
+          router.refresh()
+        } else {
+          router.refresh()
+        }
         setConfirmDialog(null)
       },
     })
@@ -179,7 +194,7 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
 
           {activeCycle && (
             <Link
-              href={`/fees?cycle=${activeCycle.id}`}
+              href={`/fees/cycles/${activeCycle.id}`}
               className="block bg-white p-6 rounded-xl border border-gray-200 mb-6 hover:border-mint hover:shadow-sm transition-all"
             >
               <div className="flex items-start justify-between mb-4">
@@ -285,6 +300,73 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
           onCancel={() => setConfirmDialog(null)}
         />
       )}
+      {activationSummary && activationSummary.closedTermName && (
+  <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4">
+    <div className="bg-white rounded-xl shadow-xl max-w-lg w-full">
+      <div className="p-6">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-mint-light flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-navy">Term activated</h3>
+            <p className="text-sm text-gray-600 mt-0.5">
+              {activationSummary.closedTermName} has been closed.
+            </p>
+          </div>
+        </div>
+
+        {activationSummary.studentsWithCarryForward > 0 ? (
+          <>
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2 mb-4">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Students with outstanding balance</span>
+                <span className="font-semibold text-navy">{activationSummary.studentsWithCarryForward}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Total carry-forward</span>
+                <span className="font-semibold text-navy">
+                  ₦{activationSummary.totalCarryForward.toLocaleString('en-NG')}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm pt-2 border-t border-gray-200">
+                <span className="text-gray-600">Invoices auto-updated</span>
+                <span className="font-semibold text-mint">{activationSummary.invoicesUpdated}</span>
+              </div>
+            </div>
+
+            {activationSummary.invoicesNeedingResend > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900 mb-4">
+                ⚠️ <strong>{activationSummary.invoicesNeedingResend}</strong> of these invoices were already sent to parents. They now need resending with the updated totals.
+              </div>
+            )}
+
+            {activationSummary.studentsWithCarryForward > activationSummary.invoicesUpdated && (
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 mb-4">
+                Note: {activationSummary.studentsWithCarryForward - activationSummary.invoicesUpdated} students didn&apos;t have an invoice yet for the new term. When you generate their invoices, the carry-forward will be included automatically.
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-gray-600 mb-4">
+            All students in the closed term paid in full. No carry-forward needed.
+          </p>
+        )}
+      </div>
+
+      <div className="p-4 border-t border-gray-100 flex items-center justify-end">
+        <button
+          onClick={() => setActivationSummary(null)}
+          className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </>
   )
 }
@@ -304,7 +386,7 @@ function SessionGroup({ sessionName, cycles, onEdit, onActivate, onDeleteDraft, 
   const sorted = [...cycles].sort((a, b) => a.startDate.localeCompare(b.startDate))
 
   function goToTerm(cycleId: string) {
-    router.push(`/fees?cycle=${cycleId}`)
+  router.push(`/fees/cycles/${cycleId}`)
   }
 
   return (
