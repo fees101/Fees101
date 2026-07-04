@@ -40,7 +40,7 @@ export default function GenerateInvoicesPanel({ cycleId, onClose, onSuccess }: P
     async function load() {
       const r = await previewInvoicesForCycle(cycleId)
       if ('error' in r) {
-        setError(r.error)
+        setError(r.error ?? 'Something went wrong')
       } else {
         setPreview(r as PreviewData)
       }
@@ -54,7 +54,7 @@ export default function GenerateInvoicesPanel({ cycleId, onClose, onSuccess }: P
     setError(null)
     const r = await generateInvoicesForCycle(cycleId)
     if ('error' in r) {
-      setError(r.error)
+      setError(r.error ?? 'Something went wrong')
       setGenerating(false)
       return
     }

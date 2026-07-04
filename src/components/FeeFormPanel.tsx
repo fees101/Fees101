@@ -17,6 +17,7 @@ interface FeeItem {
 
 interface Props {
   mode: 'add' | 'edit'
+  cycleId: string
   classes: ClassRow[]
   currentClassId?: string
   editItem?: FeeItem
@@ -24,7 +25,7 @@ interface Props {
   onSuccess: () => void
 }
 
-export default function FeeFormPanel({ mode, classes, currentClassId, editItem, onClose, onSuccess }: Props) {
+export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, editItem, onClose, onSuccess }: Props) {
   const isEdit = mode === 'edit'
 
   const [name, setName] = useState(editItem?.name || '')
@@ -71,7 +72,7 @@ export default function FeeFormPanel({ mode, classes, currentClassId, editItem, 
     if (isEdit) {
       result = await updateFeeItem(editItem!.id, { name, amount: amt })
     } else {
-      result = await addFeeItem({
+      result = await addFeeItem(cycleId, {
         name,
         amount: amt,
         isRequired,

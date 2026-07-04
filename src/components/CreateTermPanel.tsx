@@ -21,10 +21,13 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
   const [endDate, setEndDate] = useState(editingCycle?.endDate || '')
   const [dueDate, setDueDate] = useState(editingCycle?.dueDate || '')
 
-  const [sessionMode, setSessionMode] = useState<'existing' | 'new' | 'none'>(
-    editingCycle?.sessionId ? 'existing' : sessions.length > 0 ? 'existing' : 'none'
+  const [sessionMode, setSessionMode] = useState<'existing' | 'new' | 'none'>(() => {
+    if (isEdit) return editingCycle?.sessionId ? 'existing' : 'none'
+    return sessions.length > 0 ? 'existing' : 'none'
+  })
+  const [sessionId, setSessionId] = useState<string>(
+    editingCycle?.sessionId || (isEdit ? '' : (sessions[0]?.id ?? ''))
   )
-  const [sessionId, setSessionId] = useState<string>(editingCycle?.sessionId || (sessions[0]?.id ?? ''))
   const [newSessionName, setNewSessionName] = useState('')
   const [newSessionStart, setNewSessionStart] = useState('')
   const [newSessionEnd, setNewSessionEnd] = useState('')

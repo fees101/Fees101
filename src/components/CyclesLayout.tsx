@@ -473,12 +473,17 @@ function SessionGroup({ sessionName, cycles, onEdit, onActivate, onDeleteDraft, 
                           <span className="text-gray-300">·</span>
                         </>
                       )}
-                      <button
-                        onClick={() => onEdit(cycle)}
-                        className="text-xs text-gray-600 font-medium hover:underline"
-                      >
-                        Edit
-                      </button>
+                      {cycle.status !== 'closed' && (
+                        <button
+                          onClick={() => onEdit(cycle)}
+                          className="text-xs text-gray-600 font-medium hover:underline"
+                        >
+                          Edit
+                        </button>
+                      )}
+                      {cycle.status === 'closed' && (
+                        <span className="text-xs text-gray-400">Read-only</span>
+                      )}
                       {cycle.status === 'draft' && cycle.invoiceCount === 0 && (
                         <>
                           <span className="text-gray-300">·</span>

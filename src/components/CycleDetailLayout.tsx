@@ -4,8 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CycleDetailData, InvoiceRow } from '@/lib/queries/fees'
-import GenerateInvoicesPanel from './GenerateInvoicesPanel'
-import ConfirmDialog from './ConfirmDialog'
+import GenerateInvoicesPanel from '@/components/GenerateInvoicesPanel'
 
 interface Props {
   data: CycleDetailData
@@ -85,7 +84,6 @@ export default function CycleDetailLayout({ data }: Props) {
   const isClosed = cycle.status === 'closed'
   const isDraft = cycle.status === 'draft'
   const hasInvoices = invoices.length > 0
-  const canGenerate = !isClosed && studentsWithoutInvoices.length > 0
 
   return (
     <>
@@ -118,6 +116,18 @@ export default function CycleDetailLayout({ data }: Props) {
           >
             Edit fees
           </Link>
+          {hasInvoices && (
+            
+              <a href={`/api/cycles/${cycle.id}/pdf`}
+              download
+              className="px-3 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+              Print all ({invoices.length})
+            </a>
+          )}
           {!isClosed && (
             <button
               onClick={() => setGeneratePanelOpen(true)}
@@ -280,6 +290,7 @@ export default function CycleDetailLayout({ data }: Props) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/50">
+                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Invoice #</th>
                 <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Student</th>
                 <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Class</th>
                 <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Total</th>
@@ -294,9 +305,12 @@ export default function CycleDetailLayout({ data }: Props) {
                 return (
                   <tr 
                     key={inv.id}
-                    onClick={() => router.push(`/students/${inv.studentId}`)}
+                    onClick={() => router.push(`/invoices/${inv.id}`)}
                     className="cursor-pointer hover:bg-gray-50"
                   >
+                    <td className="py-3 px-4 text-sm text-gray-500">
+                      {inv.invoiceNumber || '—'}
+                    </td>
                     <td className="py-3 px-4 text-sm text-navy font-medium">
                       {inv.studentFirstName} {inv.studentLastName}
                       <p className="text-xs text-gray-500 mt-0.5">#{inv.studentAdmissionNumber}</p>
@@ -334,6 +348,7 @@ export default function CycleDetailLayout({ data }: Props) {
                   onClick={() => router.push(`/students/${s.id}?tab=fees`)}
                   className="cursor-pointer hover:bg-gray-50 bg-red-50/30"
                 >
+                  <td className="py-3 px-4 text-sm text-gray-400">—</td>
                   <td className="py-3 px-4 text-sm text-navy font-medium">
                     {s.firstName} {s.lastName}
                     <p className="text-xs text-gray-500 mt-0.5">#{s.admissionNumber}</p>

@@ -16,6 +16,7 @@ interface ExistingItem {
 }
 
 interface Props {
+  cycleId: string
   currentName: string
   isSchoolWide: boolean
   isOptional: boolean
@@ -28,8 +29,8 @@ function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
-export default function EditFeeGroupPanel({ 
-  currentName, isSchoolWide, isOptional, classes, onClose, onSaved 
+export default function EditFeeGroupPanel({
+  cycleId, currentName, isSchoolWide, isOptional, classes, onClose, onSaved
 }: Props) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -53,7 +54,7 @@ export default function EditFeeGroupPanel({
   // Load existing data
   useEffect(() => {
     async function load() {
-      const result = await getFeeGroupDetails(currentName, isSchoolWide, isOptional)
+      const result = await getFeeGroupDetails(cycleId, currentName, isSchoolWide, isOptional)
       if (result.error) {
         setError(result.error)
         setLoading(false)
@@ -91,7 +92,7 @@ export default function EditFeeGroupPanel({
       setLoading(false)
     }
     load()
-  }, [currentName, isSchoolWide, isOptional])
+  }, [cycleId, currentName, isSchoolWide, isOptional])
 
   // Class display name lookup
   const classNameById = useMemo(() => {
@@ -196,7 +197,7 @@ export default function EditFeeGroupPanel({
 
     let result
     if (isSchoolWide) {
-      result = await editFeeGroup({
+      result = await editFeeGroup(cycleId, {
         currentName,
         newName: name.trim(),
         isSchoolWide: true,
@@ -214,7 +215,7 @@ export default function EditFeeGroupPanel({
         })
       }
 
-      result = await editFeeGroup({
+      result = await editFeeGroup(cycleId, {
         currentName,
         newName: name.trim(),
         isSchoolWide: false,

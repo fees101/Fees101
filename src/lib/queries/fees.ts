@@ -462,6 +462,7 @@ export async function getCycleById(id: string): Promise<CycleRow | null> {
 
 export interface InvoiceRow {
   id: string
+  invoiceNumber: string | null
   studentId: string
   studentFirstName: string
   studentLastName: string
@@ -535,6 +536,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     .from('invoices')
     .select(`
       id,
+      invoice_number,
       student_id,
       total_amount,
       paid_amount,
@@ -552,6 +554,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
 
   const invoices: InvoiceRow[] = (invoiceData || []).map(inv => ({
     id: inv.id,
+    invoiceNumber: inv.invoice_number || null,
     studentId: inv.student_id,
     // @ts-expect-error — joined
     studentFirstName: inv.students?.first_name || '',
@@ -638,4 +641,253 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     totalActiveStudents: totalActiveStudents || 0,
     totalsByStatus,
   }
+}
+
+// ============ INVOICE DETAIL ============
+
+export interface InvoiceDetail {
+  id: string
+  invoiceNumber: string | null
+  studentId: string
+  studentFirstName: string
+  studentLastName: string
+  studentAdmissionNumber: string
+  className: string
+  cycleId: string
+  cycleName: string
+  cycleDueDate: string | null
+  schoolName: string
+  schoolAddress: string | null
+  schoolPhone: string | null
+  schoolEmail: string | null
+  proprietressName: string | null
+  primaryParentName: string
+  primaryParentPhone: string
+  lineItems: Array<{ name: string, amount: number, kind?: string }>
+  subtotal: number
+  discountAmount: number
+  previousBalance: number
+  totalAmount: number
+  paidAmount: number
+  outstandingAmount: number
+  status: 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled'
+  sentAt: string | null
+  needsResend: boolean
+  generatedAt: string
+  fullyPaidAt: string | null
+  payments?: Array<{
+    id: string
+    amount: number
+    method: string
+    paidAt: string
+    reference: string
+    receivedByName: string | null
+  }>
+}
+
+export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail | null> {
+  const ctx = await getSchoolContext()
+  if (!ctx) return null
+  const { supabase, schoolId } = ctx
+
+  const { data: invoice } = await supabase
+    .from('invoices')
+    .select(`
+      id,
+      invoice_number,
+      total_amount,
+      subtotal,
+      discount_amount,
+      previous_balance,
+      paid_amount,
+      status,
+      sent_at,
+      needs_resend,
+      generated_at,
+      fully_paid_at,
+      line_items,
+      students!inner(
+        id,
+        first_name,
+        last_name,
+        admission_number,
+        classes(name),
+        families(primary_parent_name, primary_parent_phone)
+      ),
+      billing_cycles!inner(id, name, due_date)
+    `)
+    .eq('id', invoiceId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!invoice) return null
+
+  // Get school info
+  const { data: school } = await supabase
+    .from('schools')
+    .select('name, address, phone, email, proprietress_name')
+    .eq('id', schoolId)
+    .single()
+
+  // Get recorded payments for this invoice
+  const { data: payments } = await supabase
+    .from('payments')
+    .select('id, amount, method, paid_at, paystack_reference, users(name)')
+    .eq('invoice_id', invoiceId)
+    .eq('match_status', 'matched')
+    .order('paid_at', { ascending: false })
+
+  const total = Number(invoice.total_amount)
+  const paid = Number(invoice.paid_amount || 0)
+
+  return {
+    id: invoice.id,
+    invoiceNumber: invoice.invoice_number || null,
+    // @ts-expect-error — joined
+    studentId: invoice.students.id,
+    // @ts-expect-error
+    studentFirstName: invoice.students.first_name,
+    // @ts-expect-error
+    studentLastName: invoice.students.last_name,
+    // @ts-expect-error
+    studentAdmissionNumber: invoice.students.admission_number,
+    // @ts-expect-error
+    className: invoice.students.classes?.name || '',
+    // @ts-expect-error
+    cycleId: invoice.billing_cycles.id,
+    // @ts-expect-error
+    cycleName: invoice.billing_cycles.name,
+    // @ts-expect-error
+    cycleDueDate: invoice.billing_cycles.due_date,
+    schoolName: school?.name || '',
+    schoolAddress: school?.address || null,
+    schoolPhone: school?.phone || null,
+    schoolEmail: school?.email || null,
+    proprietressName: school?.proprietress_name || null,
+    // @ts-expect-error
+    primaryParentName: invoice.students.families?.primary_parent_name || '',
+    // @ts-expect-error
+    primaryParentPhone: invoice.students.families?.primary_parent_phone || '',
+    lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
+    subtotal: Number(invoice.subtotal || 0),
+    discountAmount: Number(invoice.discount_amount || 0),
+    previousBalance: Number(invoice.previous_balance || 0),
+    totalAmount: total,
+    paidAmount: paid,
+    outstandingAmount: total - paid,
+    status: invoice.status,
+    sentAt: invoice.sent_at,
+    needsResend: invoice.needs_resend,
+    generatedAt: invoice.generated_at,
+    fullyPaidAt: invoice.fully_paid_at,
+    payments: (payments || []).map(p => ({
+      id: p.id,
+      amount: Number(p.amount),
+      method: p.method,
+      paidAt: p.paid_at,
+      reference: p.paystack_reference || '',
+      // @ts-expect-error — joined
+      receivedByName: p.users?.name || null,
+    })),
+  }
+}
+
+export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDetail[]> {
+  const ctx = await getSchoolContext()
+  if (!ctx) return []
+  const { supabase, schoolId } = ctx
+
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select(`
+      id,
+      invoice_number,
+      total_amount,
+      subtotal,
+      discount_amount,
+      previous_balance,
+      paid_amount,
+      status,
+      sent_at,
+      needs_resend,
+      generated_at,
+      fully_paid_at,
+      line_items,
+      students!inner(
+        id,
+        first_name,
+        last_name,
+        admission_number,
+        classes(name, display_order),
+        families(primary_parent_name, primary_parent_phone)
+      ),
+      billing_cycles!inner(id, name, due_date)
+    `)
+    .eq('billing_cycle_id', cycleId)
+    .eq('school_id', schoolId)
+
+  if (!invoices) return []
+
+  const { data: school } = await supabase
+    .from('schools')
+    .select('name, address, phone, email, proprietress_name')
+    .eq('id', schoolId)
+    .single()
+
+  // Print order: class display_order (Play Pen → Year 11), then last name within each class.
+  const sorted = [...invoices].sort((a, b) => {
+    // @ts-expect-error — joined object
+    const orderA = a.students?.classes?.display_order ?? 9999
+    // @ts-expect-error — joined object
+    const orderB = b.students?.classes?.display_order ?? 9999
+    if (orderA !== orderB) return orderA - orderB
+    // @ts-expect-error — joined object
+    return (a.students?.last_name || '').localeCompare(b.students?.last_name || '')
+  })
+
+  return sorted.map(invoice => {
+    const total = Number(invoice.total_amount)
+    const paid = Number(invoice.paid_amount || 0)
+    return {
+      id: invoice.id,
+      invoiceNumber: invoice.invoice_number || null,
+      // @ts-expect-error
+      studentId: invoice.students.id,
+      // @ts-expect-error
+      studentFirstName: invoice.students.first_name,
+      // @ts-expect-error
+      studentLastName: invoice.students.last_name,
+      // @ts-expect-error
+      studentAdmissionNumber: invoice.students.admission_number,
+      // @ts-expect-error
+      className: invoice.students.classes?.name || '',
+      // @ts-expect-error
+      cycleId: invoice.billing_cycles.id,
+      // @ts-expect-error
+      cycleName: invoice.billing_cycles.name,
+      // @ts-expect-error
+      cycleDueDate: invoice.billing_cycles.due_date,
+      schoolName: school?.name || '',
+      schoolAddress: school?.address || null,
+      schoolPhone: school?.phone || null,
+      schoolEmail: school?.email || null,
+      proprietressName: school?.proprietress_name || null,
+      // @ts-expect-error
+      primaryParentName: invoice.students.families?.primary_parent_name || '',
+      // @ts-expect-error
+      primaryParentPhone: invoice.students.families?.primary_parent_phone || '',
+      lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
+      subtotal: Number(invoice.subtotal || 0),
+      discountAmount: Number(invoice.discount_amount || 0),
+      previousBalance: Number(invoice.previous_balance || 0),
+      totalAmount: total,
+      paidAmount: paid,
+      outstandingAmount: total - paid,
+      status: invoice.status,
+      sentAt: invoice.sent_at,
+      needsResend: invoice.needs_resend,
+      generatedAt: invoice.generated_at,
+      fullyPaidAt: invoice.fully_paid_at,
+    }
+  })
 }

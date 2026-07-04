@@ -175,7 +175,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId, 
   }
 
   function handleBulkDelete(name: string) {
-    if (readOnly) return
+    if (readOnly || !cycle) return
     setError(null)
     const matches = allFees.filter(f => f.name === name)
     const count = matches.length
@@ -192,7 +192,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId, 
       message,
       destructive: true,
       onConfirm: async () => {
-        const result = await bulkDeleteFeeItemByName(name)
+        const result = await bulkDeleteFeeItemByName(cycle.id, name)
         if (result.error) {
           setError(result.error)
         } else {
@@ -671,6 +671,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId, 
         {panelMode !== null && (
           <FeeFormPanel
             mode={panelMode}
+            cycleId={cycle.id}
             classes={classes}
             currentClassId={selectedClassId}
             editItem={editingItem || undefined}
@@ -681,6 +682,7 @@ export default function FeeStructureLayout({ data, initialView, initialClassId, 
 
         {editingGroup && (
           <EditFeeGroupPanel
+            cycleId={cycle.id}
             currentName={editingGroup.name}
             isSchoolWide={editingGroup.isSchoolWide}
             isOptional={editingGroup.isOptional}

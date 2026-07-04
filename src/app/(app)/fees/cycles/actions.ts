@@ -185,6 +185,18 @@ export async function updateTerm(id: string, form: {
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
+  const { data: cycle } = await supabase
+    .from('billing_cycles')
+    .select('id, status')
+    .eq('id', id)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!cycle) return { error: 'Term not found' }
+  if (cycle.status === 'closed') {
+    return { error: 'Closed terms cannot be edited. Contact support if you need to recover a closed term.' }
+  }
+
   const name = form.name.trim()
   if (!name) return { error: 'Term name is required' }
   if (!form.dueDate) return { error: 'Due date is required' }
@@ -712,32 +724,63 @@ export async function previewInvoicesForCycle(cycleId: string) {
   }
 }
 
-// PREVIEW: For a single student (for the student Fees tab preview button)
-export async function previewInvoiceForStudent(studentId: string) {
-  const ctx = await getContext()
-  if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+// ============ INVOICE NUMBERING ============
+// Format: INV-{YY}/{5-digit sequence}. YY = last 2 digits of the academic
+// session's start year (falls back to the term's own start year if it has
+// no session). Sequence resets per session — standalone terms with no
+// session act as their own scope.
 
-  // Find the most recent active or draft cycle
-  const { data: cycle } = await supabase
-    .from('billing_cycles')
-    .select('id, name, status')
-    .eq('school_id', schoolId)
-    .in('status', ['active', 'draft'])
-    .order('start_date', { ascending: false })
-    .limit(1)
-    .single()
-
-  if (!cycle) return { error: 'No active or draft billing cycle' }
-
-  const result = await computeInvoiceForStudent(supabase, schoolId, studentId, cycle.id)
-  if ('error' in result) return { error: result.error }
-
-  return {
-    cycleName: cycle.name,
-    cycleId: cycle.id,
-    preview: result,
+async function resolveInvoiceNumberYear(
+  supabase: any,
+  cycle: { start_date: string, session_id: string | null }
+): Promise<number> {
+  if (cycle.session_id) {
+    const { data: session } = await supabase
+      .from('sessions')
+      .select('start_date')
+      .eq('id', cycle.session_id)
+      .single()
+    if (session) return new Date(session.start_date).getFullYear()
   }
+  return new Date(cycle.start_date).getFullYear()
+}
+
+async function getCycleIdsInNumberingScope(
+  supabase: any,
+  schoolId: string,
+  cycle: { id: string, session_id: string | null }
+): Promise<string[]> {
+  if (!cycle.session_id) return [cycle.id]
+  const { data } = await supabase
+    .from('billing_cycles')
+    .select('id')
+    .eq('school_id', schoolId)
+    .eq('session_id', cycle.session_id)
+  return (data || []).map((c: any) => c.id)
+}
+
+async function getNextInvoiceSequence(
+  supabase: any,
+  schoolId: string,
+  cycleIds: string[],
+  yy: string
+): Promise<number> {
+  const { data } = await supabase
+    .from('invoices')
+    .select('invoice_number')
+    .eq('school_id', schoolId)
+    .in('billing_cycle_id', cycleIds)
+    .like('invoice_number', `INV-${yy}/%`)
+
+  let max = 0
+  ;(data || []).forEach((inv: any) => {
+    const match = (inv.invoice_number || '').match(/\/(\d{5})$/)
+    if (match) {
+      const n = parseInt(match[1], 10)
+      if (n > max) max = n
+    }
+  })
+  return max + 1
 }
 
 // GENERATE bulk for a cycle
@@ -748,13 +791,17 @@ export async function generateInvoicesForCycle(cycleId: string) {
 
   const { data: cycle } = await supabase
     .from('billing_cycles')
-    .select('id, status, name')
+    .select('id, status, name, start_date, session_id')
     .eq('id', cycleId)
     .eq('school_id', schoolId)
     .single()
 
   if (!cycle) return { error: 'Term not found' }
   if (cycle.status === 'closed') return { error: 'Cannot generate invoices for a closed term' }
+
+  const yy = String(await resolveInvoiceNumberYear(supabase, cycle)).slice(-2)
+  const numberingCycleIds = await getCycleIdsInNumberingScope(supabase, schoolId, cycle)
+  let nextSeq = await getNextInvoiceSequence(supabase, schoolId, numberingCycleIds, yy)
 
   // Get all active students with a class
   const { data: students } = await supabase
@@ -784,11 +831,13 @@ export async function generateInvoicesForCycle(cycleId: string) {
     }
 
     const status: 'pending' | 'paid' = computed.total === 0 ? 'paid' : 'pending'
+    const invoiceNumber = `INV-${yy}/${String(nextSeq).padStart(5, '0')}`
 
     const { error } = await supabase.from('invoices').insert({
       school_id: schoolId,
       student_id: s.id,
       billing_cycle_id: cycleId,
+      invoice_number: invoiceNumber,
       line_items: computed.lineItems,
       subtotal: computed.subtotal,
       discount_amount: 0,
@@ -805,6 +854,7 @@ export async function generateInvoicesForCycle(cycleId: string) {
       errors.push({ studentId: s.id, error: error.message })
       continue
     }
+    nextSeq++
     generated++
   }
 
@@ -827,25 +877,19 @@ export async function generateInvoicesForCycle(cycleId: string) {
 }
 
 // GENERATE single (for late joiner)
-export async function generateInvoiceForStudent(studentId: string, cycleId?: string) {
+export async function generateInvoiceForStudent(studentId: string, cycleId: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
-  // Resolve cycle — if not provided, use most recent active/draft
-  let targetCycleId = cycleId
-  if (!targetCycleId) {
-    const { data: cycle } = await supabase
-      .from('billing_cycles')
-      .select('id, status')
-      .eq('school_id', schoolId)
-      .in('status', ['active', 'draft'])
-      .order('start_date', { ascending: false })
-      .limit(1)
-      .single()
-    if (!cycle) return { error: 'No active or draft term to generate for' }
-    targetCycleId = cycle.id
-  }
+  const { data: cycle } = await supabase
+    .from('billing_cycles')
+    .select('id, status, start_date, session_id')
+    .eq('id', cycleId)
+    .eq('school_id', schoolId)
+    .single()
+  if (!cycle) return { error: 'Term not found' }
+  const targetCycleId = cycle.id
 
   // Check existing
   const { data: existing } = await supabase
@@ -864,12 +908,18 @@ export async function generateInvoiceForStudent(studentId: string, cycleId?: str
 
   const status: 'pending' | 'paid' = computed.total === 0 ? 'paid' : 'pending'
 
+  const yy = String(await resolveInvoiceNumberYear(supabase, cycle)).slice(-2)
+  const numberingCycleIds = await getCycleIdsInNumberingScope(supabase, schoolId, cycle)
+  const seq = await getNextInvoiceSequence(supabase, schoolId, numberingCycleIds, yy)
+  const invoiceNumber = `INV-${yy}/${String(seq).padStart(5, '0')}`
+
   const { data, error } = await supabase
     .from('invoices')
     .insert({
       school_id: schoolId,
       student_id: studentId,
       billing_cycle_id: targetCycleId,
+      invoice_number: invoiceNumber,
       line_items: computed.lineItems,
       subtotal: computed.subtotal,
       discount_amount: 0,

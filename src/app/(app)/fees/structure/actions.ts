@@ -26,19 +26,28 @@ async function getContext() {
   }
   if (!schoolId) return null
 
+  return { supabase, schoolId, userId: user.id }
+}
+
+type Ctx = NonNullable<Awaited<ReturnType<typeof getContext>>>
+
+// Every fee mutation must target the term the UI actually has selected —
+// never guess "the current cycle" server-side. This validates the caller's
+// cycleId belongs to this school and isn't closed.
+async function getCycleOrError(supabase: Ctx['supabase'], schoolId: string, cycleId: string) {
   const { data: cycle } = await supabase
     .from('billing_cycles')
     .select('id, status')
+    .eq('id', cycleId)
     .eq('school_id', schoolId)
-    .in('status', ['active', 'draft'])
-    .order('start_date', { ascending: false })
-    .limit(1)
     .single()
 
-  return { supabase, schoolId, cycle, userId: user.id }
+  if (!cycle) return { error: 'Term not found' }
+  if (cycle.status === 'closed') return { error: 'This term is closed. Fee data is read-only.' }
+  return { cycle }
 }
 
-export async function addFeeItem(form: {
+export async function addFeeItem(cycleId: string, form: {
   name: string
   amount: number
   isRequired: boolean
@@ -47,8 +56,10 @@ export async function addFeeItem(form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId, cycle } = ctx
-  if (!cycle) return { error: 'No active billing cycle' }
+  const { supabase, schoolId } = ctx
+  const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
+  const { cycle } = cycleResult
 
   if (!form.name.trim()) return { error: 'Name is required' }
   if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
@@ -86,15 +97,17 @@ export async function addFeeItem(form: {
   return { success: true }
 }
 
-export async function addPerClassFeeItem(form: {
+export async function addPerClassFeeItem(cycleId: string, form: {
   name: string
   amount: number
   classIds: string[]
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId, cycle } = ctx
-  if (!cycle) return { error: 'No active billing cycle' }
+  const { supabase, schoolId } = ctx
+  const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
+  const { cycle } = cycleResult
 
   if (!form.name.trim()) return { error: 'Name is required' }
   if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
@@ -118,14 +131,16 @@ export async function addPerClassFeeItem(form: {
   return { success: true, inserted: rows.length }
 }
 
-export async function addOptionalFeeItem(form: {
+export async function addOptionalFeeItem(cycleId: string, form: {
   name: string
   amount: number
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId, cycle } = ctx
-  if (!cycle) return { error: 'No active billing cycle' }
+  const { supabase, schoolId } = ctx
+  const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
+  const { cycle } = cycleResult
 
   if (!form.name.trim()) return { error: 'Name is required' }
   if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
@@ -153,8 +168,20 @@ export async function updateFeeItem(id: string, form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, cycle } = ctx
-  if (!cycle) return { error: 'No active billing cycle' }
+  const { supabase, schoolId } = ctx
+
+  const { data: feeItem } = await supabase
+    .from('fee_items')
+    .select('id, billing_cycles(status)')
+    .eq('id', id)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!feeItem) return { error: 'Fee item not found' }
+  // @ts-expect-error — joined object
+  if (feeItem.billing_cycles?.status === 'closed') {
+    return { error: 'This term is closed. Fee data is read-only.' }
+  }
 
   const { error } = await supabase
     .from('fee_items')
@@ -173,8 +200,20 @@ export async function updateFeeItem(id: string, form: {
 export async function deleteFeeItem(id: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, cycle } = ctx
-  if (!cycle) return { error: 'No active billing cycle' }
+  const { supabase, schoolId } = ctx
+
+  const { data: feeItem } = await supabase
+    .from('fee_items')
+    .select('id, billing_cycles(status)')
+    .eq('id', id)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!feeItem) return { error: 'Fee item not found' }
+  // @ts-expect-error — joined object
+  if (feeItem.billing_cycles?.status === 'closed') {
+    return { error: 'This term is closed. Fee data is read-only.' }
+  }
 
   // Clean up opt-ins first to avoid FK errors
   await supabase
@@ -194,11 +233,13 @@ export async function deleteFeeItem(id: string) {
   return { success: true }
 }
 
-export async function bulkDeleteFeeItemByName(name: string) {
+export async function bulkDeleteFeeItemByName(cycleId: string, name: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId, cycle } = ctx
-  if (!cycle) return { error: 'No active billing cycle' }
+  const { supabase, schoolId } = ctx
+  const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
+  const { cycle } = cycleResult
 
   // Find ALL fee items with this name (required + optional, per-class + school-wide)
   const { data: feeItems, error: findError } = await supabase
@@ -316,7 +357,7 @@ export async function bulkUpdateOptIns(feeItemId: string, studentIds: string[]) 
 }
 // ============ EDIT FEE GROUP ============
 
-export async function editFeeGroup(form: {
+export async function editFeeGroup(cycleId: string, form: {
   currentName: string
   newName: string
   isSchoolWide: boolean
@@ -327,8 +368,10 @@ export async function editFeeGroup(form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId, cycle } = ctx
-  if (!cycle) return { error: 'No active billing cycle' }
+  const { supabase, schoolId } = ctx
+  const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
+  const { cycle } = cycleResult
 
   const newName = form.newName.trim()
   if (!newName) return { error: 'Name is required' }
@@ -510,11 +553,10 @@ export async function editFeeGroup(form: {
 }
 
 // Get full details of a fee group for editing
-export async function getFeeGroupDetails(currentName: string, isSchoolWide: boolean, isOptional: boolean) {
+export async function getFeeGroupDetails(cycleId: string, currentName: string, isSchoolWide: boolean, isOptional: boolean) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated', items: [] }
-  const { supabase, schoolId, cycle } = ctx
-  if (!cycle) return { error: 'No active billing cycle', items: [] }
+  const { supabase, schoolId } = ctx
 
   let query = supabase
     .from('fee_items')
@@ -525,7 +567,7 @@ export async function getFeeGroupDetails(currentName: string, isSchoolWide: bool
       classes(id, name, display_order)
     `)
     .eq('school_id', schoolId)
-    .eq('billing_cycle_id', cycle.id)
+    .eq('billing_cycle_id', cycleId)
     .eq('name', currentName)
     .eq('is_optional_extra', isOptional)
     .eq('is_mandatory', !isOptional)

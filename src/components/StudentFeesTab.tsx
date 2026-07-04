@@ -1,18 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { StudentFeesData, StudentFeeItem } from '@/lib/queries/students'
-import { 
-  toggleStudentOptIn, 
-  setStudentExemption, 
-  removeStudentExemption 
+import {
+  toggleStudentOptIn,
+  setStudentExemption,
+  removeStudentExemption
 } from '@/app/(app)/students/[id]/actions'
-import { 
-  previewInvoiceForStudent, 
-  generateInvoiceForStudent, 
-  regenerateInvoice 
+import {
+  generateInvoiceForStudent,
+  regenerateInvoice
 } from '@/app/(app)/fees/cycles/actions'
 import ConfirmDialog from '@/components/ConfirmDialog'
 
@@ -24,14 +23,6 @@ function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
-interface PreviewState {
-  cycleName: string
-  lineItems: Array<{ name: string, amount: number, kind?: string }>
-  subtotal: number
-  previousBalance: number
-  total: number
-}
-
 export default function StudentFeesTab({ data }: Props) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
@@ -41,8 +32,8 @@ export default function StudentFeesTab({ data }: Props) {
     notes: string
   } | null>(null)
   const [removeExemptionConfirm, setRemoveExemptionConfirm] = useState<StudentFeeItem | null>(null)
-  const [previewing, setPreviewing] = useState(false)
-  const [previewData, setPreviewData] = useState<PreviewState | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const previewIframeRef = useRef<HTMLIFrameElement>(null)
   const [generating, setGenerating] = useState(false)
   const [generateConfirm, setGenerateConfirm] = useState(false)
   const [updateConfirm, setUpdateConfirm] = useState(false)
@@ -117,28 +108,14 @@ export default function StudentFeesTab({ data }: Props) {
     setPendingId(null)
   }
 
-  async function handlePreview() {
-    setError(null)
-    setPreviewing(true)
-    const result = await previewInvoiceForStudent(data.student.id)
-    if ('error' in result && result.error) {
-      setError(result.error)
-    } else if (!('error' in result)) {
-      setPreviewData({
-        cycleName: result.cycleName,
-        lineItems: result.preview.lineItems,
-        subtotal: result.preview.subtotal,
-        previousBalance: result.preview.previousBalance,
-        total: result.preview.total,
-      })
-    }
-    setPreviewing(false)
+  function handlePrintPreview() {
+    previewIframeRef.current?.contentWindow?.print()
   }
 
   async function handleGenerateInvoice() {
     setError(null)
     setGenerating(true)
-    const result = await generateInvoiceForStudent(data.student.id)
+    const result = await generateInvoiceForStudent(data.student.id, data.cycle!.id)
     if ('error' in result && result.error) {
       setError(result.error)
     } else {
@@ -181,11 +158,12 @@ export default function StudentFeesTab({ data }: Props) {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handlePreview}
-              disabled={previewing}
-              className="px-3 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+              onClick={() => setPreviewOpen(true)}
+              disabled={!existingInvoice}
+              title={!existingInvoice ? 'Generate the invoice first to preview it' : undefined}
+              className="px-3 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {previewing ? 'Loading...' : 'Preview invoice'}
+              Preview invoice
             </button>
             {!existingInvoice && (
               <button
@@ -483,82 +461,53 @@ export default function StudentFeesTab({ data }: Props) {
         />
       )}
 
-      {/* Preview modal */}
-      {previewData && (
+      {/* Preview modal — renders the actual invoice PDF */}
+      {previewOpen && existingInvoice && (
         <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full">
-            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full h-[85vh] flex flex-col">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
               <div>
                 <h3 className="text-base font-semibold text-navy">Invoice preview</h3>
-                <p className="text-xs text-gray-500 mt-0.5">{previewData.cycleName}</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {data.student.firstName} {data.student.lastName} · {data.cycle?.name}
+                </p>
               </div>
-              <button onClick={() => setPreviewData(null)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setPreviewOpen(false)} className="text-gray-400 hover:text-gray-600">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="p-5">
-              <p className="text-sm text-gray-700 mb-3">
-                <strong>{data.student.firstName} {data.student.lastName}</strong> · {data.student.className}
-              </p>
-              <table className="w-full text-sm mb-4">
-                <tbody className="divide-y divide-gray-100">
-                  {previewData.lineItems.map((li, idx) => (
-                    <tr key={idx}>
-                      <td className="py-2">
-                        {li.name}
-                        {li.kind === 'opt_in' && (
-                          <span className="ml-2 text-xs text-gray-500">(opt-in)</span>
-                        )}
-                        {li.kind === 'previous_balance' && (
-                          <span className="ml-2 text-xs text-amber-600">(carry-forward)</span>
-                        )}
-                      </td>
-                      <td className="py-2 text-right text-navy">{formatNaira(li.amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="border-t-2 border-gray-200">
-                  <tr>
-                    <td className="py-3 font-bold text-navy">Total</td>
-                    <td className="py-3 text-right font-bold text-navy">{formatNaira(previewData.total)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-              <p className="text-xs text-gray-500">
-                This is a preview only. {existingInvoice ? 'Click Update invoice to apply.' : 'Click Generate invoice to save.'}
-              </p>
+            <div className="flex-1 bg-gray-100 min-h-0">
+              <iframe
+                ref={previewIframeRef}
+                src={`/api/invoices/${existingInvoice.id}/pdf`}
+                title="Invoice preview"
+                className="w-full h-full border-0"
+              />
             </div>
-            <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setPreviewData(null)}
-                className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
-              >
-                Close
-              </button>
-              {!existingInvoice && (
-                <button
-                  onClick={() => {
-                    setPreviewData(null)
-                    setGenerateConfirm(true)
-                  }}
-                  className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
-                >
-                  Generate this invoice
-                </button>
+            <div className="p-4 border-t border-gray-100 flex items-center justify-between flex-shrink-0">
+              {!isInvoiceUpToDate && (
+                <p className="text-xs text-amber-600">
+                  This invoice is out of date — update it to print the latest version.
+                </p>
               )}
-              {existingInvoice && !isInvoiceUpToDate && (
+              <div className="flex items-center gap-2 ml-auto">
                 <button
-                  onClick={() => {
-                    setPreviewData(null)
-                    setUpdateConfirm(true)
-                  }}
-                  className="px-4 py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600"
+                  onClick={() => setPreviewOpen(false)}
+                  className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
                 >
-                  Update invoice
+                  Close
                 </button>
-              )}
+                <button
+                  onClick={handlePrintPreview}
+                  disabled={!isInvoiceUpToDate}
+                  title={!isInvoiceUpToDate ? 'Update the invoice before printing' : undefined}
+                  className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Print
+                </button>
+              </div>
             </div>
           </div>
         </div>
