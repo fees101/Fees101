@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { updateClass, addSection, deleteSection } from '@/app/(app)/fees/classes/actions'
+import { updateClass, addSection, deleteSection } from '@/app/(app)/settings/academic-structure/actions'
 
 interface ClassRow {
   id: string

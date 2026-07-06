@@ -1,4 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
+import { computeInvoiceForStudent } from '@/lib/computeInvoice'
+
+function composeAddress(street?: string | null, city?: string | null, state?: string | null): string | null {
+  const parts = [street, city, state].filter(Boolean)
+  return parts.length > 0 ? parts.join(', ') : null
+}
+
+function composeProprietressName(title?: string | null, firstName?: string | null, lastName?: string | null): string | null {
+  const parts = [title, firstName, lastName].filter(Boolean)
+  return parts.length > 0 ? parts.join(' ') : null
+}
 
 export async function getFeesOverview(cycleId?: string) {
   const supabase = await createClient()
@@ -474,6 +485,7 @@ export interface InvoiceRow {
   status: 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled'
   sentAt: string | null
   needsResend: boolean
+  needsRegeneration: boolean
   previousBalance: number
   generatedAt: string
   lineItems: Array<{ name: string, amount: number, kind?: string }>
@@ -497,6 +509,7 @@ export interface CycleDetailData {
     pending: number
     overdue: number
     needsResend: number
+    needsRegeneration: number
   }
 }
 
@@ -570,10 +583,22 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     status: inv.status as InvoiceRow['status'],
     sentAt: inv.sent_at,
     needsResend: inv.needs_resend,
+    needsRegeneration: false,
     previousBalance: Number(inv.previous_balance || 0),
     generatedAt: inv.generated_at,
     lineItems: (inv.line_items as InvoiceRow['lineItems']) || [],
   }))
+
+  // Closed terms are frozen (fee edits are blocked), so an invoice generated
+  // there can never drift — skip the recompute pass entirely.
+  if (cycleData.status !== 'closed') {
+    for (const inv of invoices) {
+      const computed = await computeInvoiceForStudent(supabase, schoolId, inv.studentId, cycleId)
+      if (!('error' in computed) && computed.total !== inv.totalAmount) {
+        inv.needsRegeneration = true
+      }
+    }
+  }
 
   // Get students who DON'T have an invoice for this cycle
   const invoicedStudentIds = new Set(invoices.map(i => i.studentId))
@@ -610,6 +635,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     pending: invoices.filter(i => i.status === 'pending').length,
     overdue: invoices.filter(i => i.status === 'overdue').length,
     needsResend: invoices.filter(i => i.needsResend).length,
+    needsRegeneration: invoices.filter(i => i.needsRegeneration).length,
   }
 
   // Reuse the getAllCycles shape for cycle stats — compute here from invoices
@@ -657,6 +683,7 @@ export interface InvoiceDetail {
   cycleName: string
   cycleDueDate: string | null
   schoolName: string
+  schoolLogoUrl: string | null
   schoolAddress: string | null
   schoolPhone: string | null
   schoolEmail: string | null
@@ -725,7 +752,7 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
   // Get school info
   const { data: school } = await supabase
     .from('schools')
-    .select('name, address, phone, email, proprietress_name')
+    .select('name, logo_url, address_street, address_city, address_state, phone, email, proprietress_title, proprietress_first_name, proprietress_last_name')
     .eq('id', schoolId)
     .single()
 
@@ -760,10 +787,11 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
     // @ts-expect-error
     cycleDueDate: invoice.billing_cycles.due_date,
     schoolName: school?.name || '',
-    schoolAddress: school?.address || null,
+    schoolLogoUrl: school?.logo_url || null,
+    schoolAddress: composeAddress(school?.address_street, school?.address_city, school?.address_state),
     schoolPhone: school?.phone || null,
     schoolEmail: school?.email || null,
-    proprietressName: school?.proprietress_name || null,
+    proprietressName: composeProprietressName(school?.proprietress_title, school?.proprietress_first_name, school?.proprietress_last_name),
     // @ts-expect-error
     primaryParentName: invoice.students.families?.primary_parent_name || '',
     // @ts-expect-error
@@ -830,7 +858,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
 
   const { data: school } = await supabase
     .from('schools')
-    .select('name, address, phone, email, proprietress_name')
+    .select('name, logo_url, address_street, address_city, address_state, phone, email, proprietress_title, proprietress_first_name, proprietress_last_name')
     .eq('id', schoolId)
     .single()
 
@@ -868,10 +896,11 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       // @ts-expect-error
       cycleDueDate: invoice.billing_cycles.due_date,
       schoolName: school?.name || '',
-      schoolAddress: school?.address || null,
+      schoolLogoUrl: school?.logo_url || null,
+      schoolAddress: composeAddress(school?.address_street, school?.address_city, school?.address_state),
       schoolPhone: school?.phone || null,
       schoolEmail: school?.email || null,
-      proprietressName: school?.proprietress_name || null,
+      proprietressName: composeProprietressName(school?.proprietress_title, school?.proprietress_first_name, school?.proprietress_last_name),
       // @ts-expect-error
       primaryParentName: invoice.students.families?.primary_parent_name || '',
       // @ts-expect-error
@@ -888,6 +917,84 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       needsResend: invoice.needs_resend,
       generatedAt: invoice.generated_at,
       fullyPaidAt: invoice.fully_paid_at,
+    }
+  })
+}
+
+// ============ ALL INVOICES (global list, across every term) ============
+
+export interface AllInvoiceRow {
+  id: string
+  invoiceNumber: string | null
+  studentId: string
+  studentFirstName: string
+  studentLastName: string
+  studentAdmissionNumber: string
+  className: string
+  cycleId: string
+  cycleName: string
+  cycleStatus: 'draft' | 'active' | 'closed'
+  totalAmount: number
+  paidAmount: number
+  outstandingAmount: number
+  status: 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled'
+  sentAt: string | null
+  needsResend: boolean
+  generatedAt: string
+}
+
+export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
+  const ctx = await getSchoolContext()
+  if (!ctx) return []
+  const { supabase, schoolId } = ctx
+
+  const { data: invoiceData } = await supabase
+    .from('invoices')
+    .select(`
+      id,
+      invoice_number,
+      student_id,
+      total_amount,
+      paid_amount,
+      outstanding_amount,
+      status,
+      sent_at,
+      needs_resend,
+      generated_at,
+      students(first_name, last_name, admission_number, classes(name)),
+      billing_cycles(id, name, status)
+    `)
+    .eq('school_id', schoolId)
+    .order('generated_at', { ascending: false })
+
+  return (invoiceData || []).map(inv => {
+    const total = Number(inv.total_amount)
+    const paid = Number(inv.paid_amount || 0)
+    return {
+      id: inv.id,
+      invoiceNumber: inv.invoice_number || null,
+      studentId: inv.student_id,
+      // @ts-expect-error — joined
+      studentFirstName: inv.students?.first_name || '',
+      // @ts-expect-error — joined
+      studentLastName: inv.students?.last_name || '',
+      // @ts-expect-error — joined
+      studentAdmissionNumber: inv.students?.admission_number || '',
+      // @ts-expect-error — joined
+      className: inv.students?.classes?.name || '',
+      // @ts-expect-error — joined
+      cycleId: inv.billing_cycles?.id || '',
+      // @ts-expect-error — joined
+      cycleName: inv.billing_cycles?.name || '',
+      // @ts-expect-error — joined
+      cycleStatus: inv.billing_cycles?.status || 'closed',
+      totalAmount: total,
+      paidAmount: paid,
+      outstandingAmount: Number(inv.outstanding_amount ?? (total - paid)),
+      status: inv.status,
+      sentAt: inv.sent_at,
+      needsResend: inv.needs_resend,
+      generatedAt: inv.generated_at,
     }
   })
 }

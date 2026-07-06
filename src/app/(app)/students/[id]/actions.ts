@@ -11,16 +11,16 @@ export async function updateStudentDetails(studentId: string, formData: {
   admissionDate: string
   status: string
 }) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
 
   // Get current student to check admission number conflicts
   const { data: currentStudent } = await supabase
     .from('students')
-    .select('school_id, admission_number')
+    .select('admission_number')
     .eq('id', studentId)
+    .eq('school_id', schoolId)
     .single()
 
   if (!currentStudent) return { error: 'Student not found' }
@@ -30,7 +30,7 @@ export async function updateStudentDetails(studentId: string, formData: {
     const { data: existing } = await supabase
       .from('students')
       .select('id')
-      .eq('school_id', currentStudent.school_id)
+      .eq('school_id', schoolId)
       .eq('admission_number', formData.admissionNumber)
       .neq('id', studentId)
       .maybeSingle()
@@ -51,6 +51,7 @@ export async function updateStudentDetails(studentId: string, formData: {
       status: formData.status,
     })
     .eq('id', studentId)
+    .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
 
@@ -68,10 +69,9 @@ export async function updateFamilyInfo(familyId: string, studentId: string, form
   secondaryParentPhone: string
   secondaryParentEmail: string
 }) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
 
   const { error } = await supabase
     .from('families')
@@ -84,6 +84,7 @@ export async function updateFamilyInfo(familyId: string, studentId: string, form
       secondary_parent_email: formData.secondaryParentEmail || null,
     })
     .eq('id', familyId)
+    .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
 
@@ -94,15 +95,15 @@ export async function updateFamilyInfo(familyId: string, studentId: string, form
 }
 
 export async function updateFamilyNotes(familyId: string, studentId: string, notes: string) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
 
   const { error } = await supabase
     .from('families')
     .update({ notes: notes || null })
     .eq('id', familyId)
+    .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
 
@@ -112,15 +113,15 @@ export async function updateFamilyNotes(familyId: string, studentId: string, not
 }
 
 export async function updateStudentStatus(studentId: string, status: 'withdrawn' | 'graduated') {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
 
   const { error } = await supabase
     .from('students')
     .update({ status })
     .eq('id', studentId)
+    .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
 
@@ -190,16 +191,55 @@ async function getStudentFeeContext() {
   return { supabase, schoolId, userId: user.id }
 }
 
+type FeeContext = NonNullable<Awaited<ReturnType<typeof getStudentFeeContext>>>
+
+// Opt-in/exemption edits key off a fee_item_id — resolve its owning term first
+// so a closed (read-only) term can't be mutated through the student page.
+async function getCycleForFeeItemOrError(supabase: FeeContext['supabase'], schoolId: string, feeItemId: string) {
+  const { data: feeItem } = await supabase
+    .from('fee_items')
+    .select('billing_cycle_id')
+    .eq('id', feeItemId)
+    .eq('school_id', schoolId)
+    .single()
+  if (!feeItem) return { error: 'Fee item not found' }
+
+  const { data: cycle } = await supabase
+    .from('billing_cycles')
+    .select('id, status')
+    .eq('id', feeItem.billing_cycle_id)
+    .eq('school_id', schoolId)
+    .single()
+  if (!cycle) return { error: 'Term not found' }
+  if (cycle.status === 'closed') return { error: 'This term is closed. Fee data is read-only.' }
+  return { cycle }
+}
+
+async function assertStudentInSchool(supabase: FeeContext['supabase'], schoolId: string, studentId: string) {
+  const { data: student } = await supabase
+    .from('students')
+    .select('id')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+  return !!student
+}
+
 export async function toggleStudentOptIn(studentId: string, feeItemId: string) {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
+
+  const cycleResult = await getCycleForFeeItemOrError(supabase, schoolId, feeItemId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
+  if (!(await assertStudentInSchool(supabase, schoolId, studentId))) return { error: 'Student not found' }
 
   const { data: existing } = await supabase
     .from('student_fee_adjustments')
     .select('id')
     .eq('student_id', studentId)
     .eq('fee_item_id', feeItemId)
+    .eq('school_id', schoolId)
     .eq('adjustment_type', 'opt_in')
     .maybeSingle()
 
@@ -208,6 +248,7 @@ export async function toggleStudentOptIn(studentId: string, feeItemId: string) {
       .from('student_fee_adjustments')
       .delete()
       .eq('id', existing.id)
+      .eq('school_id', schoolId)
     if (error) return { error: error.message }
   } else {
     // Remove any conflicting exemption first
@@ -216,6 +257,7 @@ export async function toggleStudentOptIn(studentId: string, feeItemId: string) {
       .delete()
       .eq('student_id', studentId)
       .eq('fee_item_id', feeItemId)
+      .eq('school_id', schoolId)
       .eq('adjustment_type', 'exempt')
 
     const { error } = await supabase
@@ -239,11 +281,16 @@ export async function setStudentExemption(studentId: string, feeItemId: string, 
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
 
+  const cycleResult = await getCycleForFeeItemOrError(supabase, schoolId, feeItemId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
+  if (!(await assertStudentInSchool(supabase, schoolId, studentId))) return { error: 'Student not found' }
+
   const { data: existing } = await supabase
     .from('student_fee_adjustments')
     .select('id')
     .eq('student_id', studentId)
     .eq('fee_item_id', feeItemId)
+    .eq('school_id', schoolId)
     .eq('adjustment_type', 'exempt')
     .maybeSingle()
 
@@ -252,6 +299,7 @@ export async function setStudentExemption(studentId: string, feeItemId: string, 
       .from('student_fee_adjustments')
       .update({ notes: notes?.trim() || null })
       .eq('id', existing.id)
+      .eq('school_id', schoolId)
     if (error) return { error: error.message }
   } else {
     // Remove any opt-in on same fee
@@ -260,6 +308,7 @@ export async function setStudentExemption(studentId: string, feeItemId: string, 
       .delete()
       .eq('student_id', studentId)
       .eq('fee_item_id', feeItemId)
+      .eq('school_id', schoolId)
       .eq('adjustment_type', 'opt_in')
 
     const { error } = await supabase
@@ -282,13 +331,17 @@ export async function setStudentExemption(studentId: string, feeItemId: string, 
 export async function removeStudentExemption(studentId: string, feeItemId: string) {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase } = ctx
+  const { supabase, schoolId } = ctx
+
+  const cycleResult = await getCycleForFeeItemOrError(supabase, schoolId, feeItemId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
 
   const { error } = await supabase
     .from('student_fee_adjustments')
     .delete()
     .eq('student_id', studentId)
     .eq('fee_item_id', feeItemId)
+    .eq('school_id', schoolId)
     .eq('adjustment_type', 'exempt')
 
   if (error) return { error: error.message }

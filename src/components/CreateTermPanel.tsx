@@ -9,12 +9,31 @@ interface Props {
   cycles: CycleRow[]
   sessions: SessionRow[]
   editingCycle?: CycleRow
+  forceNewSession?: boolean
   onClose: () => void
-  onSuccess: () => void
+  onSuccess: (carryForwardSummary?: {
+    closedTermName: string | null
+    invoicesUpdated: number
+    invoicesNeedingResend: number
+    studentsWithCarryForward: number
+    totalCarryForward: number
+  } | null) => void
 }
 
-export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, onClose, onSuccess }: Props) {
+export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, forceNewSession, onClose, onSuccess }: Props) {
   const isEdit = mode === 'edit'
+
+  // A closed session shouldn't be offered for new terms — but if we're editing a term
+  // whose session was closed after the fact, keep that one session selectable so the
+  // form doesn't break; it just won't be swappable for another closed session.
+  const selectableSessions = useMemo(() => {
+    const active = sessions.filter(s => s.status === 'active')
+    if (isEdit && editingCycle?.sessionId && !active.some(s => s.id === editingCycle.sessionId)) {
+      const current = sessions.find(s => s.id === editingCycle.sessionId)
+      if (current) return [...active, current]
+    }
+    return active
+  }, [sessions, isEdit, editingCycle])
 
   const [name, setName] = useState(editingCycle?.name || '')
   const [startDate, setStartDate] = useState(editingCycle?.startDate || '')
@@ -23,10 +42,11 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
 
   const [sessionMode, setSessionMode] = useState<'existing' | 'new' | 'none'>(() => {
     if (isEdit) return editingCycle?.sessionId ? 'existing' : 'none'
-    return sessions.length > 0 ? 'existing' : 'none'
+    if (forceNewSession) return 'new'
+    return selectableSessions.length > 0 ? 'existing' : 'none'
   })
   const [sessionId, setSessionId] = useState<string>(
-    editingCycle?.sessionId || (isEdit ? '' : (sessions[0]?.id ?? ''))
+    editingCycle?.sessionId || (isEdit ? '' : (selectableSessions[0]?.id ?? ''))
   )
   const [newSessionName, setNewSessionName] = useState('')
   const [newSessionStart, setNewSessionStart] = useState('')
@@ -59,7 +79,7 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
 
     setSaving(true)
 
-    let result
+    let result: Awaited<ReturnType<typeof updateTerm>> | Awaited<ReturnType<typeof createTerm>>
     if (isEdit && editingCycle) {
       result = await updateTerm(editingCycle.id, {
         name,
@@ -83,12 +103,16 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
       })
     }
 
-    if (result.error) {
+    if ('error' in result) {
       setError(result.error)
       setSaving(false)
       return
     }
-    onSuccess()
+    if ('summary' in result) {
+      onSuccess(result.summary)
+    } else {
+      onSuccess(null)
+    }
   }
 
   return (
@@ -154,7 +178,7 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
         <div>
           <label className="block text-xs text-gray-500 mb-2">Session</label>
           <div className="space-y-2">
-            {sessions.length > 0 && (
+            {selectableSessions.length > 0 && (
               <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
                 <input
                   type="radio"
@@ -170,8 +194,8 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
                       onChange={(e) => setSessionId(e.target.value)}
                       className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
                     >
-                      {sessions.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
+                      {selectableSessions.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}{s.status === 'closed' ? ' (closed)' : ''}</option>
                       ))}
                     </select>
                   )}

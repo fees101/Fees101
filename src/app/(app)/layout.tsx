@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import AppNav from '@/components/AppNav'
+import Sidebar from '@/components/Sidebar'
 
 export default async function AppLayout({
   children,
@@ -14,7 +14,7 @@ export default async function AppLayout({
 
   const { data: profile } = await supabase
     .from('users')
-    .select('name, email, role, school_id, schools(name)')
+    .select('name, email, role, school_id, schools(name, logo_url)')
     .eq('id', user.id)
     .single()
 
@@ -34,7 +34,7 @@ export default async function AppLayout({
   // Fetch current term for the nav
   const { data: currentCycle } = await supabase
     .from('billing_cycles')
-    .select('name')
+    .select('id, name')
     .eq('school_id', schoolId || '')
     .eq('status', 'active')
     .order('start_date', { ascending: false })
@@ -42,16 +42,19 @@ export default async function AppLayout({
     .single()
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppNav 
+    <div className="min-h-screen bg-gray-50 flex">
+      <Sidebar
         userName={profile.name}
         userEmail={profile.email}
         userRole={profile.role}
         // @ts-expect-error — schools is joined object
         schoolName={profile.schools?.name || 'Fees101'}
-        currentTermName={currentCycle?.name || 'No active term'}
+        // @ts-expect-error — schools is joined object
+        schoolLogoUrl={profile.schools?.logo_url || null}
+        currentTermName={currentCycle?.name || null}
+        currentTermId={currentCycle?.id || null}
       />
-      <main>{children}</main>
+      <main className="flex-1 min-w-0">{children}</main>
     </div>
   )
 }

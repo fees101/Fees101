@@ -3,7 +3,6 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { createElement } from 'react'
 import InvoicePDF from '@/components/InvoicePDF'
 import { getInvoiceById } from '@/lib/queries/fees'
-import { createClient } from '@/lib/supabase/server'
 
 export async function GET(
   request: NextRequest,
@@ -16,15 +15,7 @@ export async function GET(
     return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
   }
 
-  // Try to get school logo if uploaded
-  const supabase = await createClient()
-  const { data: schoolLogo } = await supabase
-    .from('schools')
-    .select('logo_url')
-    .eq('name', invoice.schoolName)
-    .single()
-
-  const logoUrl = schoolLogo?.logo_url || null
+  const logoUrl = invoice.schoolLogoUrl
 
   // Render to PDF buffer
   const pdfBuffer = await renderToBuffer(

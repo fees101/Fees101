@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { addClass, addSection, deleteSection } from '@/app/(app)/fees/classes/actions'
+import { addClass, addSection } from '@/app/(app)/settings/academic-structure/actions'
+import ManageSectionsModal from './ManageSectionsModal'
 
 interface Section {
   id: string
@@ -60,6 +61,10 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
     if (form.sectionId === deletedId) {
       setForm({ ...form, sectionId: updatedSections[0]?.id || '' })
     }
+  }
+
+  function handleSectionRenamed(id: string, name: string) {
+    setSections(sections.map(s => s.id === id ? { ...s, name } : s))
   }
 
   async function handleSubmit() {
@@ -214,78 +219,9 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
           sections={sections}
           onClose={() => setShowManageSections(false)}
           onSectionDeleted={handleSectionDeleted}
+          onSectionRenamed={handleSectionRenamed}
         />
       )}
     </>
-  )
-}
-
-function ManageSectionsModal({ sections, onClose, onSectionDeleted }: {
-  sections: Section[]
-  onClose: () => void
-  onSectionDeleted: (id: string) => void
-}) {
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  async function handleDelete(sectionId: string) {
-    setError(null)
-    setDeletingId(sectionId)
-    const result = await deleteSection(sectionId)
-    if (result.error) {
-      setError(result.error)
-      setDeletingId(null)
-      return
-    }
-    onSectionDeleted(sectionId)
-    setDeletingId(null)
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-sm w-full">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-navy">Manage sections</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="p-6">
-          {sections.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-4">No sections to manage.</p>
-          ) : (
-            <div className="space-y-2">
-              {sections.map(section => (
-                <div key={section.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                  <span className="text-sm text-navy">{section.name}</span>
-                  <button
-                    onClick={() => handleDelete(section.id)}
-                    disabled={deletingId === section.id}
-                    className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                  >
-                    {deletingId === section.id ? 'Deleting...' : 'Delete'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {error && (
-            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-              {error}
-            </div>
-          )}
-        </div>
-
-        <div className="p-6 border-t border-gray-100 flex items-center justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
-            Done
-          </button>
-        </div>
-      </div>
-    </div>
   )
 }

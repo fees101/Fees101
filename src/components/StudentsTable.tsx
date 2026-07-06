@@ -28,7 +28,7 @@ interface StudentsTableProps {
   classes: Class[]
 }
 
-type SortKey = 'name' | 'parent' | 'phone' | 'total' | 'paid' | 'status'
+type SortKey = 'class' | 'name' | 'parent' | 'phone' | 'total' | 'paid' | 'status'
 type SortDir = 'asc' | 'desc'
 
 const ITEMS_PER_PAGE = 25
@@ -98,9 +98,18 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
   const [searchTerm, setSearchTerm] = useState('')
   const [classFilter, setClassFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [sortKey, setSortKey] = useState<SortKey>('class')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [currentPage, setCurrentPage] = useState(1)
+
+  // classes is already ordered by display_order (Play Pen → Year 11) —
+  // use its position as the sort weight so "by class" reads the way a
+  // school actually thinks about its roster, not alphabetically.
+  const classOrder = useMemo(() => {
+    const map: Record<string, number> = {}
+    classes.forEach((c, i) => { map[c.id] = i })
+    return map
+  }, [classes])
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -131,6 +140,14 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
       let valB: string | number
 
       switch (sortKey) {
+        case 'class': {
+          const orderA = classOrder[a.classId] ?? 9999
+          const orderB = classOrder[b.classId] ?? 9999
+          if (orderA !== orderB) return sortDir === 'asc' ? orderA - orderB : orderB - orderA
+          valA = `${a.lastName} ${a.firstName}`.toLowerCase()
+          valB = `${b.lastName} ${b.firstName}`.toLowerCase()
+          break
+        }
         case 'name':
           valA = `${a.lastName} ${a.firstName}`.toLowerCase()
           valB = `${b.lastName} ${b.firstName}`.toLowerCase()
@@ -161,13 +178,29 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
       if (valA > valB) return sortDir === 'asc' ? 1 : -1
       return 0
     })
-  }, [students, searchTerm, classFilter, statusFilter, sortKey, sortDir])
+  }, [students, searchTerm, classFilter, statusFilter, sortKey, sortDir, classOrder])
 
-  const totalPages = Math.ceil(filteredAndSorted.length / ITEMS_PER_PAGE)
-  const paginatedStudents = filteredAndSorted.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  )
+  // Counts per class within the current filtered set, for the group header rows
+  const classCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    filteredAndSorted.forEach(s => {
+      counts[s.classId] = (counts[s.classId] || 0) + 1
+    })
+    return counts
+  }, [filteredAndSorted])
+
+  // Grouped-by-class browsing shows everyone, unpaginated — otherwise a class
+  // near a page boundary gets split across pages, defeating the point of the
+  // grouping. A few hundred rows renders fine without pagination.
+  const groupByClass = sortKey === 'class' && classFilter === 'all'
+
+  const totalPages = groupByClass ? 1 : Math.ceil(filteredAndSorted.length / ITEMS_PER_PAGE)
+  const paginatedStudents = groupByClass
+    ? filteredAndSorted
+    : filteredAndSorted.slice(
+      (currentPage - 1) * ITEMS_PER_PAGE,
+      currentPage * ITEMS_PER_PAGE
+    )
 
   useMemo(() => {
     setCurrentPage(1)
@@ -239,13 +272,19 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
-                  <th 
+                  <th
+                    onClick={() => handleSort('class')}
+                    className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 cursor-pointer hover:bg-gray-100 select-none"
+                  >
+                    Class <SortIcon active={sortKey === 'class'} direction={sortDir} />
+                  </th>
+                  <th
                     onClick={() => handleSort('name')}
                     className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 cursor-pointer hover:bg-gray-100 select-none"
                   >
                     Student <SortIcon active={sortKey === 'name'} direction={sortDir} />
                   </th>
-                  <th 
+                  <th
                     onClick={() => handleSort('parent')}
                     className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 cursor-pointer hover:bg-gray-100 select-none"
                   >
@@ -278,21 +317,37 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {paginatedStudents.map(student => (
-                  <tr 
-                    key={student.id} 
-                    onClick={() => router.push(`/students/${student.id}`)}
-                    className="hover:bg-gray-50 cursor-pointer"
-                  >
-                    <td className="px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-navy">
-                          {student.firstName} {student.lastName}
-                        </p>
-                        <p className="text-xs text-gray-500">{student.className} · {student.admissionNumber}</p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{student.parentName}</td>
+                {(() => {
+                  let lastClassId: string | null = null
+
+                  return paginatedStudents.flatMap(student => {
+                    const rows = []
+                    if (groupByClass && student.classId !== lastClassId) {
+                      lastClassId = student.classId
+                      rows.push(
+                        <tr key={`group-${student.classId}`} className="bg-gray-50/70">
+                          <td colSpan={7} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                            {student.className || 'No class'} <span className="text-gray-400 font-normal normal-case">({classCounts[student.classId] || 0})</span>
+                          </td>
+                        </tr>
+                      )
+                    }
+                    rows.push(
+                      <tr
+                        key={student.id}
+                        onClick={() => router.push(`/students/${student.id}`)}
+                        className="hover:bg-gray-50 cursor-pointer"
+                      >
+                        <td className="px-4 py-3 text-sm text-gray-700">{student.className}</td>
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="text-sm font-medium text-navy">
+                              {student.firstName} {student.lastName}
+                            </p>
+                            <p className="text-xs text-gray-500">{student.admissionNumber}</p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{student.parentName}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{student.parentPhone}</td>
                     <td className="px-4 py-3 text-sm text-navy font-medium">
                       {student.invoiceTotal > 0 ? formatNaira(student.invoiceTotal) : '—'}
@@ -311,8 +366,11 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
                     <td className="px-4 py-3">
                       {getStatusBadge(student.invoiceStatus)}
                     </td>
-                  </tr>
-                ))}
+                      </tr>
+                    )
+                    return rows
+                  })
+                })()}
               </tbody>
             </table>
           </div>
@@ -320,8 +378,11 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
           {/* Pagination */}
           <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between text-sm">
             <p className="text-gray-500">
-              Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSorted.length)} of {filteredAndSorted.length} students
+              {groupByClass
+                ? `Showing all ${filteredAndSorted.length} students, grouped by class`
+                : `Showing ${(currentPage - 1) * ITEMS_PER_PAGE + 1}-${Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSorted.length)} of ${filteredAndSorted.length} students`}
             </p>
+            {!groupByClass && (
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
@@ -355,6 +416,7 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
                 Next →
               </button>
             </div>
+            )}
           </div>
         </>
       )}

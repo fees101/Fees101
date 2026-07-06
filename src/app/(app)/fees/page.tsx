@@ -30,7 +30,7 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
           <div>
             <h1 className="text-3xl font-bold text-navy">Fees</h1>
             <p className="text-gray-500 mt-2 text-sm">
-              Manage classes, fees, and invoices
+              Manage fee structure, billing cycles, and invoices
             </p>
           </div>
           {allCycles.length > 0 && (
@@ -96,13 +96,13 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
           <div className="bg-white p-5 rounded-xl border border-gray-200">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs text-gray-500 mb-1">Active classes</p>
-                <p className="text-2xl font-bold text-navy">{data.activeClasses}</p>
-                <p className="text-xs text-gray-500 mt-1">{data.activeClasses === 1 ? 'Class is' : 'Classes are'} active</p>
+                <p className="text-xs text-gray-500 mb-1">Outstanding</p>
+                <p className="text-2xl font-bold text-amber-600">{formatNaira(data.totalExpectedThisTerm - data.totalCollected)}</p>
+                <p className="text-xs text-gray-500 mt-1">Awaiting payment</p>
               </div>
-              <div className="w-10 h-10 rounded-lg bg-mint-light flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
             </div>
@@ -134,23 +134,22 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
         {/* Navigation cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           
-          <Link 
-            href="/fees/classes"
+          <Link
+            href="/invoices"
             className="bg-white p-6 rounded-xl border border-gray-200 hover:border-mint hover:shadow-sm transition-all group"
           >
             <div className="flex items-start justify-between mb-4">
               <div className="w-12 h-12 rounded-xl bg-mint-light flex items-center justify-center">
                 <svg className="w-6 h-6 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 14l9-5-9-5-9 5 9 5z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
               <svg className="w-5 h-5 text-gray-300 group-hover:text-mint transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
               </svg>
             </div>
-            <h3 className="text-navy font-semibold text-lg mb-1">Classes</h3>
-            <p className="text-sm text-gray-500">Manage your school&apos;s classes</p>
+            <h3 className="text-navy font-semibold text-lg mb-1">Invoices</h3>
+            <p className="text-sm text-gray-500">Search and browse every invoice</p>
           </Link>
 
           <Link 

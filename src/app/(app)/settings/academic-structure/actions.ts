@@ -27,6 +27,14 @@ async function getSchoolId() {
   return schoolId
 }
 
+function revalidateClassDependents() {
+  revalidatePath('/settings/academic-structure')
+  revalidatePath('/fees')
+  revalidatePath('/fees/structure')
+  revalidatePath('/fees/cycles')
+  revalidatePath('/students')
+}
+
 export async function addClass(formData: {
   name: string
   sectionId: string
@@ -35,6 +43,16 @@ export async function addClass(formData: {
   const supabase = await createClient()
   const schoolId = await getSchoolId()
   if (!schoolId) return { error: 'Not authenticated' }
+
+  // Section must belong to this school — otherwise a class could be attached
+  // to another school's section.
+  const { data: section } = await supabase
+    .from('sections')
+    .select('id')
+    .eq('id', formData.sectionId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+  if (!section) return { error: 'Section not found' }
 
   // Check name uniqueness within school
   const { data: existing } = await supabase
@@ -60,9 +78,8 @@ export async function addClass(formData: {
 
   if (error) return { error: error.message }
 
-  revalidatePath('/fees/classes')
-  revalidatePath('/fees')
-  
+  revalidateClassDependents()
+
   return { success: true }
 }
 
@@ -75,6 +92,14 @@ export async function updateClass(classId: string, formData: {
   const supabase = await createClient()
   const schoolId = await getSchoolId()
   if (!schoolId) return { error: 'Not authenticated' }
+
+  const { data: section } = await supabase
+    .from('sections')
+    .select('id')
+    .eq('id', formData.sectionId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+  if (!section) return { error: 'Section not found' }
 
   // Check name uniqueness (excluding current class)
   const { data: existing } = await supabase
@@ -98,12 +123,12 @@ export async function updateClass(classId: string, formData: {
       is_active: formData.isActive,
     })
     .eq('id', classId)
+    .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
 
-  revalidatePath('/fees/classes')
-  revalidatePath('/fees')
-  
+  revalidateClassDependents()
+
   return { success: true }
 }
 
@@ -112,17 +137,26 @@ export async function toggleClassActive(classId: string, isActive: boolean) {
   const schoolId = await getSchoolId()
   if (!schoolId) return { error: 'Not authenticated' }
 
+  const { data: cls } = await supabase
+    .from('classes')
+    .select('id')
+    .eq('id', classId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+  if (!cls) return { error: 'Class not found' }
+
   // If deactivating, check if there are active students in this class
   if (!isActive) {
     const { count } = await supabase
       .from('students')
       .select('*', { count: 'exact', head: true })
       .eq('class_id', classId)
+      .eq('school_id', schoolId)
       .eq('status', 'active')
 
     if (count && count > 0) {
-      return { 
-        error: `Cannot deactivate this class — it has ${count} active ${count === 1 ? 'student' : 'students'}. Move them to another class first.` 
+      return {
+        error: `Cannot deactivate this class — it has ${count} active ${count === 1 ? 'student' : 'students'}. Move them to another class first.`
       }
     }
   }
@@ -131,12 +165,12 @@ export async function toggleClassActive(classId: string, isActive: boolean) {
     .from('classes')
     .update({ is_active: isActive })
     .eq('id', classId)
+    .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
 
-  revalidatePath('/fees/classes')
-  revalidatePath('/fees')
-  
+  revalidateClassDependents()
+
   return { success: true }
 }
 export async function addSection(name: string) {
@@ -183,9 +217,44 @@ export async function addSection(name: string) {
 
   if (error) return { error: error.message }
 
-  revalidatePath('/fees/classes')
+  revalidatePath('/settings/academic-structure')
 
   return { success: true, section: newSection }
+}
+
+export async function updateSection(sectionId: string, name: string) {
+  const supabase = await createClient()
+  const schoolId = await getSchoolId()
+  if (!schoolId) return { error: 'Not authenticated' }
+
+  if (!name.trim()) {
+    return { error: 'Section name is required' }
+  }
+
+  // Check for duplicate (excluding this section)
+  const { data: existing } = await supabase
+    .from('sections')
+    .select('id')
+    .eq('school_id', schoolId)
+    .ilike('name', name.trim())
+    .neq('id', sectionId)
+    .maybeSingle()
+
+  if (existing) {
+    return { error: `A section named "${name}" already exists` }
+  }
+
+  const { error } = await supabase
+    .from('sections')
+    .update({ name: name.trim() })
+    .eq('id', sectionId)
+    .eq('school_id', schoolId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/settings/academic-structure')
+
+  return { success: true }
 }
 
 export async function deleteSection(sectionId: string) {
@@ -198,6 +267,7 @@ export async function deleteSection(sectionId: string) {
     .from('classes')
     .select('*', { count: 'exact', head: true })
     .eq('section_id', sectionId)
+    .eq('school_id', schoolId)
 
   if (count && count > 0) {
     return { 
@@ -213,7 +283,7 @@ export async function deleteSection(sectionId: string) {
 
   if (error) return { error: error.message }
 
-  revalidatePath('/fees/classes')
+  revalidatePath('/settings/academic-structure')
   
   return { success: true }
 }

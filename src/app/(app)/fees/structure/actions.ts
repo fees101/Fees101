@@ -47,6 +47,21 @@ async function getCycleOrError(supabase: Ctx['supabase'], schoolId: string, cycl
   return { cycle }
 }
 
+// Opt-in/exemption mutations key off a fee_item_id, not a cycleId directly —
+// resolve the owning term first so closed-term edits are rejected the same
+// way every other fee mutation in this file already is.
+async function getCycleForFeeItemOrError(supabase: Ctx['supabase'], schoolId: string, feeItemId: string) {
+  const { data: feeItem } = await supabase
+    .from('fee_items')
+    .select('billing_cycle_id')
+    .eq('id', feeItemId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!feeItem) return { error: 'Fee item not found' }
+  return getCycleOrError(supabase, schoolId, feeItem.billing_cycle_id)
+}
+
 export async function addFeeItem(cycleId: string, form: {
   name: string
   amount: number
@@ -284,6 +299,14 @@ export async function getOptInsForFeeItem(feeItemId: string) {
   if (!ctx) return { error: 'Not authenticated', students: [], optedInStudentIds: [] }
   const { supabase, schoolId } = ctx
 
+  const { data: feeItem } = await supabase
+    .from('fee_items')
+    .select('id')
+    .eq('id', feeItemId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+  if (!feeItem) return { error: 'Fee item not found', students: [], optedInStudentIds: [] }
+
   const { data: students } = await supabase
     .from('students')
     .select(`
@@ -301,6 +324,7 @@ export async function getOptInsForFeeItem(feeItemId: string) {
     .from('student_fee_adjustments')
     .select('student_id')
     .eq('fee_item_id', feeItemId)
+    .eq('school_id', schoolId)
     .eq('adjustment_type', 'opt_in')
 
   return {
@@ -322,11 +346,14 @@ export async function bulkUpdateOptIns(feeItemId: string, studentIds: string[]) 
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
+  const cycleResult = await getCycleForFeeItemOrError(supabase, schoolId, feeItemId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
 
   const { data: currentOptIns } = await supabase
     .from('student_fee_adjustments')
     .select('id, student_id')
     .eq('fee_item_id', feeItemId)
+    .eq('school_id', schoolId)
     .eq('adjustment_type', 'opt_in')
 
   const currentSet = new Set(currentOptIns?.map(o => o.student_id) || [])
@@ -338,6 +365,7 @@ export async function bulkUpdateOptIns(feeItemId: string, studentIds: string[]) 
       .from('student_fee_adjustments')
       .delete()
       .in('id', toRemove.map(r => r.id))
+      .eq('school_id', schoolId)
   }
 
   const toAdd = studentIds.filter(sid => !currentSet.has(sid))
@@ -625,8 +653,9 @@ export async function getOptInsForFeeGroup(feeItemIds: string[]) {
     .from('fee_items')
     .select('id, class_id')
     .in('id', feeItemIds)
+    .eq('school_id', schoolId)
 
-  if (!feeItems) return { error: 'Could not load fee items', students: [], optedInStudentIds: [], eligibleClassIds: [] }
+  if (!feeItems || feeItems.length === 0) return { error: 'Could not load fee items', students: [], optedInStudentIds: [], eligibleClassIds: [] }
 
   // Determine eligible classes (null class_id = school-wide, all students eligible)
   const hasSchoolWide = feeItems.some(f => f.class_id === null)
@@ -690,10 +719,14 @@ export async function bulkUpdateOptInsForGroup(feeItemIds: string[], studentIds:
   // Get fee items with their class_id
   const { data: feeItems } = await supabase
     .from('fee_items')
-    .select('id, class_id')
+    .select('id, class_id, billing_cycle_id')
     .in('id', feeItemIds)
+    .eq('school_id', schoolId)
 
-  if (!feeItems) return { error: 'Could not load fee items' }
+  if (!feeItems || feeItems.length === 0) return { error: 'Could not load fee items' }
+
+  const cycleResult = await getCycleOrError(supabase, schoolId, feeItems[0].billing_cycle_id)
+  if ('error' in cycleResult) return { error: cycleResult.error }
 
   // Get all students with their class_id for matching
   const { data: allStudents } = await supabase
@@ -720,6 +753,7 @@ export async function bulkUpdateOptInsForGroup(feeItemIds: string[], studentIds:
       .from('student_fee_adjustments')
       .select('id, student_id')
       .eq('fee_item_id', feeItem.id)
+      .eq('school_id', schoolId)
       .eq('adjustment_type', 'opt_in')
 
     const currentSet = new Set(currentOptIns?.map(o => o.student_id) || [])
@@ -732,6 +766,7 @@ export async function bulkUpdateOptInsForGroup(feeItemIds: string[], studentIds:
         .from('student_fee_adjustments')
         .delete()
         .in('id', toRemove.map(r => r.id))
+        .eq('school_id', schoolId)
     }
 
     // Add new opt-ins

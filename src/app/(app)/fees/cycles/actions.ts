@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { computeInvoiceForStudent, ComputedInvoice } from '@/lib/computeInvoice'
 
 async function getContext() {
   const supabase = await createClient()
@@ -70,10 +71,69 @@ export async function createSession(form: {
   if (error) return { error: error.message }
 
   revalidatePath('/fees/cycles')
+  revalidatePath('/settings/academic-structure')
   return { success: true, sessionId: data.id }
 }
 
+// Only one session is "current" at a time — activating one closes the rest.
+export async function setActiveSession(id: string) {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  await supabase
+    .from('sessions')
+    .update({ status: 'closed' })
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .neq('id', id)
+
+  const { error } = await supabase
+    .from('sessions')
+    .update({ status: 'active' })
+    .eq('id', id)
+    .eq('school_id', schoolId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/fees/cycles')
+  revalidatePath('/settings/academic-structure')
+  return { success: true }
+}
+
+export async function closeSession(id: string) {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  const { error } = await supabase
+    .from('sessions')
+    .update({ status: 'closed' })
+    .eq('id', id)
+    .eq('school_id', schoolId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/fees/cycles')
+  revalidatePath('/settings/academic-structure')
+  return { success: true }
+}
+
 // ============ TERMS ============
+
+type CreateTermResult =
+  | { error: string }
+  | {
+      success: true
+      cycleId: string | undefined
+      summary: {
+        closedTermName: string | null
+        invoicesUpdated: number
+        invoicesNeedingResend: number
+        studentsWithCarryForward: number
+        totalCarryForward: number
+      } | null
+    }
 
 export async function createTerm(form: {
   name: string
@@ -86,7 +146,7 @@ export async function createTerm(form: {
   newSessionEnd?: string
   rollForwardFromCycleId?: string | null
   activateImmediately?: boolean
-}) {
+}): Promise<CreateTermResult> {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
@@ -122,12 +182,23 @@ export async function createTerm(form: {
     sessionId = sessionResult.sessionId || null
   }
 
+  let closeSummary: CloseCarryForwardSummary | null = null
+  let closedTermName: string | null = null
+
   if (form.activateImmediately) {
-    await supabase
+    const { data: currentActive } = await supabase
       .from('billing_cycles')
-      .update({ status: 'closed' })
+      .select('id, name')
       .eq('school_id', schoolId)
       .eq('status', 'active')
+      .maybeSingle()
+
+    // Route through the same close+carry-forward path activateTerm uses —
+    // a bare status flip here would silently drop outstanding balances.
+    if (currentActive) {
+      closeSummary = await closeTermAndCarryForward(supabase, schoolId, currentActive.id)
+      closedTermName = currentActive.name
+    }
   }
 
   const { data: newCycle, error } = await supabase
@@ -171,8 +242,20 @@ export async function createTerm(form: {
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
   revalidatePath('/fees/structure')
-  return { success: true, cycleId: newCycle?.id }
+  return {
+    success: true,
+    cycleId: newCycle?.id,
+    summary: closeSummary ? {
+      closedTermName,
+      invoicesUpdated: closeSummary.invoicesUpdated,
+      invoicesNeedingResend: closeSummary.invoicesNeedingResend,
+      studentsWithCarryForward: closeSummary.studentsWithOutstanding,
+      totalCarryForward: closeSummary.totalOutstanding,
+    } : null,
+  }
 }
+
+type UpdateTermResult = { error: string } | { success: true }
 
 export async function updateTerm(id: string, form: {
   name: string
@@ -180,7 +263,7 @@ export async function updateTerm(id: string, form: {
   endDate: string
   dueDate: string
   sessionId?: string | null
-}) {
+}): Promise<UpdateTermResult> {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
@@ -235,6 +318,113 @@ export async function updateTerm(id: string, form: {
   return { success: true }
 }
 
+// ============ CLOSE + CARRY-FORWARD ============
+// Shared by activateTerm (which implicitly closes the previous active term)
+// and closeTerm (direct close from the cycles list). Both need identical
+// behavior: mark closed, find who's owing, push that balance into whatever
+// non-closed term(s) already have an invoice for them.
+
+interface CloseCarryForwardSummary {
+  studentsWithOutstanding: number
+  totalOutstanding: number
+  invoicesUpdated: number
+  invoicesNeedingResend: number
+}
+
+async function closeTermAndCarryForward(
+  supabase: any,
+  schoolId: string,
+  cycleId: string
+): Promise<CloseCarryForwardSummary> {
+  const { data: closedCycle } = await supabase
+    .from('billing_cycles')
+    .select('start_date')
+    .eq('id', cycleId)
+    .single()
+
+  await supabase
+    .from('billing_cycles')
+    .update({ status: 'closed', closed_at: new Date().toISOString() })
+    .eq('id', cycleId)
+    .eq('school_id', schoolId)
+
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select('student_id, total_amount, paid_amount')
+    .eq('billing_cycle_id', cycleId)
+    .eq('school_id', schoolId)
+
+  const studentsWithOutstanding = (invoices || [])
+    .map((inv: any) => ({
+      studentId: inv.student_id,
+      outstanding: Number(inv.total_amount) - Number(inv.paid_amount || 0),
+    }))
+    .filter((s: any) => s.outstanding > 0)
+
+  const totalOutstanding = studentsWithOutstanding.reduce((s: number, x: any) => s + x.outstanding, 0)
+
+  let invoicesUpdated = 0
+  let invoicesNeedingResend = 0
+
+  if (studentsWithOutstanding.length > 0 && closedCycle) {
+    const studentIds = studentsWithOutstanding.map((s: any) => s.studentId)
+
+    // "Future" = any other non-closed term that starts after this one
+    const { data: futureCycles } = await supabase
+      .from('billing_cycles')
+      .select('id')
+      .eq('school_id', schoolId)
+      .neq('status', 'closed')
+      .neq('id', cycleId)
+      .gt('start_date', closedCycle.start_date)
+
+    const futureCycleIds = (futureCycles || []).map((c: any) => c.id)
+
+    if (futureCycleIds.length > 0) {
+      const { data: futureInvoices } = await supabase
+        .from('invoices')
+        .select('id, student_id, billing_cycle_id, paid_amount, sent_at')
+        .in('billing_cycle_id', futureCycleIds)
+        .in('student_id', studentIds)
+
+      for (const inv of futureInvoices || []) {
+        const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, inv.billing_cycle_id)
+        if ('error' in computed) continue
+
+        const paid = Number(inv.paid_amount || 0)
+        let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
+        if (paid >= computed.total) newStatus = 'paid'
+        else if (paid > 0) newStatus = 'partial'
+
+        const wasSent = !!inv.sent_at
+
+        await supabase
+          .from('invoices')
+          .update({
+            line_items: computed.lineItems,
+            subtotal: computed.subtotal,
+            previous_balance: computed.previousBalance,
+            total_amount: computed.total,
+            status: newStatus,
+            needs_resend: wasSent,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', inv.id)
+
+        invoicesUpdated++
+        if (wasSent) invoicesNeedingResend++
+      }
+    }
+  }
+
+  return {
+    studentsWithOutstanding: studentsWithOutstanding.length,
+    totalOutstanding,
+    invoicesUpdated,
+    invoicesNeedingResend,
+  }
+}
+
 export async function activateTerm(id: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -248,13 +438,9 @@ export async function activateTerm(id: string) {
     .eq('status', 'active')
     .maybeSingle()
 
-  // Close current active (if any)
+  let closeSummary: CloseCarryForwardSummary | null = null
   if (currentActive) {
-    await supabase
-      .from('billing_cycles')
-      .update({ status: 'closed', closed_at: new Date().toISOString() })
-      .eq('id', currentActive.id)
-      .eq('school_id', schoolId)
+    closeSummary = await closeTermAndCarryForward(supabase, schoolId, currentActive.id)
   }
 
   // Activate the new term
@@ -266,87 +452,111 @@ export async function activateTerm(id: string) {
 
   if (error) return { error: error.message }
 
-  // Auto-update carry-forward for invoices in the newly-active term
-  const summary = {
-    closedTermName: currentActive?.name || null,
-    invoicesUpdated: 0,
-    invoicesNeedingResend: 0,
-    studentsWithCarryForward: 0,
-    totalCarryForward: 0,
-  }
-
-  if (currentActive) {
-    // Find students with outstanding balance from the just-closed term
-    const { data: outstandingInvoices } = await supabase
-      .from('invoices')
-      .select('student_id, total_amount, paid_amount')
-      .eq('billing_cycle_id', currentActive.id)
-      .eq('school_id', schoolId)
-
-    const studentsWithOutstanding = (outstandingInvoices || [])
-      .map(inv => ({
-        studentId: inv.student_id,
-        outstanding: Number(inv.total_amount) - Number(inv.paid_amount || 0),
-      }))
-      .filter(s => s.outstanding > 0)
-
-    summary.studentsWithCarryForward = studentsWithOutstanding.length
-    summary.totalCarryForward = studentsWithOutstanding.reduce((s, x) => s + x.outstanding, 0)
-
-    // For each such student, find their invoice in the NEWLY ACTIVE term (if exists) and regenerate
-    for (const s of studentsWithOutstanding) {
-      const { data: newTermInvoice } = await supabase
-        .from('invoices')
-        .select('id, sent_at')
-        .eq('student_id', s.studentId)
-        .eq('billing_cycle_id', id)
-        .maybeSingle()
-
-      if (!newTermInvoice) continue
-
-      // Recompute
-      const computed = await computeInvoiceForStudent(supabase, schoolId, s.studentId, id)
-      if ('error' in computed) continue
-
-      const { data: existing } = await supabase
-        .from('invoices')
-        .select('paid_amount')
-        .eq('id', newTermInvoice.id)
-        .single()
-
-      const paid = Number(existing?.paid_amount || 0)
-      let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
-      if (paid >= computed.total) newStatus = 'paid'
-      else if (paid > 0) newStatus = 'partial'
-
-      const wasSent = !!newTermInvoice.sent_at
-
-      await supabase
-        .from('invoices')
-        .update({
-          line_items: computed.lineItems,
-          subtotal: computed.subtotal,
-          previous_balance: computed.previousBalance,
-          total_amount: computed.total,
-          status: newStatus,
-          needs_resend: wasSent,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', newTermInvoice.id)
-
-      summary.invoicesUpdated++
-      if (wasSent) summary.invoicesNeedingResend++
-    }
-  }
-
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
   revalidatePath(`/fees/cycles/${id}`)
 
-  return { success: true, summary }
+  return {
+    success: true,
+    summary: {
+      closedTermName: currentActive?.name || null,
+      invoicesUpdated: closeSummary?.invoicesUpdated || 0,
+      invoicesNeedingResend: closeSummary?.invoicesNeedingResend || 0,
+      studentsWithCarryForward: closeSummary?.studentsWithOutstanding || 0,
+      totalCarryForward: closeSummary?.totalOutstanding || 0,
+    },
+  }
 }
 
-export async function closeTerm(id: string) {
+type PreviewCloseTermResult =
+  | { error: string }
+  | {
+      success: true
+      hasOutstanding: boolean
+      studentsWithOutstandingCount: number
+      totalOutstanding: number
+      futureInvoicesToUpdateCount: number
+      futureInvoicesNeedingResendCount: number
+      hasFutureTerm: boolean
+    }
+
+// Read-only preview shown in the close-term confirmation modal — no writes.
+export async function previewCloseTerm(cycleId: string): Promise<PreviewCloseTermResult> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  const { data: cycle } = await supabase
+    .from('billing_cycles')
+    .select('id, status, start_date')
+    .eq('id', cycleId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!cycle) return { error: 'Term not found' }
+  if (cycle.status === 'closed') return { error: 'Term is already closed' }
+
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select('student_id, total_amount, paid_amount')
+    .eq('billing_cycle_id', cycleId)
+    .eq('school_id', schoolId)
+
+  const studentsWithOutstanding = (invoices || [])
+    .map((inv: any) => ({
+      studentId: inv.student_id,
+      outstanding: Number(inv.total_amount) - Number(inv.paid_amount || 0),
+    }))
+    .filter((s: any) => s.outstanding > 0)
+
+  const totalOutstanding = studentsWithOutstanding.reduce((s: number, x: any) => s + x.outstanding, 0)
+
+  let futureInvoicesToUpdateCount = 0
+  let futureInvoicesNeedingResendCount = 0
+  let hasFutureTerm = false
+
+  if (studentsWithOutstanding.length > 0) {
+    const studentIds = studentsWithOutstanding.map((s: any) => s.studentId)
+
+    const { data: futureCycles } = await supabase
+      .from('billing_cycles')
+      .select('id')
+      .eq('school_id', schoolId)
+      .neq('status', 'closed')
+      .neq('id', cycleId)
+      .gt('start_date', cycle.start_date)
+
+    const futureCycleIds = (futureCycles || []).map((c: any) => c.id)
+    hasFutureTerm = futureCycleIds.length > 0
+
+    if (futureCycleIds.length > 0) {
+      const { data: futureInvoices } = await supabase
+        .from('invoices')
+        .select('id, sent_at')
+        .in('billing_cycle_id', futureCycleIds)
+        .in('student_id', studentIds)
+
+      futureInvoicesToUpdateCount = (futureInvoices || []).length
+      futureInvoicesNeedingResendCount = (futureInvoices || []).filter((i: any) => !!i.sent_at).length
+    }
+  }
+
+  return {
+    success: true as const,
+    hasOutstanding: studentsWithOutstanding.length > 0,
+    studentsWithOutstandingCount: studentsWithOutstanding.length,
+    totalOutstanding,
+    futureInvoicesToUpdateCount,
+    futureInvoicesNeedingResendCount,
+    hasFutureTerm,
+  }
+}
+
+type CloseTermResult =
+  | { error: string }
+  | { success: true, summary: CloseCarryForwardSummary }
+
+export async function closeTerm(id: string): Promise<CloseTermResult> {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
@@ -361,17 +571,12 @@ export async function closeTerm(id: string) {
   if (!cycle) return { error: 'Term not found' }
   if (cycle.status === 'closed') return { error: 'Term is already closed' }
 
-  const { error } = await supabase
-    .from('billing_cycles')
-    .update({ status: 'closed', closed_at: new Date().toISOString() })
-    .eq('id', id)
-    .eq('school_id', schoolId)
-
-  if (error) return { error: error.message }
+  const summary = await closeTermAndCarryForward(supabase, schoolId, id)
 
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
-  return { success: true }
+  revalidatePath(`/fees/cycles/${id}`)
+  return { success: true, summary }
 }
 
 export async function reopenTermAsDraft(id: string) {
@@ -494,6 +699,7 @@ export async function deleteTermDraft(id: string) {
     .from('billing_cycles')
     .delete()
     .eq('id', id)
+    .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
 
@@ -502,159 +708,6 @@ export async function deleteTermDraft(id: string) {
   return { success: true }
 }
 // ============ INVOICE GENERATION ============
-
-interface ComputedLineItem {
-  name: string
-  amount: number
-  kind: 'required' | 'opt_in' | 'previous_balance'
-  fee_item_id?: string
-}
-
-interface ComputedInvoice {
-  studentId: string
-  studentName: string
-  className: string
-  lineItems: ComputedLineItem[]
-  subtotal: number
-  previousBalance: number
-  total: number
-  warning?: string
-}
-
-// Compute what a student's invoice would look like for a given cycle
-async function computeInvoiceForStudent(
-  supabase: any,
-  schoolId: string,
-  studentId: string,
-  cycleId: string
-): Promise<ComputedInvoice | { error: string }> {
-  // Get student
-  const { data: student } = await supabase
-    .from('students')
-    .select('id, first_name, last_name, class_id, status, classes(name)')
-    .eq('id', studentId)
-    .eq('school_id', schoolId)
-    .single()
-
-  if (!student) return { error: 'Student not found' }
-  if (student.status !== 'active') return { error: `Student is ${student.status}, not active` }
-
-  const studentName = `${student.first_name} ${student.last_name}`
-  const className: string = student.classes?.name || ''
-
-  // Fee items: per-class for this student's class + school-wide
-  let feeItemsQuery = supabase
-    .from('fee_items')
-    .select('id, class_id, name, amount, is_mandatory, is_optional_extra')
-    .eq('school_id', schoolId)
-    .eq('billing_cycle_id', cycleId)
-
-  if (student.class_id) {
-    feeItemsQuery = feeItemsQuery.or(`class_id.eq.${student.class_id},class_id.is.null`)
-  } else {
-    feeItemsQuery = feeItemsQuery.is('class_id', null)
-  }
-
-  const { data: feeItems } = await feeItemsQuery
-  if (!feeItems || feeItems.length === 0) {
-    return {
-      studentId,
-      studentName,
-      className,
-      lineItems: [],
-      subtotal: 0,
-      previousBalance: 0,
-      total: 0,
-      warning: 'No fees configured for this term',
-    }
-  }
-
-  // Adjustments
-  const { data: adjustments } = await supabase
-    .from('student_fee_adjustments')
-    .select('fee_item_id, adjustment_type')
-    .eq('student_id', studentId)
-    .eq('school_id', schoolId)
-
-  const optInIds = new Set((adjustments || []).filter((a: any) => a.adjustment_type === 'opt_in').map((a: any) => a.fee_item_id))
-  const exemptIds = new Set((adjustments || []).filter((a: any) => a.adjustment_type === 'exempt').map((a: any) => a.fee_item_id))
-
-  const lineItems: ComputedLineItem[] = []
-
-  feeItems.forEach((f: any) => {
-    if (f.is_mandatory) {
-      if (!exemptIds.has(f.id)) {
-        lineItems.push({
-          name: f.name,
-          amount: Number(f.amount),
-          kind: 'required',
-          fee_item_id: f.id,
-        })
-      }
-    } else if (f.is_optional_extra && optInIds.has(f.id)) {
-      lineItems.push({
-        name: f.name,
-        amount: Number(f.amount),
-        kind: 'opt_in',
-        fee_item_id: f.id,
-      })
-    }
-  })
-
-  // Carry-forward balance from most recent closed term
-  let previousBalance = 0
-  const { data: thisCycle } = await supabase
-    .from('billing_cycles')
-    .select('start_date')
-    .eq('id', cycleId)
-    .single()
-
-  if (thisCycle) {
-    const { data: priorClosedCycle } = await supabase
-      .from('billing_cycles')
-      .select('id, name')
-      .eq('school_id', schoolId)
-      .eq('status', 'closed')
-      .lt('start_date', thisCycle.start_date)
-      .order('start_date', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (priorClosedCycle) {
-      const { data: priorInvoice } = await supabase
-        .from('invoices')
-        .select('outstanding_amount, total_amount, paid_amount')
-        .eq('student_id', studentId)
-        .eq('billing_cycle_id', priorClosedCycle.id)
-        .maybeSingle()
-
-      if (priorInvoice) {
-        const outstanding = Number(priorInvoice.outstanding_amount ?? (Number(priorInvoice.total_amount) - Number(priorInvoice.paid_amount || 0)))
-        if (outstanding > 0) {
-          previousBalance = outstanding
-          lineItems.push({
-            name: `Outstanding balance from ${priorClosedCycle.name}`,
-            amount: outstanding,
-            kind: 'previous_balance',
-          })
-        }
-      }
-    }
-  }
-
-  const subtotal = lineItems.filter(li => li.kind !== 'previous_balance').reduce((s, li) => s + li.amount, 0)
-  const total = subtotal + previousBalance
-
-  return {
-    studentId,
-    studentName,
-    className,
-    lineItems,
-    subtotal,
-    previousBalance,
-    total,
-  }
-}
 
 // PREVIEW: Compute invoices for a cycle without saving
 export async function previewInvoicesForCycle(cycleId: string) {
@@ -949,12 +1002,16 @@ export async function regenerateInvoice(invoiceId: string) {
 
   const { data: existing } = await supabase
     .from('invoices')
-    .select('id, student_id, billing_cycle_id, paid_amount, sent_at')
+    .select('id, student_id, billing_cycle_id, paid_amount, sent_at, billing_cycles(status)')
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
     .single()
 
   if (!existing) return { error: 'Invoice not found' }
+  // @ts-expect-error — joined
+  if (existing.billing_cycles?.status === 'closed') {
+    return { error: 'This term is closed. Invoices cannot be regenerated.' }
+  }
 
   const computed = await computeInvoiceForStudent(supabase, schoolId, existing.student_id, existing.billing_cycle_id)
   if ('error' in computed) return { error: computed.error }
@@ -983,4 +1040,73 @@ export async function regenerateInvoice(invoiceId: string) {
   revalidatePath(`/students/${existing.student_id}`)
   revalidatePath(`/fees/cycles/${existing.billing_cycle_id}`)
   return { success: true, newTotal: computed.total, wasOverpaid: paid > computed.total }
+}
+
+// REGENERATE every out-of-date invoice in a cycle (skips ones already matching current fees)
+export async function regenerateStaleInvoicesForCycle(cycleId: string) {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  const { data: cycle } = await supabase
+    .from('billing_cycles')
+    .select('id, status')
+    .eq('id', cycleId)
+    .eq('school_id', schoolId)
+    .single()
+  if (!cycle) return { error: 'Term not found' }
+  if (cycle.status === 'closed') return { error: 'This term is closed. Invoices cannot be regenerated.' }
+
+  const { data: invoices } = await supabase
+    .from('invoices')
+    .select('id, student_id, total_amount, paid_amount, sent_at')
+    .eq('billing_cycle_id', cycleId)
+    .eq('school_id', schoolId)
+
+  let regenerated = 0
+  let alreadyUpToDate = 0
+  const errors: { studentId: string, error: string }[] = []
+
+  for (const inv of invoices || []) {
+    const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, cycleId)
+    if ('error' in computed) {
+      errors.push({ studentId: inv.student_id, error: computed.error })
+      continue
+    }
+
+    if (computed.total === Number(inv.total_amount)) {
+      alreadyUpToDate++
+      continue
+    }
+
+    const paid = Number(inv.paid_amount || 0)
+    let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
+    if (paid >= computed.total) newStatus = 'paid'
+    else if (paid > 0) newStatus = 'partial'
+
+    const { error } = await supabase
+      .from('invoices')
+      .update({
+        line_items: computed.lineItems,
+        subtotal: computed.subtotal,
+        previous_balance: computed.previousBalance,
+        total_amount: computed.total,
+        status: newStatus,
+        needs_resend: !!inv.sent_at,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', inv.id)
+
+    if (error) {
+      errors.push({ studentId: inv.student_id, error: error.message })
+      continue
+    }
+    regenerated++
+  }
+
+  revalidatePath(`/fees/cycles/${cycleId}`)
+  revalidatePath('/fees/cycles')
+  revalidatePath('/fees')
+
+  return { success: true, regenerated, alreadyUpToDate, errors }
 }

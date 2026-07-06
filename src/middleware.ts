@@ -28,8 +28,8 @@ export async function middleware(request: NextRequest) {
   // Refresh session if expired
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Protected routes: anything under /dashboard, /students, /fees, /settings
-  const protectedPaths = ['/dashboard', '/students', '/fees', '/settings']
+  // Protected routes: anything under /dashboard, /students, /fees, /invoices, /settings
+  const protectedPaths = ['/dashboard', '/students', '/fees', '/invoices', '/settings']
   const isProtectedRoute = protectedPaths.some(path => 
     request.nextUrl.pathname.startsWith(path)
   )

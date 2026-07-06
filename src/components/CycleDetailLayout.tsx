@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CycleDetailData, InvoiceRow } from '@/lib/queries/fees'
 import GenerateInvoicesPanel from '@/components/GenerateInvoicesPanel'
+import { regenerateInvoice, regenerateStaleInvoicesForCycle } from '@/app/(app)/fees/cycles/actions'
 
 interface Props {
   data: CycleDetailData
 }
 
-type Filter = 'all' | 'paid' | 'partial' | 'unpaid' | 'needs_resend' | 'no_invoice'
+type Filter = 'all' | 'paid' | 'partial' | 'unpaid' | 'needs_resend' | 'out_of_date' | 'no_invoice'
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
@@ -45,6 +46,9 @@ export default function CycleDetailLayout({ data }: Props) {
   const [search, setSearch] = useState('')
   const [generatePanelOpen, setGeneratePanelOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [regeneratingAll, setRegeneratingAll] = useState(false)
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
+  const [regenerateSummary, setRegenerateSummary] = useState<string | null>(null)
 
   const filteredInvoices = useMemo(() => {
     const term = search.toLowerCase().trim()
@@ -53,6 +57,7 @@ export default function CycleDetailLayout({ data }: Props) {
       if (filter === 'partial' && inv.status !== 'partial') return false
       if (filter === 'unpaid' && (inv.status === 'paid' || inv.status === 'partial')) return false
       if (filter === 'needs_resend' && !inv.needsResend) return false
+      if (filter === 'out_of_date' && !inv.needsRegeneration) return false
       if (filter === 'no_invoice') return false
       if (term) {
         const fullName = `${inv.studentFirstName} ${inv.studentLastName}`.toLowerCase()
@@ -71,6 +76,34 @@ export default function CycleDetailLayout({ data }: Props) {
       return fullName.includes(term) || s.admissionNumber.toLowerCase().includes(term)
     })
   }, [studentsWithoutInvoices, filter, search])
+
+  async function handleRegenerateAll() {
+    if (!cycle) return
+    setError(null)
+    setRegeneratingAll(true)
+    const result = await regenerateStaleInvoicesForCycle(cycle.id)
+    if (result.error) {
+      setError(result.error)
+    } else {
+      setRegenerateSummary(
+        `${result.regenerated} ${result.regenerated === 1 ? 'invoice' : 'invoices'} updated to current fees.`
+      )
+      router.refresh()
+    }
+    setRegeneratingAll(false)
+  }
+
+  async function handleRegenerateOne(invoiceId: string) {
+    setError(null)
+    setRegeneratingId(invoiceId)
+    const result = await regenerateInvoice(invoiceId)
+    if (result.error) {
+      setError(result.error)
+    } else {
+      router.refresh()
+    }
+    setRegeneratingId(null)
+  }
 
   if (!cycle) {
     return (
@@ -166,6 +199,40 @@ export default function CycleDetailLayout({ data }: Props) {
         </div>
       )}
 
+      {!isClosed && totalsByStatus.needsRegeneration > 0 && (
+        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+          <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-navy">
+              {totalsByStatus.needsRegeneration} {totalsByStatus.needsRegeneration === 1 ? 'invoice is' : 'invoices are'} out of date
+            </p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              Fees, opt-ins, or exemptions changed since these were generated. Regenerate to apply the current numbers — payments already made are preserved.
+            </p>
+          </div>
+          <button
+            onClick={handleRegenerateAll}
+            disabled={regeneratingAll}
+            className="px-3 py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 flex-shrink-0"
+          >
+            {regeneratingAll ? 'Regenerating...' : 'Regenerate all'}
+          </button>
+        </div>
+      )}
+
+      {regenerateSummary && (
+        <div className="mb-4 p-3 bg-mint-light/40 border border-mint/30 rounded-lg text-sm text-navy flex items-center justify-between">
+          {regenerateSummary}
+          <button onClick={() => setRegenerateSummary(null)} className="text-gray-400 hover:text-gray-600">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
           {error}
@@ -237,6 +304,14 @@ export default function CycleDetailLayout({ data }: Props) {
               className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'needs_resend' ? 'bg-amber-200 text-amber-800' : 'bg-white border border-gray-200 text-amber-700 hover:bg-amber-50'}`}
             >
               Needs resend {totalsByStatus.needsResend}
+            </button>
+          )}
+          {totalsByStatus.needsRegeneration > 0 && (
+            <button
+              onClick={() => setFilter('out_of_date')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'out_of_date' ? 'bg-amber-200 text-amber-800' : 'bg-white border border-gray-200 text-amber-700 hover:bg-amber-50'}`}
+            >
+              Out of date {totalsByStatus.needsRegeneration}
             </button>
           )}
           {studentsWithoutInvoices.length > 0 && (
@@ -335,9 +410,28 @@ export default function CycleDetailLayout({ data }: Props) {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center">
-                      <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${b.cls}`}>
-                        {b.label}
-                      </span>
+                      <div className="flex items-center justify-center gap-2 flex-wrap">
+                        <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${b.cls}`}>
+                          {b.label}
+                        </span>
+                        {inv.needsRegeneration && (
+                          <>
+                            <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+                              out of date
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleRegenerateOne(inv.id)
+                              }}
+                              disabled={regeneratingId === inv.id}
+                              className="text-xs text-mint font-medium hover:underline disabled:opacity-50"
+                            >
+                              {regeneratingId === inv.id ? 'Regenerating...' : 'Regenerate'}
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )

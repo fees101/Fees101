@@ -3,7 +3,6 @@ import { renderToBuffer, Document } from '@react-pdf/renderer'
 import { createElement } from 'react'
 import { InvoicePage } from '@/components/InvoicePDF'
 import { getInvoicesByCycleId } from '@/lib/queries/fees'
-import { createClient } from '@/lib/supabase/server'
 
 export async function GET(
   request: NextRequest,
@@ -16,14 +15,7 @@ export async function GET(
     return NextResponse.json({ error: 'No invoices found for this term' }, { status: 404 })
   }
 
-  const supabase = await createClient()
-  const { data: schoolLogo } = await supabase
-    .from('schools')
-    .select('logo_url')
-    .eq('name', invoices[0].schoolName)
-    .single()
-
-  const logoUrl = schoolLogo?.logo_url || null
+  const logoUrl = invoices[0].schoolLogoUrl
 
   // Build combined Document with one Page per invoice
   const combinedDoc = createElement(
