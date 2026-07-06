@@ -1,4 +1,4 @@
-import InvoicesListLayout from '@/components/InvoicesListLayout'
+import InvoicesListLayout from '@/components/invoices/InvoicesListLayout'
 import { getAllInvoices } from '@/lib/queries/fees'
 
 export default async function InvoicesPage() {

@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getInvoiceById } from '@/lib/queries/fees'
-import InvoiceDetailLayout from '@/components/InvoiceDetailLayout'
+import InvoiceDetailLayout from '@/components/invoices/InvoiceDetailLayout'
 
 interface PageProps {
   params: Promise<{ id: string }>

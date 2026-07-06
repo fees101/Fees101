@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { CycleRow, SessionRow } from '@/lib/queries/fees'
 import CreateTermPanel from './CreateTermPanel'
 import TermSelector from './TermSelector'
-import ConfirmDialog from './ConfirmDialog'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { activateTerm, deleteTermDraft, closeTerm, reopenTermAsDraft, previewCloseTerm } from '@/app/(app)/fees/cycles/actions'
 
 interface Props {

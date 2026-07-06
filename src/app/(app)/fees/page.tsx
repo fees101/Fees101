@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { getFeesOverview, getAllCycles } from '@/lib/queries/fees'
-import TermSelector from '@/components/TermSelector'
+import TermSelector from '@/components/fees/TermSelector'
 
 interface PageProps {
   searchParams: Promise<{ cycle?: string }>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { editFeeGroup, getFeeGroupDetails } from '@/app/(app)/fees/structure/actions'
-import ConfirmDialog from './ConfirmDialog'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 interface ClassRow { id: string, name: string, displayOrder: number }
 

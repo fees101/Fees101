@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import CyclesLayout from '@/components/CyclesLayout'
+import CyclesLayout from '@/components/fees/CyclesLayout'
 import { getAllCycles, getSessions } from '@/lib/queries/fees'
 
 export default async function CyclesPage() {

@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import CycleDetailLayout from '@/components/CycleDetailLayout'
+import CycleDetailLayout from '@/components/fees/CycleDetailLayout'
 import { getCycleDetailById } from '@/lib/queries/fees'
 
 interface PageProps {

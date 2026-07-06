@@ -1,4 +1,4 @@
-import CSVImportFlow from '@/components/CSVImportFlow'
+import CSVImportFlow from '@/components/students/CSVImportFlow'
 
 export default function ImportStudentsPage() {
   return (

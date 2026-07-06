@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react'
 import { SchoolSettings } from '@/lib/queries/school'
 import { updateSchoolGeneralInfo, uploadSchoolLogo, removeSchoolLogo } from '@/app/(app)/settings/actions'
-import ConfirmDialog from '@/components/ConfirmDialog'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 interface Props {
   school: SchoolSettings

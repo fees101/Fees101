@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { SessionRow } from '@/lib/queries/fees'
 import { createSession, setActiveSession, closeSession } from '@/app/(app)/fees/cycles/actions'
-import ConfirmDialog from '@/components/ConfirmDialog'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 interface Props {
   sessions: SessionRow[]

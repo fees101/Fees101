@@ -1,6 +1,6 @@
 import { getClasses, getSessions, getAllCycles } from '@/lib/queries/fees'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
-import AcademicStructureLayout from '@/components/settings/AcademicStructureLayout'
+import AcademicStructureLayout from '@/components/settings/academic-structure/AcademicStructureLayout'
 
 export default async function AcademicStructurePage() {
   const [{ classes, sections }, sessions, cycles] = await Promise.all([

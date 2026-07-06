@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { addSection, updateSection, deleteSection } from '@/app/(app)/settings/academic-structure/actions'
-import ConfirmDialog from '@/components/ConfirmDialog'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 interface Section {
   id: string

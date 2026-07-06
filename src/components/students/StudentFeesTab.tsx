@@ -13,7 +13,7 @@ import {
   generateInvoiceForStudent,
   regenerateInvoice
 } from '@/app/(app)/fees/cycles/actions'
-import ConfirmDialog from '@/components/ConfirmDialog'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 interface Props {
   data: StudentFeesData

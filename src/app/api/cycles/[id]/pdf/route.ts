@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { renderToBuffer, Document } from '@react-pdf/renderer'
 import { createElement } from 'react'
-import { InvoicePage } from '@/components/InvoicePDF'
+import { InvoicePage } from '@/components/invoices/InvoicePDF'
 import { getInvoicesByCycleId } from '@/lib/queries/fees'
 
 export async function GET(

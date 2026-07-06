@@ -1,9 +1,9 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import StudentActivityTimeline from '@/components/StudentActivityTimeline'
-import StudentSettingsTab from '@/components/StudentSettingsTab'
-import StudentPaymentHistoryTab from '@/components/StudentPaymentHistoryTab'
-import StudentFeesTab from '@/components/StudentFeesTab'
+import StudentActivityTimeline from '@/components/students/StudentActivityTimeline'
+import StudentSettingsTab from '@/components/students/StudentSettingsTab'
+import StudentPaymentHistoryTab from '@/components/students/StudentPaymentHistoryTab'
+import StudentFeesTab from '@/components/students/StudentFeesTab'
 import { getStudentById, getStudentPaymentHistory, getStudentFees } from '@/lib/queries/students'
 
 interface PageProps {

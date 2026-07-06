@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CycleDetailData, InvoiceRow } from '@/lib/queries/fees'
-import GenerateInvoicesPanel from '@/components/GenerateInvoicesPanel'
+import GenerateInvoicesPanel from './GenerateInvoicesPanel'
 import { regenerateInvoice, regenerateStaleInvoicesForCycle } from '@/app/(app)/fees/cycles/actions'
 
 interface Props {

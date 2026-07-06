@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import FeeFormPanel from './FeeFormPanel'
 import ManageOptInsPanel from './ManageOptInsPanel'
 import EditFeeGroupPanel from './EditFeeGroupPanel'
-import ConfirmDialog from './ConfirmDialog'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { deleteFeeItem, bulkDeleteFeeItemByName } from '@/app/(app)/fees/structure/actions'
 
 interface ClassRow { id: string, name: string, displayOrder: number }

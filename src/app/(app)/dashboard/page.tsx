@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getDashboardKPIs, getCollectionByClass, getRecentActivity } from '@/lib/queries/dashboard'
-import CollectionChart from '@/components/CollectionChart'
-import RecentActivity from '@/components/RecentActivity'
+import CollectionChart from '@/components/dashboard/CollectionChart'
+import RecentActivity from '@/components/dashboard/RecentActivity'
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')

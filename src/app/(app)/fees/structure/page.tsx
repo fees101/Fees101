@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { getFeeStructure, getAllCycles } from '@/lib/queries/fees'
-import FeeStructureLayout from '@/components/FeeStructureLayout'
-import TermSelector from '@/components/TermSelector'
+import FeeStructureLayout from '@/components/fees/FeeStructureLayout'
+import TermSelector from '@/components/fees/TermSelector'
 
 interface PageProps {
   searchParams: Promise<{ view?: string, class?: string, cycle?: string }>

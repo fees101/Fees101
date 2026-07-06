@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import SessionsTab from './SessionsTab'
 import SectionsTab from './SectionsTab'
-import ClassesTable from '@/components/ClassesTable'
+import ClassesTable from './ClassesTable'
 import { SessionRow } from '@/lib/queries/fees'
 
 interface ClassRow {

@@ -1,6 +1,6 @@
 import { getStudents } from '@/lib/queries/students'
-import StudentsTable from '@/components/StudentsTable'
-import StudentsHeader from '@/components/StudentsHeader'
+import StudentsTable from '@/components/students/StudentsTable'
+import StudentsHeader from '@/components/students/StudentsHeader'
 
 interface PageProps {
   searchParams: Promise<{ status?: string }>
