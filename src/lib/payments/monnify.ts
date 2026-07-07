@@ -4,10 +4,11 @@
 // - get:    GET  v2 /reserved-accounts/{ref}
 // - delete: DELETE v1 /reserved-accounts/reference/{ref}  (note the /reference/ segment, and v1 not v2)
 // - verify: GET  v2 /transactions/{ref}
+// - list:   GET  v1 /reserved-accounts/transactions?accountReference={ref}  (v1, not v2 — different from get/delete)
 // - webhook signature: HMAC-SHA512(secretKey, rawBody), not a plain concatenated hash
 
 import crypto from 'crypto'
-import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction } from './types'
+import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction, DVATransactionSummary } from './types'
 
 const DEFAULT_BASE_URL = 'https://sandbox.monnify.com'
 // Refresh well before the real ~60-minute expiry, not right at it.
@@ -170,6 +171,21 @@ export class MonnifyProvider implements PaymentProvider {
       paymentStatus: body.paymentStatus,
       dvaReference: body.product?.reference,
     }
+  }
+
+  async listDVATransactions(reference: string, page = 0, size = 20): Promise<DVATransactionSummary[]> {
+    const { json } = await authedRequest(
+      this.creds,
+      this.baseUrl,
+      `/api/v1/bank-transfer/reserved-accounts/transactions?accountReference=${encodeURIComponent(reference)}&page=${page}&size=${size}`
+    )
+
+    if (!json.requestSuccessful) return []
+
+    return (json.responseBody?.content || []).map((t: any) => ({
+      transactionReference: t.transactionReference,
+      paymentStatus: t.paymentStatus,
+    }))
   }
 
   verifyWebhookSignature(rawBody: string, signatureHeader: string): boolean {

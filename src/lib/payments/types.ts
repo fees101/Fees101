@@ -33,12 +33,20 @@ export interface VerifiedTransaction {
   dvaReference: string
 }
 
+export interface DVATransactionSummary {
+  transactionReference: string
+  paymentStatus: string
+}
+
 export interface PaymentProvider {
   createDVA(params: CreateDVAParams): Promise<DVADetails>
   getDVA(reference: string): Promise<DVADetails | null>
   deleteDVA(reference: string): Promise<void>
   verifyTransaction(transactionReference: string): Promise<VerifiedTransaction | null>
   verifyWebhookSignature(rawBody: string, signatureHeader: string): boolean
+  // Lightweight — just enough to spot candidates for reconciliation.
+  // verifyTransaction() is the source of truth for actually applying one.
+  listDVATransactions(reference: string, page?: number, size?: number): Promise<DVATransactionSummary[]>
 }
 
 export interface ProviderCredentials {
