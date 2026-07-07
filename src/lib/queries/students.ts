@@ -251,7 +251,7 @@ export async function getStudentById(studentId: string) {
   if (currentInvoice) {
     const { data: paymentData } = await supabase
       .from('payments')
-      .select('id, amount, method, paid_at, paystack_reference')
+      .select('id, amount, method, paid_at, provider_reference')
       .eq('invoice_id', currentInvoice.id)
       .eq('match_status', 'matched')
       .order('paid_at', { ascending: false })
@@ -361,7 +361,7 @@ export async function getStudentPaymentHistory(studentId: string) {
       amount,
       method,
       paid_at,
-      paystack_reference,
+      provider_reference,
       invoice_id
     `)
     .eq('student_id', studentId)
@@ -401,7 +401,7 @@ export async function getStudentPaymentHistory(studentId: string) {
     amount: Number(p.amount),
     method: p.method,
     paidAt: p.paid_at,
-    reference: p.paystack_reference || '',
+    reference: p.provider_reference || '',
     appliedTo: p.invoice_id ? invoiceLookup.get(p.invoice_id) || 'Unknown term' : 'Unassigned',
   })) || []
 

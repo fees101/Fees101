@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
 })
 
 function formatNaira(amount: number): string {
-  return '₦' + amount.toLocaleString('en-NG')
+  return (amount < 0 ? '-₦' : '₦') + Math.abs(amount).toLocaleString('en-NG')
 }
 
 function formatDateShort(dateStr: string | null): string {

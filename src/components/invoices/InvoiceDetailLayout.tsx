@@ -8,7 +8,7 @@ interface Props {
 }
 
 function formatNaira(amount: number): string {
-  return '₦' + amount.toLocaleString('en-NG')
+  return (amount < 0 ? '-₦' : '₦') + Math.abs(amount).toLocaleString('en-NG')
 }
 
 function formatDate(dateStr: string | null): string {
@@ -163,6 +163,9 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
                       )}
                       {item.kind === 'previous_balance' && (
                         <span className="ml-2 text-xs text-amber-600">(carry-forward)</span>
+                      )}
+                      {item.kind === 'credit_applied' && (
+                        <span className="ml-2 text-xs text-mint">(credit applied)</span>
                       )}
                     </td>
                     <td className="py-3 text-right text-sm text-navy font-medium">

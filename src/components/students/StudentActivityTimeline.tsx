@@ -27,7 +27,7 @@ export default async function StudentActivityTimeline({
   // Get recent payments for this student
   const { data: payments } = await supabase
     .from('payments')
-    .select('id, amount, method, paid_at, paystack_reference')
+    .select('id, amount, method, paid_at, provider_reference')
     .eq('student_id', studentId)
     .eq('match_status', 'matched')
     .order('paid_at', { ascending: false })
@@ -56,7 +56,7 @@ export default async function StudentActivityTimeline({
       id: `payment-${payment.id}`,
       type: 'payment',
       description: `${formatNaira(Number(payment.amount))} received from ${parentName}`,
-      detail: payment.paystack_reference ? `Receipt #${payment.paystack_reference}` : payment.method.replace('_', ' '),
+      detail: payment.provider_reference ? `Receipt #${payment.provider_reference}` : payment.method.replace('_', ' '),
       timestamp: payment.paid_at,
     })
   })

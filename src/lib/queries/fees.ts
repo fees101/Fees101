@@ -759,7 +759,7 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
   // Get recorded payments for this invoice
   const { data: payments } = await supabase
     .from('payments')
-    .select('id, amount, method, paid_at, paystack_reference, users(name)')
+    .select('id, amount, method, paid_at, provider_reference, users(name)')
     .eq('invoice_id', invoiceId)
     .eq('match_status', 'matched')
     .order('paid_at', { ascending: false })
@@ -813,7 +813,7 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
       amount: Number(p.amount),
       method: p.method,
       paidAt: p.paid_at,
-      reference: p.paystack_reference || '',
+      reference: p.provider_reference || '',
       // @ts-expect-error — joined
       receivedByName: p.users?.name || null,
     })),

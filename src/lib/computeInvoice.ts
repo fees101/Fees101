@@ -5,7 +5,7 @@
 export interface ComputedLineItem {
   name: string
   amount: number
-  kind: 'required' | 'opt_in' | 'previous_balance'
+  kind: 'required' | 'opt_in' | 'previous_balance' | 'credit_applied'
   fee_item_id?: string
 }
 
@@ -16,6 +16,7 @@ export interface ComputedInvoice {
   lineItems: ComputedLineItem[]
   subtotal: number
   previousBalance: number
+  creditApplied: number
   total: number
   warning?: string
 }
@@ -30,7 +31,7 @@ export async function computeInvoiceForStudent(
   // Get student
   const { data: student } = await supabase
     .from('students')
-    .select('id, first_name, last_name, class_id, status, classes(name)')
+    .select('id, first_name, last_name, class_id, status, credit_balance, classes(name)')
     .eq('id', studentId)
     .eq('school_id', schoolId)
     .single()
@@ -63,6 +64,7 @@ export async function computeInvoiceForStudent(
       lineItems: [],
       subtotal: 0,
       previousBalance: 0,
+      creditApplied: 0,
       total: 0,
       warning: 'No fees configured for this term',
     }
@@ -142,7 +144,25 @@ export async function computeInvoiceForStudent(
   }
 
   const subtotal = lineItems.filter(li => li.kind !== 'previous_balance').reduce((s, li) => s + li.amount, 0)
-  const total = subtotal + previousBalance
+  const amountDue = subtotal + previousBalance
+
+  // Spend down any available credit (e.g. from a prior overpayment) against
+  // this term's charges. Never over-applies past what's actually owed —
+  // leftover credit stays on the student for a future invoice. This only
+  // computes the amount; the caller (whoever persists the invoice) is
+  // responsible for actually decrementing students.credit_balance, since
+  // this function also runs read-only for previews/staleness checks.
+  const availableCredit = Number(student.credit_balance || 0)
+  const creditApplied = Math.min(availableCredit, Math.max(0, amountDue))
+  if (creditApplied > 0) {
+    lineItems.push({
+      name: 'Credit balance applied',
+      amount: -creditApplied,
+      kind: 'credit_applied',
+    })
+  }
+
+  const total = amountDue - creditApplied
 
   return {
     studentId,
@@ -151,6 +171,27 @@ export async function computeInvoiceForStudent(
     lineItems,
     subtotal,
     previousBalance,
+    creditApplied,
     total,
   }
+}
+
+// Actually spends/restores a student's credit_balance — call this only from
+// code paths that persist an invoice, never from previews or staleness
+// checks. Positive delta restores credit (e.g. undoing a prior application
+// before recomputing on regenerate), negative delta spends it. Uses a DB
+// function so the read-modify-write is atomic instead of racing a plain
+// select-then-update from this client.
+export async function applyCreditBalanceDelta(
+  supabase: any,
+  schoolId: string,
+  studentId: string,
+  delta: number
+): Promise<void> {
+  if (delta === 0) return
+  await supabase.rpc('adjust_student_credit_balance', {
+    p_student_id: studentId,
+    p_school_id: schoolId,
+    p_delta: delta,
+  })
 }
