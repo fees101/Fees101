@@ -59,6 +59,11 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // All of /api excluded: every route under it enforces its own auth
+    // (getSchoolContext()/auth.getUser() for the PDF routes, signature +
+    // service-role for webhooks) — none of them were ever actually gated by
+    // the redirect logic above anyway, since none match protectedPaths.
+    // Rule going forward: middleware protects pages, /api protects itself.
+    '/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
