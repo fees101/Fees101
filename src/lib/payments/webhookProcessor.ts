@@ -1,10 +1,11 @@
 // Handles an inbound Monnify webhook end to end: save raw payload, verify
-// signature, parse, dedupe, and (for now — Slice 3 replaces the inside of
-// this) record a bare payments row. Kept separate from route.ts so the route
-// itself stays a thin adapter between Next.js and this.
+// signature, parse, dedupe, and cascade the payment across the student's
+// outstanding invoices. Kept separate from route.ts so the route itself
+// stays a thin adapter between Next.js and this.
 
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getPaymentProviderForSchool } from './getProvider'
+import { applyMonnifyPayment } from './applyPayment'
 
 interface ProcessResult {
   status: number
@@ -122,58 +123,64 @@ export async function processMonnifyWebhook(
     return { status: 200, body: { message: 'Captured, no matching student' } }
   }
 
-  // --- STUB: Slice 3 replaces everything below this line ---
-  // Real behavior belongs here: cascade the payment across the student's
-  // oldest outstanding invoices first, spill any remainder into
-  // students.credit_balance, and insert one payments row per invoice
-  // touched. For now we just record that the money arrived, unattached to
-  // any invoice, so Slice 2 is independently testable.
   const amountPaid = Number(eventData.amountPaid || 0)
   const settlementAmount = Number(eventData.settlementAmount || 0)
   const paidOn = eventData.paidOn ? new Date(eventData.paidOn.replace(' ', 'T')).toISOString() : new Date().toISOString()
 
-  const { data: paymentRow, error: insertPaymentError } = await supabase
-    .from('payments')
+  // Claim the transaction before doing any real work. This is the actual
+  // idempotency guarantee, not the pre-checks above — two near-simultaneous
+  // retries of the same delivery can both pass a pre-check before either
+  // has inserted, but only one can win this unique constraint. Idempotency
+  // can't live on payments itself anymore: one real transaction can produce
+  // several payments rows (cascaded across multiple invoices), so no single
+  // row's provider_transaction_id can be the uniqueness boundary.
+  const { error: claimError } = await supabase
+    .from('processed_provider_transactions')
     .insert({
       school_id: schoolId,
-      student_id: student.id,
-      invoice_id: null, // Slice 3 assigns this
-      amount: amountPaid,
-      method: 'provider_dva',
       provider: 'monnify',
-      provider_reference: eventData.paymentReference || transactionReference,
       provider_transaction_id: transactionReference,
-      paid_at: paidOn,
-      match_status: 'matched', // cryptographically verified — no manual review needed, unlike cash/POS entries
-      notes: `settlementAmount=${settlementAmount} (Monnify fee not deducted from what the student is credited)`,
     })
-    .select('id')
-    .single()
 
-  if (insertPaymentError) {
-    // Unique violation on provider_transaction_id = a retry of a delivery
-    // we already fully processed. This is the real idempotency guarantee —
-    // the pre-checks above are not enough on their own since two close
-    // retries can both pass them before either has inserted.
-    if (insertPaymentError.code === '23505') {
+  if (claimError) {
+    if (claimError.code === '23505') {
       await updateWebhookEvent(supabase, eventId, { status: 'duplicate' })
       return { status: 200, body: { message: 'Duplicate delivery, already processed' } }
     }
-
-    await updateWebhookEvent(supabase, eventId, {
-      status: 'error',
-      error_message: insertPaymentError.message,
-    })
-    return { status: 200, body: { message: 'Captured, failed to record payment' } }
+    await updateWebhookEvent(supabase, eventId, { status: 'error', error_message: claimError.message })
+    return { status: 200, body: { message: 'Captured, failed to claim transaction' } }
   }
 
-  await updateWebhookEvent(supabase, eventId, {
-    status: 'processed',
-    processed_at: new Date().toISOString(),
-    related_payment_ids: [paymentRow.id],
-  })
+  try {
+    const { paymentIds } = await applyMonnifyPayment({
+      supabase,
+      schoolId,
+      studentId: student.id,
+      amountPaid,
+      settlementAmount,
+      providerReference: eventData.paymentReference || transactionReference,
+      providerTransactionId: transactionReference,
+      paidAt: paidOn,
+    })
 
-  return { status: 200, body: { success: true } }
+    await updateWebhookEvent(supabase, eventId, {
+      status: 'processed',
+      processed_at: new Date().toISOString(),
+      related_payment_ids: paymentIds,
+    })
+
+    return { status: 200, body: { success: true } }
+  } catch (err: any) {
+    // The transaction is already claimed at this point, so a retry from
+    // Monnify would be treated as a duplicate and never retried by us
+    // automatically — this needs to surface for manual follow-up rather
+    // than silently vanishing.
+    await updateWebhookEvent(supabase, eventId, {
+      status: 'error',
+      error_message: err?.message || 'Failed to apply payment',
+    })
+    return { status: 200, body: { message: 'Captured, failed to apply payment' } }
+  }
 }
 
 function safeParse(rawBody: string): unknown {
