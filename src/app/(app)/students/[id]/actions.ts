@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 
 export async function updateStudentDetails(studentId: string, formData: {
   firstName: string
@@ -348,4 +349,86 @@ export async function removeStudentExemption(studentId: string, feeItemId: strin
 
   revalidatePath(`/students/${studentId}`)
   return { success: true }
+}
+
+// ============ PAYMENT ACCOUNT (DVA) ============
+
+type CreateDVAResult =
+  | { error: string }
+  | { success: true; alreadyExists?: boolean; accountNumber: string; bankName: string }
+
+export async function createStudentDVA(studentId: string): Promise<CreateDVAResult> {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  const { data: student } = await supabase
+    .from('students')
+    .select('first_name, last_name, provider_dva_reference, provider_dva_account_number, provider_dva_bank_name')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!student) return { error: 'Student not found' }
+
+  // Already has one — not an error, just nothing to do. Covers both a stale
+  // client button state and a genuine double-click race.
+  if (student.provider_dva_reference) {
+    return {
+      success: true,
+      alreadyExists: true,
+      accountNumber: student.provider_dva_account_number || '',
+      bankName: student.provider_dva_bank_name || '',
+    }
+  }
+
+  const provider = await getPaymentProviderForSchool(schoolId, supabase)
+  if (!provider) return { error: 'This school has no payment provider configured yet.' }
+
+  const fullName = `${student.first_name} ${student.last_name}`.trim()
+  const params = {
+    reference: studentId, // accountReference is always the student's own id — stable and unique
+    accountName: fullName,
+    customerEmail: `student-${studentId}@fees101.internal`,
+    customerName: fullName,
+  }
+
+  let dva
+  try {
+    dva = await provider.createDVA(params)
+  } catch (firstErr: any) {
+    // Monnify's error messages (especially the generic "99") aren't
+    // reliable enough to fail on the first attempt — retry once.
+    await new Promise(r => setTimeout(r, 1200))
+    try {
+      dva = await provider.createDVA(params)
+    } catch (secondErr: any) {
+      // Last resort: the first attempt may have actually succeeded on
+      // Monnify's side and only the response was lost (or this is the
+      // losing half of a double-click race) — check before giving up.
+      const existing = await provider.getDVA(studentId).catch(() => null)
+      if (existing) {
+        dva = existing
+      } else {
+        return { error: `Could not create payment account: ${secondErr?.message || firstErr?.message || 'unknown error'}` }
+      }
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from('students')
+    .update({
+      provider_dva_reference: studentId,
+      provider_dva_bank_code: dva.bankCode,
+      provider_dva_account_number: dva.accountNumber,
+      provider_dva_bank_name: dva.bankName,
+      provider_dva_created_at: new Date().toISOString(),
+    })
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+
+  if (updateError) return { error: `Payment account created but failed to save: ${updateError.message}` }
+
+  revalidatePath(`/students/${studentId}`)
+  return { success: true, accountNumber: dva.accountNumber, bankName: dva.bankName }
 }

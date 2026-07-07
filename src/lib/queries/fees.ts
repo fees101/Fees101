@@ -690,6 +690,8 @@ export interface InvoiceDetail {
   proprietressName: string | null
   primaryParentName: string
   primaryParentPhone: string
+  dvaAccountNumber: string | null
+  dvaBankName: string | null
   lineItems: Array<{ name: string, amount: number, kind?: string }>
   subtotal: number
   discountAmount: number
@@ -738,6 +740,8 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
         first_name,
         last_name,
         admission_number,
+        provider_dva_account_number,
+        provider_dva_bank_name,
         classes(name),
         families(primary_parent_name, primary_parent_phone)
       ),
@@ -796,6 +800,10 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
     primaryParentName: invoice.students.families?.primary_parent_name || '',
     // @ts-expect-error
     primaryParentPhone: invoice.students.families?.primary_parent_phone || '',
+    // @ts-expect-error
+    dvaAccountNumber: invoice.students.provider_dva_account_number || null,
+    // @ts-expect-error
+    dvaBankName: invoice.students.provider_dva_bank_name || null,
     lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
     subtotal: Number(invoice.subtotal || 0),
     discountAmount: Number(invoice.discount_amount || 0),
@@ -846,6 +854,8 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
         first_name,
         last_name,
         admission_number,
+        provider_dva_account_number,
+        provider_dva_bank_name,
         classes(name, display_order),
         families(primary_parent_name, primary_parent_phone)
       ),
@@ -905,6 +915,10 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       primaryParentName: invoice.students.families?.primary_parent_name || '',
       // @ts-expect-error
       primaryParentPhone: invoice.students.families?.primary_parent_phone || '',
+      // @ts-expect-error
+      dvaAccountNumber: invoice.students.provider_dva_account_number || null,
+      // @ts-expect-error
+      dvaBankName: invoice.students.provider_dva_bank_name || null,
       lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
       subtotal: Number(invoice.subtotal || 0),
       discountAmount: Number(invoice.discount_amount || 0),

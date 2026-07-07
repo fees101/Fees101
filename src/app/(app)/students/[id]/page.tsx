@@ -367,7 +367,7 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
         )}
 
         {activeTab === 'payments' && paymentHistory && (
-          <StudentPaymentHistoryTab data={paymentHistory} />
+          <StudentPaymentHistoryTab data={paymentHistory} studentId={id} />
         )}
         {activeTab === 'fees' && feesData && (
           <StudentFeesTab data={feesData} />

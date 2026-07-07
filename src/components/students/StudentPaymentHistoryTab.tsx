@@ -1,6 +1,8 @@
 'use client'
 
 import { useState } from 'react'
+import { formatPaymentMethod } from '@/lib/paymentMethod'
+import PaymentAccountCard from './PaymentAccountCard'
 
 interface Invoice {
   id: string
@@ -31,10 +33,17 @@ interface PaymentHistoryData {
   }
   invoices: Invoice[]
   payments: Payment[]
+  paymentAccount: {
+    providerConfigured: boolean
+    hasAccount: boolean
+    accountNumber: string | null
+    bankName: string | null
+  }
 }
 
 interface Props {
   data: PaymentHistoryData
+  studentId: string
 }
 
 function formatNaira(amount: number): string {
@@ -46,12 +55,6 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-function formatMethod(method: string): string {
-  return method
-    .split('_')
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
-}
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -87,7 +90,7 @@ function getStatusBadge(status: string) {
   }
 }
 
-export default function StudentPaymentHistoryTab({ data }: Props) {
+export default function StudentPaymentHistoryTab({ data, studentId }: Props) {
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set())
 
   function toggleInvoice(invoiceId: string) {
@@ -102,7 +105,16 @@ export default function StudentPaymentHistoryTab({ data }: Props) {
 
   return (
     <div className="space-y-6 mb-6">
-      
+
+      {/* Payment account (DVA) */}
+      <PaymentAccountCard
+        studentId={studentId}
+        providerConfigured={data.paymentAccount.providerConfigured}
+        hasAccount={data.paymentAccount.hasAccount}
+        accountNumber={data.paymentAccount.accountNumber}
+        bankName={data.paymentAccount.bankName}
+      />
+
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-xl border border-gray-200">
@@ -233,7 +245,7 @@ export default function StudentPaymentHistoryTab({ data }: Props) {
                   <tr key={payment.id} className="hover:bg-gray-50">
                     <td className="py-3 text-sm text-navy">{formatDate(payment.paidAt)}</td>
                     <td className="py-3 text-sm text-mint font-medium">{formatNaira(payment.amount)}</td>
-                    <td className="py-3 text-sm text-gray-700">{formatMethod(payment.method)}</td>
+                    <td className="py-3 text-sm text-gray-700">{formatPaymentMethod(payment.method)}</td>
                     <td className="py-3 text-sm text-gray-700">{payment.appliedTo}</td>
                     <td className="py-3 text-sm text-right text-gray-500 font-mono text-xs">
                       {payment.reference || '—'}

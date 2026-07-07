@@ -326,15 +326,21 @@ export async function getStudentPaymentHistory(studentId: string) {
   }
   if (!schoolId) return null
 
-  // Verify student belongs to this school
+  // Verify student belongs to this school, and pull their payment account (DVA) details
   const { data: student } = await supabase
     .from('students')
-    .select('id')
+    .select('id, provider_dva_reference, provider_dva_account_number, provider_dva_bank_name')
     .eq('id', studentId)
     .eq('school_id', schoolId)
     .single()
-  
+
   if (!student) return null
+
+  const { data: school } = await supabase
+    .from('schools')
+    .select('payment_provider')
+    .eq('id', schoolId)
+    .single()
 
   // Get all invoices for this student, with billing cycle info
   const { data: invoices } = await supabase
@@ -414,6 +420,12 @@ export async function getStudentPaymentHistory(studentId: string) {
     },
     invoices: formattedInvoices,
     payments: formattedPayments,
+    paymentAccount: {
+      providerConfigured: !!school?.payment_provider,
+      hasAccount: !!student.provider_dva_reference,
+      accountNumber: student.provider_dva_account_number || null,
+      bankName: student.provider_dva_bank_name || null,
+    },
   }
 }
 // ============ STUDENT FEES (for Fees tab) ============

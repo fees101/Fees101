@@ -265,11 +265,24 @@ export function InvoicePage({ invoice, logoUrl }: Props) {
         <View style={styles.boxSecond}>
           <Text style={styles.boxLabel}>payment instructions</Text>
           <Text style={styles.paymentDesc}>
-            Please pay via bank transfer to the student&apos;s virtual account (DVA) below.
+            Please pay via bank transfer to the student&apos;s virtual account below.
           </Text>
-          <View style={styles.comingSoonBadge}>
-            <Text style={styles.comingSoonText}>Bank transfer details coming soon</Text>
-          </View>
+          {invoice.dvaAccountNumber ? (
+            <>
+              <View style={styles.infoFieldRow}>
+                <Text style={styles.infoFieldLabel}>Account number</Text>
+                <Text style={styles.infoFieldValue}>{invoice.dvaAccountNumber}</Text>
+              </View>
+              <View style={styles.infoFieldRow}>
+                <Text style={styles.infoFieldLabel}>Bank name</Text>
+                <Text style={styles.infoFieldValue}>{invoice.dvaBankName}</Text>
+              </View>
+            </>
+          ) : (
+            <View style={styles.comingSoonBadge}>
+              <Text style={styles.comingSoonText}>Bank transfer details coming soon</Text>
+            </View>
+          )}
         </View>
       </View>
 

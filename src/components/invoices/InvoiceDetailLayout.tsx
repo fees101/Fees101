@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { InvoiceDetail } from '@/lib/queries/fees'
+import { formatPaymentMethod } from '@/lib/paymentMethod'
 
 interface Props {
   invoice: InvoiceDetail
@@ -267,7 +268,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
               {payments.map(p => (
                 <tr key={p.id}>
                   <td className="py-3 text-sm text-navy">{formatDate(p.paidAt)}</td>
-                  <td className="py-3 text-sm text-gray-600 capitalize">{p.method}</td>
+                  <td className="py-3 text-sm text-gray-600">{formatPaymentMethod(p.method)}</td>
                   <td className="py-3 text-sm text-gray-600">{p.reference || '—'}</td>
                   <td className="py-3 text-right text-sm font-medium text-navy">{formatNaira(p.amount)}</td>
                   <td className="py-3 text-sm text-gray-600">{p.receivedByName || '—'}</td>

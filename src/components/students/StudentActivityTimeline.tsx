@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { formatPaymentMethod } from '@/lib/paymentMethod'
 
 interface StudentActivityTimelineProps {
   studentId: string
@@ -56,7 +57,7 @@ export default async function StudentActivityTimeline({
       id: `payment-${payment.id}`,
       type: 'payment',
       description: `${formatNaira(Number(payment.amount))} received from ${parentName}`,
-      detail: payment.provider_reference ? `Receipt #${payment.provider_reference}` : payment.method.replace('_', ' '),
+      detail: payment.provider_reference ? `Receipt #${payment.provider_reference}` : formatPaymentMethod(payment.method),
       timestamp: payment.paid_at,
     })
   })
