@@ -395,10 +395,10 @@ async function closeTermAndCarryForward(
           await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, previouslyApplied)
         }
 
-        const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, inv.billing_cycle_id)
+        const paid = Number(inv.paid_amount || 0)
+        const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, inv.billing_cycle_id, undefined, paid)
         if ('error' in computed) continue
 
-        const paid = Number(inv.paid_amount || 0)
         let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
         if (paid >= computed.total) newStatus = 'paid'
         else if (paid > 0) newStatus = 'partial'
@@ -1041,10 +1041,10 @@ export async function regenerateInvoice(invoiceId: string) {
     await applyCreditBalanceDelta(supabase, schoolId, existing.student_id, previouslyApplied)
   }
 
-  const computed = await computeInvoiceForStudent(supabase, schoolId, existing.student_id, existing.billing_cycle_id)
+  const paid = Number(existing.paid_amount || 0)
+  const computed = await computeInvoiceForStudent(supabase, schoolId, existing.student_id, existing.billing_cycle_id, undefined, paid)
   if ('error' in computed) return { error: computed.error }
 
-  const paid = Number(existing.paid_amount || 0)
   // Determine new status
   let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
   if (paid >= computed.total) newStatus = 'paid'
@@ -1109,7 +1109,8 @@ export async function regenerateStaleInvoicesForCycle(cycleId: string) {
       await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, previouslyApplied)
     }
 
-    const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, cycleId)
+    const paid = Number(inv.paid_amount || 0)
+    const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, cycleId, undefined, paid)
     if ('error' in computed) {
       errors.push({ studentId: inv.student_id, error: computed.error })
       continue
@@ -1124,7 +1125,6 @@ export async function regenerateStaleInvoicesForCycle(cycleId: string) {
       continue
     }
 
-    const paid = Number(inv.paid_amount || 0)
     let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
     if (paid >= computed.total) newStatus = 'paid'
     else if (paid > 0) newStatus = 'partial'

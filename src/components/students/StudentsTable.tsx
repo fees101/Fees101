@@ -15,6 +15,7 @@ interface Student {
   parentPhone: string
   invoiceTotal: number
   invoicePaid: number
+  creditApplied: number
   invoiceStatus: string
 }
 
@@ -350,10 +351,19 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
                         <td className="px-4 py-3 text-sm text-gray-700">{student.parentName}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{student.parentPhone}</td>
                     <td className="px-4 py-3 text-sm text-navy font-medium">
-                      {student.invoiceTotal > 0 ? formatNaira(student.invoiceTotal) : '—'}
+                      {student.invoiceStatus !== 'no_invoice' ? (
+                        <div>
+                          <p>{formatNaira(student.invoiceTotal)}</p>
+                          {student.creditApplied > 0 && (
+                            <p className="text-xs text-mint font-normal">
+                              {formatNaira(student.creditApplied)} credit applied
+                            </p>
+                          )}
+                        </div>
+                      ) : '—'}
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      {student.invoiceTotal > 0 ? (
+                      {student.invoiceStatus !== 'no_invoice' ? (
                         <span className={
                           student.invoiceStatus === 'paid' ? 'text-mint font-medium' :
                           student.invoiceStatus === 'partial' ? 'text-amber-600 font-medium' :

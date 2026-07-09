@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { computeInvoiceForStudent } from '@/lib/computeInvoice'
 
 export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'graduated' | 'all' = 'active') {
   const supabase = await createClient()
@@ -94,7 +95,7 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
   const studentIds = students.map(s => s.id)
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('student_id, total_amount, paid_amount, status')
+    .select('student_id, total_amount, paid_amount, credit_applied, status')
     .in('student_id', studentIds)
     .eq('billing_cycle_id', currentCycle?.id || '')
 
@@ -115,8 +116,17 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
       parentName: student.families?.primary_parent_name || '',
       // @ts-expect-error — joined object
       parentPhone: student.families?.primary_parent_phone || '',
+      // Net (post-credit) figures — matches the parent-facing invoice and the
+      // school's own collection rule (a credit application isn't new money
+      // collected this term, since it was already counted when the cash
+      // first arrived). Showing the gross pre-credit total here would read
+      // as "the school collected X" when X was never actually paid this
+      // term, and would color "Paid" red (unpaid status) right next to a
+      // large paid-looking number, which is exactly backwards. Credit is
+      // surfaced separately via creditApplied instead of folded in here.
       invoiceTotal: invoice ? Number(invoice.total_amount) : 0,
       invoicePaid: invoice ? Number(invoice.paid_amount) : 0,
+      creditApplied: invoice ? Number(invoice.credit_applied || 0) : 0,
       invoiceStatus: invoice?.status || 'no_invoice',
     }
   })
@@ -329,7 +339,7 @@ export async function getStudentPaymentHistory(studentId: string) {
   // Verify student belongs to this school, and pull their payment account (DVA) details
   const { data: student } = await supabase
     .from('students')
-    .select('id, provider_dva_reference, provider_dva_account_number, provider_dva_bank_name')
+    .select('id, provider_dva_reference, provider_dva_account_number, provider_dva_bank_name, credit_balance')
     .eq('id', studentId)
     .eq('school_id', schoolId)
     .single()
@@ -376,9 +386,17 @@ export async function getStudentPaymentHistory(studentId: string) {
 
   // Compute summary numbers
   const totalInvoiced = invoices?.reduce((sum, inv) => sum + Number(inv.total_amount), 0) || 0
-  const totalPaid = invoices?.reduce((sum, inv) => sum + Number(inv.paid_amount), 0) || 0
-  const outstanding = totalInvoiced - totalPaid
+  // Real cash received, not invoice-derived — a payment that arrived before
+  // any invoice existed (or after every invoice was already settled) has no
+  // invoice.paid_amount to be summed into, but the family really did send
+  // it. Summing payments directly means this never reads as "₦0 paid" while
+  // money is actually sitting on the student's credit_balance.
+  const totalPaid = payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0
+  // Outstanding stays invoice-scoped on purpose — it's "what's still owed
+  // against what's been billed," independent of any unapplied credit.
+  const outstanding = invoices?.reduce((sum, inv) => sum + Math.max(0, Number(inv.total_amount) - Number(inv.paid_amount)), 0) || 0
   const termsInvoiced = invoices?.length || 0
+  const unappliedCredit = Number(student.credit_balance || 0)
 
   // Format invoices
   const formattedInvoices = invoices?.map(inv => ({
@@ -408,7 +426,7 @@ export async function getStudentPaymentHistory(studentId: string) {
     method: p.method,
     paidAt: p.paid_at,
     reference: p.provider_reference || '',
-    appliedTo: p.invoice_id ? invoiceLookup.get(p.invoice_id) || 'Unknown term' : 'Unassigned',
+    appliedTo: p.invoice_id ? invoiceLookup.get(p.invoice_id) || 'Unknown term' : 'Credit balance (not yet invoiced)',
   })) || []
 
   return {
@@ -417,6 +435,7 @@ export async function getStudentPaymentHistory(studentId: string) {
       totalPaid,
       outstanding,
       termsInvoiced,
+      unappliedCredit,
     },
     invoices: formattedInvoices,
     payments: formattedPayments,
@@ -463,12 +482,14 @@ export interface StudentFeesData {
   requiredTotal: number
   exemptionTotal: number
   optInTotal: number
+  expectedCreditApplied: number
   expectedBill: number
   existingInvoice: {
     id: string
     totalAmount: number
     paidAmount: number
     outstandingAmount: number
+    creditApplied: number
     status: 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled'
     sentAt: string | null
     needsResend: boolean
@@ -510,6 +531,7 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
       admission_number,
       class_id,
       status,
+      credit_balance,
       classes(id, name)
     `)
     .eq('id', studentId)
@@ -548,6 +570,7 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
       exemptionTotal: 0,
       optInTotal: 0,
       expectedBill: 0,
+      expectedCreditApplied: 0,
       existingInvoice: null,
     }
   }
@@ -656,22 +679,38 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
     }
   }
 
-  // Then:
-  const expectedBill = requiredTotal - exemptionTotal + optInTotal + carryForwardAmount
-
   // Check if an invoice already exists for this student + cycle
   const { data: existingInvoice } = await supabase
     .from('invoices')
-    .select('id, total_amount, paid_amount, status, sent_at, needs_resend, previous_balance, line_items, generated_at')
+    .select('id, total_amount, paid_amount, credit_applied, status, sent_at, needs_resend, previous_balance, line_items, generated_at')
     .eq('student_id', studentId)
     .eq('billing_cycle_id', cycle.id)
     .maybeSingle()
+
+  // expectedBill must come from the same canonical computation used to
+  // actually generate/regenerate invoices (computeInvoiceForStudent), not
+  // a parallel hand-rolled formula — a second implementation is exactly
+  // how this drifted out of sync with credit_applied in the first place.
+  // Same restore-then-compare trick as the cycle-detail staleness check:
+  // simulate this invoice's own credit being restored before recomputing,
+  // so an already-correct invoice doesn't get flagged as stale forever.
+  const effectiveCredit = Number(studentData.credit_balance || 0) + Number(existingInvoice?.credit_applied || 0)
+  const computedBill = await computeInvoiceForStudent(supabase, schoolId, studentId, cycle.id, effectiveCredit, Number(existingInvoice?.paid_amount || 0))
+  const expectedBill = !('error' in computedBill)
+    ? computedBill.total
+    : requiredTotal - exemptionTotal + optInTotal + carryForwardAmount
+  // Needed alongside expectedBill for staleness comparison — a fee change
+  // (e.g. a new opt-in) can leave the final total unchanged when credit
+  // fully covers the bill either way, while credit_applied itself differs.
+  // Comparing total alone would miss that the invoice is genuinely stale.
+  const expectedCreditApplied = !('error' in computedBill) ? computedBill.creditApplied : 0
 
   const existingInvoiceInfo = existingInvoice ? {
     id: existingInvoice.id,
     totalAmount: Number(existingInvoice.total_amount),
     paidAmount: Number(existingInvoice.paid_amount || 0),
     outstandingAmount: Number(existingInvoice.total_amount) - Number(existingInvoice.paid_amount || 0),
+    creditApplied: Number(existingInvoice.credit_applied || 0),
     status: existingInvoice.status as 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled',
     sentAt: existingInvoice.sent_at,
     needsResend: existingInvoice.needs_resend,
@@ -688,6 +727,7 @@ return {
     exemptionTotal,
     optInTotal,
     expectedBill,
+    expectedCreditApplied,
     existingInvoice: existingInvoiceInfo,
   }
 }

@@ -1,5 +1,6 @@
 'use client'
 
+import { Fragment } from 'react'
 import Link from 'next/link'
 import { InvoiceDetail } from '@/lib/queries/fees'
 import { formatPaymentMethod } from '@/lib/paymentMethod'
@@ -207,12 +208,27 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           {/* Payment instructions */}
           <div className="bg-mint-light/40 border border-mint/30 rounded-xl p-6">
             <p className="text-xs text-mint font-semibold uppercase tracking-wider mb-3">Payment instructions</p>
-            <p className="text-sm text-navy mb-3">
-              Pay directly to the student&apos;s virtual account. Use the admission number as payment reference.
-            </p>
-            <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
-              <p className="text-sm font-semibold text-mint">Bank transfer details coming soon</p>
-            </div>
+            {invoice.status === 'paid' ? (
+              <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
+                <p className="text-sm font-semibold text-mint">Paid in full — no further action needed</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-navy mb-3">
+                  Pay directly to the student&apos;s virtual account. Use the admission number as payment reference.
+                </p>
+                {invoice.dvaAccountNumber ? (
+                  <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
+                    <p className="text-base font-bold text-navy tracking-wide">{invoice.dvaAccountNumber}</p>
+                    <p className="text-xs text-gray-500 mt-1">{invoice.dvaBankName}</p>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
+                    <p className="text-sm font-semibold text-mint">Bank transfer details coming soon</p>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {/* Actions */}
@@ -257,22 +273,39 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">Date</th>
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">Method</th>
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">Reference</th>
-                <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">Amount</th>
+                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2 pr-4">Date</th>
+                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2 pr-4">Method</th>
+                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2 pr-4">Reference</th>
+                <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider pb-2 pr-4">Amount</th>
                 <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">Received by</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {payments.map(p => (
-                <tr key={p.id}>
-                  <td className="py-3 text-sm text-navy">{formatDate(p.paidAt)}</td>
-                  <td className="py-3 text-sm text-gray-600">{formatPaymentMethod(p.method)}</td>
-                  <td className="py-3 text-sm text-gray-600">{p.reference || '—'}</td>
-                  <td className="py-3 text-right text-sm font-medium text-navy">{formatNaira(p.amount)}</td>
-                  <td className="py-3 text-sm text-gray-600">{p.receivedByName || '—'}</td>
-                </tr>
+                <Fragment key={p.id}>
+                  <tr>
+                    <td className="py-3 pr-4 text-sm text-navy">{formatDate(p.paidAt)}</td>
+                    <td className="py-3 pr-4 text-sm text-gray-600">{formatPaymentMethod(p.method)}</td>
+                    <td className="py-3 pr-4 text-sm text-gray-600">{p.reference || '—'}</td>
+                    <td className="py-3 pr-4 text-right text-sm font-medium text-navy">{formatNaira(p.amount)}</td>
+                    <td className="py-3 text-sm text-gray-600">{p.receivedByName || '—'}</td>
+                  </tr>
+                  {p.otherAllocations && p.otherAllocations.length > 0 && (
+                    <tr>
+                      <td colSpan={5} className="pb-3 -mt-1">
+                        <div className="bg-mint-light/40 border border-mint/20 rounded-lg px-3 py-2 text-xs text-navy">
+                          Part of a {formatNaira(p.transactionTotal || p.amount)} transfer — {formatNaira(p.amount)} applied here,{' '}
+                          {p.otherAllocations.map((a, i) => (
+                            <span key={i}>
+                              {a.termName ? `${formatNaira(a.amount)} applied to ${a.termName}` : `${formatNaira(a.amount)} added to credit balance`}
+                              {i < p.otherAllocations!.length - 1 ? ', ' : ''}
+                            </span>
+                          ))}.
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

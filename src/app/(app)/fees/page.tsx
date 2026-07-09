@@ -97,7 +97,7 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 mb-1">Outstanding</p>
-                <p className="text-2xl font-bold text-amber-600">{formatNaira(data.totalExpectedThisTerm - data.totalCollected)}</p>
+                <p className="text-2xl font-bold text-amber-600">{formatNaira(data.totalOutstanding)}</p>
                 <p className="text-xs text-gray-500 mt-1">Awaiting payment</p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">

@@ -133,6 +133,8 @@ const styles = StyleSheet.create({
   itemAmountCell: { flex: 1, textAlign: 'right', fontSize: 8, color: NAVY },
   tableCell: { fontSize: 8, color: NAVY },
   previousBalanceText: { color: AMBER },
+  creditAppliedText: { color: MINT_TEXT },
+  creditAppliedNote: { fontSize: 6.5, color: MINT_TEXT, marginTop: 1 },
   optionalPill: {
     marginLeft: 6,
     paddingVertical: 1,
@@ -295,12 +297,18 @@ export function InvoicePage({ invoice, logoUrl }: Props) {
         {invoice.lineItems.map((item, idx) => (
           <View key={idx} style={styles.tableRow}>
             <View style={styles.itemNameCell}>
-              <Text style={[
-                styles.tableCell,
-                item.kind === 'previous_balance' ? styles.previousBalanceText : {},
-              ]}>
-                {item.name}
-              </Text>
+              <View>
+                <Text style={[
+                  styles.tableCell,
+                  item.kind === 'previous_balance' ? styles.previousBalanceText : {},
+                  item.kind === 'credit_applied' ? styles.creditAppliedText : {},
+                ]}>
+                  {item.name}
+                </Text>
+                {item.kind === 'credit_applied' && (
+                  <Text style={styles.creditAppliedNote}>From a prior overpayment, not a new payment this term</Text>
+                )}
+              </View>
               {item.kind === 'opt_in' && (
                 <View style={styles.optionalPill}>
                   <Text style={styles.optionalPillText}>optional</Text>
@@ -310,6 +318,7 @@ export function InvoicePage({ invoice, logoUrl }: Props) {
             <Text style={[
               styles.itemAmountCell,
               item.kind === 'previous_balance' ? styles.previousBalanceText : {},
+              item.kind === 'credit_applied' ? styles.creditAppliedText : {},
             ]}>
               {formatNaira(item.amount)}
             </Text>

@@ -30,6 +30,7 @@ interface PaymentHistoryData {
     totalPaid: number
     outstanding: number
     termsInvoiced: number
+    unappliedCredit: number
   }
   invoices: Invoice[]
   payments: Payment[]
@@ -136,6 +137,17 @@ export default function StudentPaymentHistoryTab({ data, studentId }: Props) {
           <p className="text-2xl font-bold text-navy">{data.summary.termsInvoiced}</p>
         </div>
       </div>
+
+      {data.summary.unappliedCredit > 0 && (
+        <div className="bg-mint-light border border-mint/30 rounded-xl p-4 flex items-start gap-3">
+          <svg className="w-5 h-5 text-mint flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-sm text-navy">
+            <span className="font-semibold">{formatNaira(data.summary.unappliedCredit)}</span> received but not yet applied to an invoice — it will be used automatically the next time an invoice is generated for this student.
+          </p>
+        </div>
+      )}
 
       {/* Invoices by term */}
       <div className="bg-white p-6 rounded-xl border border-gray-200">

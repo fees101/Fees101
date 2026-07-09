@@ -266,7 +266,7 @@ export default function CycleDetailLayout({ data }: Props) {
         <div className="bg-white p-4 rounded-xl border border-gray-200">
           <p className="text-xs text-gray-500 mb-1">Outstanding</p>
           <p className="text-2xl font-bold text-amber-600">
-            {formatNaira(cycle.totalExpected - cycle.totalCollected)}
+            {formatNaira(cycle.totalOutstanding)}
           </p>
         </div>
       </div>

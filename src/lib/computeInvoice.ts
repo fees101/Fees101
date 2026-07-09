@@ -21,12 +21,28 @@ export interface ComputedInvoice {
   warning?: string
 }
 
-// Compute what a student's invoice would look like for a given cycle
+// Compute what a student's invoice would look like for a given cycle.
+//
+// creditBalanceOverride: use this instead of the student's live
+// credit_balance. Needed for read-only staleness comparisons — an existing
+// invoice's own credit_applied has already been subtracted out of the live
+// balance, so comparing against the live balance directly would always
+// disagree with what's stored, forever, on every single check. Pass
+// (liveBalance + thisInvoice.creditApplied) to see what the invoice would
+// look like if regenerated right now, without actually touching the DB.
+//
+// alreadyPaidAmount: the invoice's own current paid_amount (0 for a brand
+// new invoice). Credit must never be applied beyond what's actually still
+// unpaid after direct payments — otherwise regenerating an invoice that's
+// already been fully settled by a real transfer can silently consume a
+// family's prepaid credit for no reason, on a bill that never needed it.
 export async function computeInvoiceForStudent(
   supabase: any,
   schoolId: string,
   studentId: string,
-  cycleId: string
+  cycleId: string,
+  creditBalanceOverride?: number,
+  alreadyPaidAmount: number = 0
 ): Promise<ComputedInvoice | { error: string }> {
   // Get student
   const { data: student } = await supabase
@@ -102,7 +118,14 @@ export async function computeInvoiceForStudent(
     }
   })
 
-  // Carry-forward balance from most recent closed term
+  // Carry-forward balance from the immediately preceding term — and only
+  // once that term is actually closed. This must be the cycle truly
+  // adjacent by start_date, not just "the nearest closed cycle": reaching
+  // past a still-open preceding cycle to an older closed one would
+  // double-count debt that's already been folded into the open cycle's own
+  // invoice total (from when *it* was carried forward). Until the
+  // immediately preceding cycle is closed, there's nothing new to carry —
+  // its own invoice is still the live record of what's owed for it.
   let previousBalance = 0
   const { data: thisCycle } = await supabase
     .from('billing_cycles')
@@ -111,22 +134,21 @@ export async function computeInvoiceForStudent(
     .single()
 
   if (thisCycle) {
-    const { data: priorClosedCycle } = await supabase
+    const { data: precedingCycle } = await supabase
       .from('billing_cycles')
-      .select('id, name')
+      .select('id, name, status')
       .eq('school_id', schoolId)
-      .eq('status', 'closed')
       .lt('start_date', thisCycle.start_date)
       .order('start_date', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    if (priorClosedCycle) {
+    if (precedingCycle && precedingCycle.status === 'closed') {
       const { data: priorInvoice } = await supabase
         .from('invoices')
         .select('outstanding_amount, total_amount, paid_amount')
         .eq('student_id', studentId)
-        .eq('billing_cycle_id', priorClosedCycle.id)
+        .eq('billing_cycle_id', precedingCycle.id)
         .maybeSingle()
 
       if (priorInvoice) {
@@ -134,7 +156,7 @@ export async function computeInvoiceForStudent(
         if (outstanding > 0) {
           previousBalance = outstanding
           lineItems.push({
-            name: `Outstanding balance from ${priorClosedCycle.name}`,
+            name: `Outstanding balance from ${precedingCycle.name}`,
             amount: outstanding,
             kind: 'previous_balance',
           })
@@ -147,13 +169,19 @@ export async function computeInvoiceForStudent(
   const amountDue = subtotal + previousBalance
 
   // Spend down any available credit (e.g. from a prior overpayment) against
-  // this term's charges. Never over-applies past what's actually owed —
-  // leftover credit stays on the student for a future invoice. This only
-  // computes the amount; the caller (whoever persists the invoice) is
-  // responsible for actually decrementing students.credit_balance, since
-  // this function also runs read-only for previews/staleness checks.
-  const availableCredit = Number(student.credit_balance || 0)
-  const creditApplied = Math.min(availableCredit, Math.max(0, amountDue))
+  // whatever's still actually unpaid on this term's charges — never against
+  // the gross fee total, or an invoice already settled by a direct payment
+  // would have credit misapplied to it for nothing. Never over-applies past
+  // what's actually owed — leftover credit stays on the student for a
+  // future invoice. This only computes the amount; the caller (whoever
+  // persists the invoice) is responsible for actually decrementing
+  // students.credit_balance, since this function also runs read-only for
+  // previews/staleness checks.
+  const availableCredit = creditBalanceOverride !== undefined
+    ? creditBalanceOverride
+    : Number(student.credit_balance || 0)
+  const stillUnpaid = Math.max(0, amountDue - alreadyPaidAmount)
+  const creditApplied = Math.min(availableCredit, stillUnpaid)
   if (creditApplied > 0) {
     lineItems.push({
       name: 'Credit balance applied',

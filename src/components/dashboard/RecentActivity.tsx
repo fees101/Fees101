@@ -1,6 +1,6 @@
 interface ActivityEvent {
   id: string
-  type: 'payment' | 'invoice_generated' | 'partial_payment'
+  type: 'payment' | 'invoice_generated'
   amount?: number
   timestamp: string
   description: string
@@ -33,7 +33,6 @@ function timeAgo(timestamp: string): string {
 function getDotColor(type: ActivityEvent['type']): string {
   switch (type) {
     case 'payment': return 'bg-mint'
-    case 'partial_payment': return 'bg-mint'
     case 'invoice_generated': return 'bg-navy'
   }
 }
@@ -41,7 +40,6 @@ function getDotColor(type: ActivityEvent['type']): string {
 function getEventIcon(type: ActivityEvent['type']) {
   switch (type) {
     case 'payment':
-    case 'partial_payment':
       return (
         <div className="w-8 h-8 rounded-full bg-mint-light flex items-center justify-center flex-shrink-0">
           <span className="text-mint font-bold text-sm">₦</span>

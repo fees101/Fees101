@@ -11,6 +11,26 @@ function composeProprietressName(title?: string | null, firstName?: string | nul
   return parts.length > 0 ? parts.join(' ') : null
 }
 
+// "Collected" is attributed to whichever term was active when money actually
+// arrived (paid_at), never to the term of whichever invoice it's later
+// applied to via credit_applied. A credit draw-down never creates a new
+// payments row, so summing real payments by paid_at naturally excludes
+// credit applications with no special-casing needed.
+export async function getCollectedForDateRange(supabase: any, schoolId: string, startDate: string, endDate: string): Promise<number> {
+  const endExclusive = new Date(endDate)
+  endExclusive.setDate(endExclusive.getDate() + 1)
+
+  const { data } = await supabase
+    .from('payments')
+    .select('amount')
+    .eq('school_id', schoolId)
+    .eq('match_status', 'matched')
+    .gte('paid_at', startDate)
+    .lt('paid_at', endExclusive.toISOString())
+
+  return (data || []).reduce((sum: number, p: any) => sum + Number(p.amount), 0)
+}
+
 export async function getFeesOverview(cycleId?: string) {
   const supabase = await createClient()
 
@@ -36,6 +56,7 @@ export async function getFeesOverview(cycleId?: string) {
     return {
       totalExpectedThisTerm: 0,
       totalCollected: 0,
+      totalOutstanding: 0,
       activeClasses: 0,
       studentsWithInvoices: 0,
       totalActiveStudents: 0,
@@ -50,7 +71,7 @@ export async function getFeesOverview(cycleId?: string) {
   if (cycleId) {
     const { data } = await supabase
       .from('billing_cycles')
-      .select('id, name, status')
+      .select('id, name, status, start_date, end_date')
       .eq('id', cycleId)
       .eq('school_id', schoolId)
       .single()
@@ -58,7 +79,7 @@ export async function getFeesOverview(cycleId?: string) {
   } else {
     const { data } = await supabase
       .from('billing_cycles')
-      .select('id, name, status')
+      .select('id, name, status, start_date, end_date')
       .eq('school_id', schoolId)
       .eq('status', 'active')
       .limit(1)
@@ -80,22 +101,34 @@ export async function getFeesOverview(cycleId?: string) {
 
   let totalExpectedThisTerm = 0
   let totalCollected = 0
+  let totalOutstanding = 0
   let studentsWithInvoices = 0
 
   if (cycle) {
     const { data: invoices } = await supabase
       .from('invoices')
-      .select('total_amount, paid_amount, student_id')
+      .select('total_amount, paid_amount, credit_applied, student_id')
       .eq('billing_cycle_id', cycle.id)
 
-    totalExpectedThisTerm = invoices?.reduce((sum, inv) => sum + Number(inv.total_amount), 0) || 0
-    totalCollected = invoices?.reduce((sum, inv) => sum + Number(inv.paid_amount || 0), 0) || 0
+    // Expected = gross fees for the term = net total plus whatever credit
+    // covered part of it (total_amount is already net of credit_applied).
+    totalExpectedThisTerm = invoices?.reduce((sum, inv) => sum + Number(inv.total_amount) + Number(inv.credit_applied || 0), 0) || 0
+    // Outstanding = what's still owed on these invoices (net total minus
+    // direct payments). Always invoice-derived — NEVER expected minus
+    // collected, which goes negative once date-based collected exceeds
+    // what's been billed so far.
+    totalOutstanding = invoices?.reduce((sum, inv) => sum + Math.max(0, Number(inv.total_amount) - Number(inv.paid_amount || 0)), 0) || 0
     studentsWithInvoices = invoices?.length || 0
+    // Collected = real money received while this term was active, by
+    // payment date — not what's allocated to this term's invoices. See
+    // getCollectedForDateRange.
+    totalCollected = await getCollectedForDateRange(supabase, schoolId, cycle.start_date, cycle.end_date)
   }
 
   return {
     totalExpectedThisTerm,
     totalCollected,
+    totalOutstanding,
     activeClasses: activeClasses || 0,
     studentsWithInvoices,
     totalActiveStudents: totalActiveStudents || 0,
@@ -337,6 +370,7 @@ export interface CycleRow {
   totalActiveStudents: number
   totalExpected: number
   totalCollected: number
+  totalOutstanding: number
   feeItemCount: number
 }
 
@@ -418,18 +452,43 @@ export async function getAllCycles(): Promise<CycleRow[]> {
     .eq('school_id', schoolId)
     .eq('status', 'active')
 
-  // Get invoice stats per cycle
+  // Get invoice stats per cycle (expected/count/outstanding — collected is payment-date-based, below)
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('billing_cycle_id, total_amount, paid_amount')
+    .select('billing_cycle_id, total_amount, paid_amount, credit_applied')
     .in('billing_cycle_id', cycleIds)
 
-  const invoiceStats: Record<string, { count: number, expected: number, collected: number }> = {}
+  const invoiceStats: Record<string, { count: number, expected: number, outstanding: number }> = {}
   invoices?.forEach(inv => {
-    const stat = invoiceStats[inv.billing_cycle_id] ||= { count: 0, expected: 0, collected: 0 }
+    const stat = invoiceStats[inv.billing_cycle_id] ||= { count: 0, expected: 0, outstanding: 0 }
     stat.count++
-    stat.expected += Number(inv.total_amount || 0)
-    stat.collected += Number(inv.paid_amount || 0)
+    // total_amount is already net of credit_applied (computeInvoiceForStudent
+    // sets total = amountDue - creditApplied) — add it back so "expected"
+    // reflects the gross fee actually due, not the post-credit remainder.
+    stat.expected += Number(inv.total_amount || 0) + Number(inv.credit_applied || 0)
+    stat.outstanding += Math.max(0, Number(inv.total_amount || 0) - Number(inv.paid_amount || 0))
+  })
+
+  // Collected is attributed by payment date, not invoice allocation — fetch
+  // every matched payment once and bucket into whichever cycle's date range
+  // it falls in, rather than N+1 queries per cycle.
+  const { data: allPayments } = await supabase
+    .from('payments')
+    .select('amount, paid_at')
+    .eq('school_id', schoolId)
+    .eq('match_status', 'matched')
+
+  const collectedByCycle: Record<string, number> = {}
+  cycles.forEach(c => {
+    const start = new Date(c.start_date)
+    const endExclusive = new Date(c.end_date)
+    endExclusive.setDate(endExclusive.getDate() + 1)
+    collectedByCycle[c.id] = (allPayments || [])
+      .filter((p: any) => {
+        const paidAt = new Date(p.paid_at)
+        return paidAt >= start && paidAt < endExclusive
+      })
+      .reduce((sum: number, p: any) => sum + Number(p.amount), 0)
   })
 
   // Get fee item counts per cycle
@@ -444,7 +503,7 @@ export async function getAllCycles(): Promise<CycleRow[]> {
   })
 
   return cycles.map(c => {
-    const stats = invoiceStats[c.id] || { count: 0, expected: 0, collected: 0 }
+    const stats = invoiceStats[c.id] || { count: 0, expected: 0, outstanding: 0 }
     return {
       id: c.id,
       name: c.name,
@@ -459,7 +518,8 @@ export async function getAllCycles(): Promise<CycleRow[]> {
       studentsInvoiced: stats.count,
       totalActiveStudents: totalActiveStudents || 0,
       totalExpected: stats.expected,
-      totalCollected: stats.collected,
+      totalCollected: collectedByCycle[c.id] || 0,
+      totalOutstanding: stats.outstanding,
       feeItemCount: feeItemStats[c.id] || 0,
     }
   })
@@ -487,6 +547,7 @@ export interface InvoiceRow {
   needsResend: boolean
   needsRegeneration: boolean
   previousBalance: number
+  creditApplied: number
   generatedAt: string
   lineItems: Array<{ name: string, amount: number, kind?: string }>
 }
@@ -558,12 +619,21 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
       sent_at,
       needs_resend,
       previous_balance,
+      credit_applied,
       generated_at,
       line_items,
-      students(first_name, last_name, admission_number, class_id, classes(name))
+      students(first_name, last_name, admission_number, class_id, credit_balance, classes(name))
     `)
     .eq('billing_cycle_id', cycleId)
     .order('generated_at', { ascending: false })
+
+  // Student's live credit_balance already has this invoice's own
+  // credit_applied subtracted out — need it for the staleness override below.
+  const studentLiveCreditBalance: Record<string, number> = {}
+  ;(invoiceData || []).forEach(inv => {
+    // @ts-expect-error — joined
+    studentLiveCreditBalance[inv.student_id] = Number(inv.students?.credit_balance || 0)
+  })
 
   const invoices: InvoiceRow[] = (invoiceData || []).map(inv => ({
     id: inv.id,
@@ -585,6 +655,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     needsResend: inv.needs_resend,
     needsRegeneration: false,
     previousBalance: Number(inv.previous_balance || 0),
+    creditApplied: Number(inv.credit_applied || 0),
     generatedAt: inv.generated_at,
     lineItems: (inv.line_items as InvoiceRow['lineItems']) || [],
   }))
@@ -593,8 +664,18 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
   // there can never drift — skip the recompute pass entirely.
   if (cycleData.status !== 'closed') {
     for (const inv of invoices) {
-      const computed = await computeInvoiceForStudent(supabase, schoolId, inv.studentId, cycleId)
-      if (!('error' in computed) && computed.total !== inv.totalAmount) {
+      // Simulate "what if this invoice's own credit were restored, then
+      // recomputed" — the same restore-then-compare logic regeneration
+      // actually performs — without mutating anything. Comparing against
+      // the live (already-reduced) balance directly would flag every
+      // credit-touched invoice as stale forever, since the balance it
+      // originally consumed is now gone from the live figure.
+      const effectiveCredit = (studentLiveCreditBalance[inv.studentId] || 0) + inv.creditApplied
+      const computed = await computeInvoiceForStudent(supabase, schoolId, inv.studentId, cycleId, effectiveCredit, inv.paidAmount)
+      // Compare creditApplied too, not just total — a fee change can leave
+      // the total unchanged when credit fully covers the bill either way,
+      // while what's actually owed and drawn from credit still differs.
+      if (!('error' in computed) && (computed.total !== inv.totalAmount || computed.creditApplied !== inv.creditApplied)) {
         inv.needsRegeneration = true
       }
     }
@@ -638,9 +719,12 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     needsRegeneration: invoices.filter(i => i.needsRegeneration).length,
   }
 
-  // Reuse the getAllCycles shape for cycle stats — compute here from invoices
-  const totalExpected = invoices.reduce((s, i) => s + i.totalAmount, 0)
-  const totalCollected = invoices.reduce((s, i) => s + i.paidAmount, 0)
+  // Reuse the getAllCycles shape for cycle stats. totalAmount is already net
+  // of creditApplied, so expected (the gross fee due) has to add it back.
+  const totalExpected = invoices.reduce((s, i) => s + i.totalAmount + i.creditApplied, 0)
+  const totalOutstanding = invoices.reduce((s, i) => s + Math.max(0, i.totalAmount - i.paidAmount), 0)
+  // Collected is attributed by payment date, not invoice allocation — see getCollectedForDateRange.
+  const totalCollected = await getCollectedForDateRange(supabase, schoolId, cycleData.start_date, cycleData.end_date)
 
   const cycle: CycleRow = {
     id: cycleData.id,
@@ -657,6 +741,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     totalActiveStudents: totalActiveStudents || 0,
     totalExpected,
     totalCollected,
+    totalOutstanding,
     feeItemCount: 0, // not needed here
   }
 
@@ -711,6 +796,11 @@ export interface InvoiceDetail {
     paidAt: string
     reference: string
     receivedByName: string | null
+    // Set when this payment was one piece of a larger transfer that got
+    // split across multiple invoices/credit — so a parent looking at just
+    // this invoice isn't left wondering where the rest of their money went.
+    transactionTotal?: number
+    otherAllocations?: Array<{ termName: string | null, amount: number }>
   }>
 }
 
@@ -763,10 +853,40 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
   // Get recorded payments for this invoice
   const { data: payments } = await supabase
     .from('payments')
-    .select('id, amount, method, paid_at, provider_reference, users(name)')
+    .select('id, amount, method, paid_at, provider_reference, provider, provider_transaction_id, users(name)')
     .eq('invoice_id', invoiceId)
     .eq('match_status', 'matched')
     .order('paid_at', { ascending: false })
+
+  // For any payment that was part of a larger transfer split across other
+  // invoices (or credit), pull the sibling rows so we can show where the
+  // rest of the money went — otherwise a parent looking at just this
+  // invoice has no way to know their payment was bigger than what landed
+  // here.
+  const transactionIds = [...new Set((payments || []).map((p: any) => p.provider_transaction_id).filter(Boolean))]
+  const siblingsByTransaction: Record<string, Array<{ amount: number, termName: string | null }>> = {}
+
+  if (transactionIds.length > 0) {
+    const { data: siblingRows } = await supabase
+      .from('payments')
+      .select('amount, provider_transaction_id, invoice_id, invoices(billing_cycles(name))')
+      .eq('school_id', schoolId)
+      .in('provider_transaction_id', transactionIds)
+      .neq('invoice_id', invoiceId)
+
+    ;(siblingRows || []).forEach((s: any) => {
+      const txId = s.provider_transaction_id
+      if (!siblingsByTransaction[txId]) siblingsByTransaction[txId] = []
+      siblingsByTransaction[txId].push({
+        amount: Number(s.amount),
+        termName: s.invoices?.billing_cycles?.name || null, // null invoice_id (credit) or unlinked
+      })
+    })
+    // A payment with no invoice at all (went straight to credit_balance)
+    // also needs to be caught — the query above excludes rows matching
+    // THIS invoice_id, but a null invoice_id row is naturally != invoiceId
+    // already, so it's included above with termName: null (credit).
+  }
 
   const total = Number(invoice.total_amount)
   const paid = Number(invoice.paid_amount || 0)
@@ -816,15 +936,21 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
     needsResend: invoice.needs_resend,
     generatedAt: invoice.generated_at,
     fullyPaidAt: invoice.fully_paid_at,
-    payments: (payments || []).map(p => ({
-      id: p.id,
-      amount: Number(p.amount),
-      method: p.method,
-      paidAt: p.paid_at,
-      reference: p.provider_reference || '',
-      // @ts-expect-error — joined
-      receivedByName: p.users?.name || null,
-    })),
+    payments: (payments || []).map((p: any) => {
+      const siblings = p.provider_transaction_id ? siblingsByTransaction[p.provider_transaction_id] : undefined
+      return {
+        id: p.id,
+        amount: Number(p.amount),
+        method: p.method,
+        paidAt: p.paid_at,
+        reference: p.provider_reference || '',
+        // Gateway-driven payments have no staff member to attribute — that's
+        // expected, not missing data, so label it instead of a bare dash.
+        receivedByName: p.users?.name || (p.provider ? 'Automatic' : null),
+        transactionTotal: siblings ? Number(p.amount) + siblings.reduce((s: number, o: any) => s + o.amount, 0) : undefined,
+        otherAllocations: siblings,
+      }
+    }),
   }
 }
 

@@ -60,7 +60,13 @@ export default function StudentFeesTab({ data }: Props) {
 
   // Smart button state
   const existingInvoice = data.existingInvoice
-  const isInvoiceUpToDate = existingInvoice && existingInvoice.totalAmount === data.expectedBill
+  // Comparing totalAmount alone misses the case where credit fully covers
+  // the bill both before and after a fee change (e.g. a new opt-in) — the
+  // total coincidentally stays the same while credit_applied (what's
+  // actually owed and drawn from credit) differs.
+  const isInvoiceUpToDate = existingInvoice
+    && existingInvoice.totalAmount === data.expectedBill
+    && existingInvoice.creditApplied === data.expectedCreditApplied
   const diffAmount = existingInvoice ? data.expectedBill - existingInvoice.totalAmount : 0
   const newOutstanding = existingInvoice ? data.expectedBill - existingInvoice.paidAmount : 0
 
@@ -209,6 +215,14 @@ export default function StudentFeesTab({ data }: Props) {
                   <span className="text-sm text-mint">
                     Paid: {formatNaira(existingInvoice.paidAmount)}
                   </span>
+                  {existingInvoice.creditApplied > 0 && (
+                    <>
+                      <span className="text-gray-300">·</span>
+                      <span className="text-sm text-mint" title="Covered by credit from a prior overpayment, not a new payment this term">
+                        Credit applied: {formatNaira(existingInvoice.creditApplied)}
+                      </span>
+                    </>
+                  )}
                   <span className="text-gray-300">·</span>
                   <span className={`text-sm font-medium ${existingInvoice.outstandingAmount > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
                     Outstanding: {formatNaira(existingInvoice.outstandingAmount)}

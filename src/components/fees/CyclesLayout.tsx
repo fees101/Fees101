@@ -261,7 +261,17 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
   const collectedPct = selectedCycle && selectedCycle.totalExpected > 0
     ? Math.round((selectedCycle.totalCollected / selectedCycle.totalExpected) * 100)
     : 0
-  const outstandingAmount = selectedCycle ? selectedCycle.totalExpected - selectedCycle.totalCollected : 0
+  // totalOutstanding comes straight from invoices.outstanding_amount — never
+  // derived as expected minus collected. Collected is attributed by payment
+  // date and can include money destined for a different term or sitting as
+  // credit, so it's not arithmetically tied to what's still owed on this
+  // term's own invoices; subtracting one from the other went negative the
+  // moment collected (real cash in) exceeded expected (what's been billed
+  // so far, e.g. only 1 of 16 students invoiced).
+  const outstandingAmount = selectedCycle ? selectedCycle.totalOutstanding : 0
+  const outstandingPct = selectedCycle && selectedCycle.totalExpected > 0
+    ? Math.round((outstandingAmount / selectedCycle.totalExpected) * 100)
+    : 0
   const invoicedPct = selectedCycle && selectedCycle.totalActiveStudents > 0
     ? Math.round((selectedCycle.invoiceCount / selectedCycle.totalActiveStudents) * 100)
     : 0
@@ -346,7 +356,7 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
                 <div className="bg-white p-5 rounded-xl border border-gray-200">
                   <p className="text-xs text-gray-500 mb-1">Outstanding</p>
                   <p className="text-2xl font-bold text-amber-600">{formatNaira(outstandingAmount)}</p>
-                  <p className="text-xs text-gray-500 mt-1">{100 - collectedPct}% remaining</p>
+                  <p className="text-xs text-gray-500 mt-1">{outstandingPct}% of expected</p>
                 </div>
                 <div className="bg-white p-5 rounded-xl border border-gray-200">
                   <p className="text-xs text-gray-500 mb-1">Days until due</p>
