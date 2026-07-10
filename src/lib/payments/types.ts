@@ -39,6 +39,9 @@ export interface DVATransactionSummary {
 }
 
 export interface PaymentProvider {
+  // Lightweight auth check — confirms the stored api key/secret are valid
+  // without creating anything. Used by the settings "Test connection" button.
+  verifyCredentials(): Promise<boolean>
   createDVA(params: CreateDVAParams): Promise<DVADetails>
   getDVA(reference: string): Promise<DVADetails | null>
   deleteDVA(reference: string): Promise<void>

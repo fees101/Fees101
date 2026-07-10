@@ -106,6 +106,17 @@ export class MonnifyProvider implements PaymentProvider {
     this.baseUrl = process.env.MONNIFY_BASE_URL || DEFAULT_BASE_URL
   }
 
+  // Just enough to prove the api key + secret authenticate against Monnify.
+  // getAccessToken throws when auth fails, so a clean return means valid creds.
+  async verifyCredentials(): Promise<boolean> {
+    try {
+      await getAccessToken(this.creds, this.baseUrl)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async createDVA(params: CreateDVAParams): Promise<DVADetails> {
     const { json } = await authedRequest(this.creds, this.baseUrl, '/api/v2/bank-transfer/reserved-accounts', {
       method: 'POST',
