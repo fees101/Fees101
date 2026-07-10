@@ -13,6 +13,8 @@ export interface PaymentSettings {
   // How many students already have a virtual account — a live signal that
   // payments are working end-to-end.
   dvaCount: number
+  // Active students still missing an account — drives the bulk "create all" button.
+  studentsWithoutDvaCount: number
 }
 
 async function getSchoolId() {
@@ -62,6 +64,13 @@ export async function getPaymentSettings(): Promise<PaymentSettings | null> {
     .eq('school_id', schoolId)
     .not('provider_dva_account_number', 'is', null)
 
+  const { count: withoutDva } = await supabase
+    .from('students')
+    .select('id', { count: 'exact', head: true })
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .is('provider_dva_reference', null)
+
   return {
     schoolId,
     provider: school.payment_provider ?? null,
@@ -70,5 +79,6 @@ export async function getPaymentSettings(): Promise<PaymentSettings | null> {
     hasSecretKey,
     isConfigured,
     dvaCount: count ?? 0,
+    studentsWithoutDvaCount: withoutDva ?? 0,
   }
 }

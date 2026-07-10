@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { tryAutoCreateStudentDVA } from '@/lib/payments/provisionDVA'
 
 interface AddStudentInput {
   firstName: string
@@ -97,7 +98,7 @@ export async function addStudent(input: AddStudentInput) {
   }
 
   // Create the student
-  const { error: studentError } = await supabase
+  const { data: newStudent, error: studentError } = await supabase
     .from('students')
     .insert({
       school_id: schoolId,
@@ -110,10 +111,22 @@ export async function addStudent(input: AddStudentInput) {
       admission_date: input.admissionDate,
       status: 'active',
     })
+    .select('id')
+    .single()
 
-  if (studentError) {
-    return { error: `Failed to add student: ${studentError.message}` }
+  if (studentError || !newStudent) {
+    return { error: `Failed to add student: ${studentError?.message || 'Unknown error'}` }
   }
+
+  // Auto-provision a payment account (no-op if payments aren't configured).
+  // Best-effort: never blocks student creation — the Settings → Payments bulk
+  // button backfills any that don't get one here.
+  await tryAutoCreateStudentDVA(
+    supabase,
+    schoolId,
+    newStudent.id,
+    `${input.firstName} ${input.lastName}`.trim()
+  )
 
   revalidatePath('/students')
   return { success: true }

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { savePaymentProvider, testPaymentConnection } from '@/app/(app)/settings/payments/actions'
+import { createDVAsForAllStudents } from '@/app/(app)/students/[id]/actions'
 import type { PaymentSettings } from '@/lib/queries/payments'
 
 interface Props {
@@ -26,6 +27,12 @@ export default function PaymentSettingsForm({ settings, webhookUrl }: Props) {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [copied, setCopied] = useState(false)
+
+  const [creatingAll, setCreatingAll] = useState(false)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [bulkResult, setBulkResult] = useState<
+    { ok: false; message: string } | { ok: true; created: number; failed: number; failures: { name: string; error: string }[] } | null
+  >(null)
 
   const inputCls = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
   const labelCls = "block text-xs text-gray-500 mb-1"
@@ -66,6 +73,37 @@ export default function PaymentSettingsForm({ settings, webhookUrl }: Props) {
         ? { ok: true, message: 'Connection successful — credentials are valid.' }
         : { ok: false, message: result.error || 'Connection failed.' }
     )
+  }
+
+  async function handleCreateAll() {
+    setCreatingAll(true)
+    setBulkResult(null)
+    const target = settings.studentsWithoutDvaCount
+    setProgress({ done: 0, total: target })
+
+    let created = 0
+    const failures: { name: string; error: string }[] = []
+    // Loop a batch at a time so a large onboarding never runs as one giant
+    // request. Safety cap: 400 batches × 25 = 10k students per run.
+    for (let i = 0; i < 400; i++) {
+      const r = await createDVAsForAllStudents(25)
+      if ('error' in r) {
+        setBulkResult({ ok: false, message: r.error })
+        setCreatingAll(false)
+        setProgress(null)
+        return
+      }
+      created += r.created
+      failures.push(...r.failures)
+      setProgress({ done: created, total: target })
+      if (r.remaining === 0) break
+      if (r.created === 0) break // no progress — the rest are failures, stop retrying
+    }
+
+    setCreatingAll(false)
+    setProgress(null)
+    setBulkResult({ ok: true, created, failed: failures.length, failures })
+    router.refresh()
   }
 
   async function copyWebhook() {
@@ -203,6 +241,72 @@ export default function PaymentSettingsForm({ settings, webhookUrl }: Props) {
           )}
         </div>
       </div>
+
+      {/* Student virtual accounts (bulk) */}
+      {settings.isConfigured && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+          <h2 className="text-navy font-semibold text-lg mb-1">Student virtual accounts</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Each student needs a virtual account for parents to pay into.{' '}
+            <span className="text-navy font-medium">{settings.dvaCount}</span> created
+            {settings.studentsWithoutDvaCount > 0 && (
+              <> · <span className="text-amber-700 font-medium">{settings.studentsWithoutDvaCount}</span> still need one</>
+            )}.
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleCreateAll}
+              disabled={creatingAll || settings.studentsWithoutDvaCount === 0}
+              className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+            >
+              {creatingAll
+                ? 'Creating accounts…'
+                : settings.studentsWithoutDvaCount === 0
+                  ? 'All students have accounts'
+                  : `Create accounts for ${settings.studentsWithoutDvaCount} student${settings.studentsWithoutDvaCount === 1 ? '' : 's'}`}
+            </button>
+          </div>
+
+          {progress && progress.total > 0 && (
+            <div className="mt-4">
+              <div className="flex justify-between text-xs text-gray-500 mb-1">
+                <span>Creating virtual accounts… keep this tab open.</span>
+                <span>{progress.done} / {progress.total}</span>
+              </div>
+              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-mint transition-all"
+                  style={{ width: `${Math.min(100, Math.round((progress.done / progress.total) * 100))}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {bulkResult && (
+            bulkResult.ok ? (
+              <div className="mt-4 p-3 bg-mint-light border border-mint/40 rounded-lg text-sm text-navy">
+                Created <span className="font-semibold">{bulkResult.created}</span> account{bulkResult.created === 1 ? '' : 's'}.
+                {bulkResult.failed > 0 && (
+                  <div className="mt-2 text-red-700">
+                    <span className="font-semibold">{bulkResult.failed}</span> failed:
+                    <ul className="list-disc list-inside mt-1">
+                      {bulkResult.failures.slice(0, 5).map((f, i) => (
+                        <li key={i}>{f.name} — {f.error}</li>
+                      ))}
+                      {bulkResult.failures.length > 5 && <li>…and {bulkResult.failures.length - 5} more</li>}
+                    </ul>
+                    You can retry — accounts already created won&apos;t be duplicated.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                {bulkResult.message}
+              </div>
+            )
+          )}
+        </div>
+      )}
 
       {/* Webhook URL */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">

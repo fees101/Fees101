@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
+import { provisionStudentDVA } from '@/lib/payments/provisionDVA'
 
 export async function updateStudentDetails(studentId: string, formData: {
   firstName: string
@@ -386,49 +387,65 @@ export async function createStudentDVA(studentId: string): Promise<CreateDVAResu
   if (!provider) return { error: 'This school has no payment provider configured yet.' }
 
   const fullName = `${student.first_name} ${student.last_name}`.trim()
-  const params = {
-    reference: studentId, // accountReference is always the student's own id — stable and unique
-    accountName: fullName,
-    customerEmail: `student-${studentId}@fees101.internal`,
-    customerName: fullName,
-  }
-
-  let dva
   try {
-    dva = await provider.createDVA(params)
-  } catch (firstErr: any) {
-    // Monnify's error messages (especially the generic "99") aren't
-    // reliable enough to fail on the first attempt — retry once.
-    await new Promise(r => setTimeout(r, 1200))
+    const dva = await provisionStudentDVA(supabase, schoolId, provider, studentId, fullName)
+    revalidatePath(`/students/${studentId}`)
+    return { success: true, accountNumber: dva.accountNumber, bankName: dva.bankName }
+  } catch (err: any) {
+    return { error: err?.message || 'Could not create payment account' }
+  }
+}
+
+type BulkDVAResult =
+  | { error: string }
+  | { success: true; created: number; failed: number; remaining: number; failures: { name: string; error: string }[] }
+
+// Provision ONE batch of virtual accounts for active students that don't have
+// one yet, then report how many still remain. The client calls this repeatedly
+// (a batch at a time, with a progress bar) so onboarding a 300+ student school
+// never runs as one giant request that would blow past serverless/HTTP time
+// limits. Reuses the provider's cached auth token, so per-student calls stay cheap.
+export async function createDVAsForAllStudents(batchSize = 25): Promise<BulkDVAResult> {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  const provider = await getPaymentProviderForSchool(schoolId, supabase)
+  if (!provider) return { error: 'This school has no payment provider configured yet.' }
+
+  const limit = Math.max(1, Math.min(batchSize, 50))
+  const { data: students, error } = await supabase
+    .from('students')
+    .select('id, first_name, last_name')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .is('provider_dva_reference', null)
+    .limit(limit)
+
+  if (error) return { error: error.message }
+
+  let created = 0
+  const failures: { name: string; error: string }[] = []
+  for (const s of students || []) {
+    const fullName = `${s.first_name} ${s.last_name}`.trim()
     try {
-      dva = await provider.createDVA(params)
-    } catch (secondErr: any) {
-      // Last resort: the first attempt may have actually succeeded on
-      // Monnify's side and only the response was lost (or this is the
-      // losing half of a double-click race) — check before giving up.
-      const existing = await provider.getDVA(studentId).catch(() => null)
-      if (existing) {
-        dva = existing
-      } else {
-        return { error: `Could not create payment account: ${secondErr?.message || firstErr?.message || 'unknown error'}` }
-      }
+      await provisionStudentDVA(supabase, schoolId, provider, s.id, fullName)
+      created++
+    } catch (err: any) {
+      failures.push({ name: fullName || s.id, error: err?.message || 'unknown error' })
     }
   }
 
-  const { error: updateError } = await supabase
+  // How many active students still lack an account after this batch — tells the
+  // client whether to keep looping.
+  const { count: remaining } = await supabase
     .from('students')
-    .update({
-      provider_dva_reference: studentId,
-      provider_dva_bank_code: dva.bankCode,
-      provider_dva_account_number: dva.accountNumber,
-      provider_dva_bank_name: dva.bankName,
-      provider_dva_created_at: new Date().toISOString(),
-    })
-    .eq('id', studentId)
+    .select('id', { count: 'exact', head: true })
     .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .is('provider_dva_reference', null)
 
-  if (updateError) return { error: `Payment account created but failed to save: ${updateError.message}` }
-
-  revalidatePath(`/students/${studentId}`)
-  return { success: true, accountNumber: dva.accountNumber, bankName: dva.bankName }
+  revalidatePath('/settings/payments')
+  revalidatePath('/students')
+  return { success: true, created, failed: failures.length, remaining: remaining ?? 0, failures }
 }

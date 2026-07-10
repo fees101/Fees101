@@ -271,6 +271,10 @@ export async function importStudents(rows: ParsedRow[]) {
   const validRows = rows.filter(r => r.errors.length === 0)
   if (validRows.length === 0) return { error: 'No valid rows to import' }
 
+  // Note: virtual accounts are NOT created inline here — a large import (300+)
+  // would exceed request/serverless time limits. Import is DB-only; accounts are
+  // provisioned afterwards via the batched "Create accounts" flow on Settings →
+  // Payments (see createDVAsForAllStudents).
   let imported = 0
   let failed = 0
   const failedRows: { row: number, reason: string }[] = []
