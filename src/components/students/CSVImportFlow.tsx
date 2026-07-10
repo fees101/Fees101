@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { parseAndValidateCSV, importStudents } from '@/app/(app)/students/import/actions'
+import { createDVAsForAllStudents } from '@/app/(app)/students/[id]/actions'
 
 interface ParsedRow {
   rowNumber: number
@@ -23,7 +24,7 @@ interface ParsedRow {
   classId?: string
 }
 
-type Step = 'upload' | 'review' | 'success'
+type Step = 'upload' | 'review' | 'importing' | 'success'
 
 export default function CSVImportFlow() {
   const router = useRouter()
@@ -32,8 +33,16 @@ export default function CSVImportFlow() {
   const [summary, setSummary] = useState({ total: 0, valid: 0, invalid: 0 })
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [importResult, setImportResult] = useState<{ imported: number, failed: number, schoolName: string, breakdown: Record<string, number>} | null>(null)
+  const [importResult, setImportResult] = useState<{ imported: number, failed: number, schoolName: string, breakdown: Record<string, number>, accountsCreated: number } | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [progress, setProgress] = useState<{ label: string, done: number, total: number } | null>(null)
+
+  // If the user navigates away mid-import, stop firing further batches so the
+  // background loop doesn't keep the Next router busy (which was blocking
+  // navigation). Any accounts left unprovisioned are caught by the Students-page
+  // banner / Settings → Payments bulk button.
+  const cancelledRef = useRef(false)
+  useEffect(() => () => { cancelledRef.current = true }, [])
 
   async function handleFile(file: File) {
     setError(null)
@@ -78,25 +87,62 @@ export default function CSVImportFlow() {
   }
 
   async function handleConfirmImport() {
-    setLoading(true)
     setError(null)
+    setStep('importing')
 
-    const result = await importStudents(rows)
+    // Phase 1 — import in batches so a large file (300+) shows real progress
+    // and never runs as one giant request. The server action imports whatever
+    // rows it's handed and de-dupes families against the DB, so batching is safe.
+    const validRows = rows.filter(r => r.errors.length === 0)
+    const total = validRows.length
+    const BATCH = 50
+    setProgress({ label: 'Importing students', done: 0, total })
 
-    if (result.error) {
-      setError(result.error)
-      setLoading(false)
-      return
+    let imported = 0
+    let failed = 0
+    let schoolName = 'your school'
+    const breakdown: Record<string, number> = {}
+
+    for (let i = 0; i < validRows.length; i += BATCH) {
+      if (cancelledRef.current) return
+      const batch = validRows.slice(i, i + BATCH)
+      const result = await importStudents(batch)
+
+      if (result.error) {
+        setError(result.error)
+        setProgress(null)
+        setStep('review')
+        return
+      }
+
+      imported += result.imported || 0
+      failed += result.failed || 0
+      schoolName = result.schoolName || schoolName
+      for (const [cls, n] of Object.entries(result.breakdown || {})) {
+        breakdown[cls] = (breakdown[cls] || 0) + (n as number)
+      }
+      setProgress({ label: 'Importing students', done: Math.min(i + batch.length, total), total })
     }
 
-    setImportResult({
-    imported: result.imported || 0,
-    failed: result.failed || 0,
-    schoolName: result.schoolName || 'your school',
-    breakdown: result.breakdown || {},
-    })
+    // Phase 2 — automatically provision payment accounts for the students who
+    // now need one (the just-imported ones, plus any earlier stragglers). Same
+    // chunked loop as the Settings button. If payments aren't configured, the
+    // action returns an error on the first call and we simply skip this phase.
+    let accountsCreated = 0
+    let provisionTotal = 0
+    for (let i = 0; i < 400; i++) {
+      if (cancelledRef.current) return
+      const r = await createDVAsForAllStudents(25)
+      if ('error' in r) break // not configured (or unrecoverable) — skip provisioning
+      if (i === 0) provisionTotal = r.created + r.remaining
+      accountsCreated += r.created
+      setProgress({ label: 'Creating payment accounts', done: accountsCreated, total: provisionTotal })
+      if (r.remaining === 0 || r.created === 0) break
+    }
+
+    setImportResult({ imported, failed, schoolName, breakdown, accountsCreated })
+    setProgress(null)
     setStep('success')
-    setLoading(false)
   }
 
   function handleStartOver() {
@@ -127,7 +173,7 @@ export default function CSVImportFlow() {
         <div className={`flex-1 h-px ${step !== 'upload' ? 'bg-mint' : 'bg-gray-200'}`} />
         <StepIndicator number={2} label="Upload file" status={step === 'upload' ? 'pending' : step === 'review' ? 'active' : 'complete'} />
         <div className={`flex-1 h-px ${step === 'success' ? 'bg-mint' : 'bg-gray-200'}`} />
-        <StepIndicator number={3} label="Review & confirm" status={step === 'success' ? 'complete' : step === 'review' ? 'active' : 'pending'} />
+        <StepIndicator number={3} label="Review & confirm" status={step === 'success' ? 'complete' : (step === 'review' || step === 'importing') ? 'active' : 'pending'} />
       </div>
 
       {/* Content based on step */}
@@ -152,12 +198,17 @@ export default function CSVImportFlow() {
         />
       )}
 
+      {step === 'importing' && progress && (
+        <ImportingStep progress={progress} />
+      )}
+
         {step === 'success' && importResult && (
         <SuccessStep
             imported={importResult.imported}
             failed={importResult.failed}
             schoolName={importResult.schoolName}
             breakdown={importResult.breakdown}
+            accountsCreated={importResult.accountsCreated}
             onViewStudents={() => router.push('/students')}
             onImportMore={handleStartOver}
         />
@@ -184,6 +235,75 @@ function StepIndicator({ number, label, status }: { number: number, label: strin
         )}
       </div>
       <span className={`text-xs ${status === 'pending' ? 'text-gray-400' : 'text-navy'}`}>{label}</span>
+    </div>
+  )
+}
+
+function ImportingStep({ progress }: { progress: { label: string, done: number, total: number } }) {
+  const pct = progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0
+  const isAccounts = progress.label.toLowerCase().includes('account')
+
+  return (
+    <div className="max-w-lg mx-auto text-center py-12">
+      {/* A "breathing" fees/education icon — scales gently in and out so it
+          reads as actively working, plus three coins that drop in sequence. */}
+      <div className="relative w-24 h-24 mx-auto mb-6">
+        <div
+          className="w-24 h-24 rounded-3xl bg-mint-light flex items-center justify-center"
+          style={{ animation: 'fees-breathe 1.6s ease-in-out infinite' }}
+        >
+          {isAccounts ? (
+            // stacking coins (₦) for "creating accounts"
+            <svg className="w-11 h-11 text-mint" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <ellipse cx="12" cy="6" rx="7" ry="3" />
+              <path strokeLinecap="round" d="M5 6v4c0 1.66 3.13 3 7 3s7-1.34 7-3V6" style={{ animation: 'fees-coin 1.6s ease-in-out infinite' }} />
+              <path strokeLinecap="round" d="M5 10v4c0 1.66 3.13 3 7 3s7-1.34 7-3v-4" style={{ animation: 'fees-coin 1.6s ease-in-out infinite', animationDelay: '0.2s' }} />
+              <path strokeLinecap="round" d="M5 14v4c0 1.66 3.13 3 7 3s7-1.34 7-3v-4" style={{ animation: 'fees-coin 1.6s ease-in-out infinite', animationDelay: '0.4s' }} />
+            </svg>
+          ) : (
+            // graduation cap for "importing students"
+            <svg className="w-11 h-11 text-mint" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4L2 9l10 5 10-5-10-5z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 11v4c0 1.5 2.7 3 6 3s6-1.5 6-3v-4" />
+              <path strokeLinecap="round" d="M22 9v5" />
+            </svg>
+          )}
+        </div>
+      </div>
+
+      {/* Shimmering label — the sweep of light across the text signals activity */}
+      <h2
+        className="text-2xl font-bold mb-1 inline-block text-transparent bg-clip-text bg-[length:200%_auto]"
+        style={{
+          backgroundImage: 'linear-gradient(90deg, #0a1f44 0%, #0a1f44 35%, #6ee7b7 50%, #0a1f44 65%, #0a1f44 100%)',
+          animation: 'fees-shimmer-text 2.5s linear infinite',
+        }}
+      >
+        {progress.label}…
+      </h2>
+      <p className="text-gray-500 text-sm mb-6">Sit tight — this only takes a moment. Please keep this tab open.</p>
+
+      {/* Determinate progress bar with a light sweep across the fill */}
+      <div className="relative w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-full bg-mint rounded-full transition-all duration-300 relative overflow-hidden" style={{ width: `${Math.max(pct, 4)}%` }}>
+          <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/60 to-transparent" style={{ animation: 'fees-bar-shimmer 1.2s infinite' }} />
+        </div>
+      </div>
+      <p className="text-sm font-semibold text-navy mt-3">{progress.done} of {progress.total} · {pct}%</p>
+
+      {/* Two-phase stepper so they know where they are */}
+      <div className="flex items-center justify-center gap-2 mt-6 text-xs">
+        <span className={!isAccounts ? 'text-navy font-semibold' : 'text-gray-400'}>1 · Import students</span>
+        <span className="text-gray-300">→</span>
+        <span className={isAccounts ? 'text-navy font-semibold' : 'text-gray-400'}>2 · Create payment accounts</span>
+      </div>
+
+      <style>{`
+        @keyframes fees-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+        @keyframes fees-coin { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+        @keyframes fees-bar-shimmer { 100% { transform: translateX(100%); } }
+        @keyframes fees-shimmer-text { to { background-position: 200% center; } }
+      `}</style>
     </div>
   )
 }
@@ -467,11 +587,12 @@ function ReviewStep({ rows, summary, onConfirm, onCancel, loading, error }: {
   )
 }
 
-function SuccessStep({ imported, failed, schoolName, breakdown, onViewStudents, onImportMore }: {
+function SuccessStep({ imported, failed, schoolName, breakdown, accountsCreated, onViewStudents, onImportMore }: {
   imported: number
   failed: number
   schoolName: string
   breakdown: Record<string, number>
+  accountsCreated: number
   onViewStudents: () => void
   onImportMore: () => void
 }) {
@@ -490,10 +611,18 @@ function SuccessStep({ imported, failed, schoolName, breakdown, onViewStudents, 
       </div>
 
       <h2 className="text-3xl font-bold text-navy mb-2">Import successful</h2>
-      <p className="text-gray-500 mb-8">
+      <p className="text-gray-500 mb-4">
         {imported} {imported === 1 ? 'student' : 'students'} added to {schoolName}
         {failed > 0 && `, ${failed} ${failed === 1 ? 'row' : 'rows'} failed`}
       </p>
+      {accountsCreated > 0 && (
+        <p className="inline-flex items-center gap-1.5 text-sm text-navy bg-mint-light border border-mint/40 rounded-full px-3 py-1 mb-8">
+          <svg className="w-4 h-4 text-mint" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          {accountsCreated} payment {accountsCreated === 1 ? 'account' : 'accounts'} created automatically
+        </p>
+      )}
 
       {sortedClasses.length > 0 && (
         <div className="bg-white p-6 rounded-xl border border-gray-200 mb-8 text-left">

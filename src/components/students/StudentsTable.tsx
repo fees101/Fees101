@@ -32,7 +32,7 @@ interface StudentsTableProps {
 type SortKey = 'class' | 'name' | 'parent' | 'phone' | 'total' | 'paid' | 'status'
 type SortDir = 'asc' | 'desc'
 
-const ITEMS_PER_PAGE = 25
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
@@ -102,6 +102,7 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
   const [sortKey, setSortKey] = useState<SortKey>('class')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
 
   // classes is already ordered by display_order (Play Pen → Year 11) —
   // use its position as the sort weight so "by class" reads the way a
@@ -190,22 +191,21 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
     return counts
   }, [filteredAndSorted])
 
-  // Grouped-by-class browsing shows everyone, unpaginated — otherwise a class
-  // near a page boundary gets split across pages, defeating the point of the
-  // grouping. A few hundred rows renders fine without pagination.
+  // Class group-header rows are shown when sorting by class with no class
+  // filter — purely visual. Pagination ALWAYS applies now, so a large roster
+  // never renders as one giant list; a class that spans a page boundary simply
+  // shows its header again at the top of the next page.
   const groupByClass = sortKey === 'class' && classFilter === 'all'
 
-  const totalPages = groupByClass ? 1 : Math.ceil(filteredAndSorted.length / ITEMS_PER_PAGE)
-  const paginatedStudents = groupByClass
-    ? filteredAndSorted
-    : filteredAndSorted.slice(
-      (currentPage - 1) * ITEMS_PER_PAGE,
-      currentPage * ITEMS_PER_PAGE
-    )
+  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize))
+  const paginatedStudents = filteredAndSorted.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  )
 
   useMemo(() => {
     setCurrentPage(1)
-  }, [searchTerm, classFilter, statusFilter])
+  }, [searchTerm, classFilter, statusFilter, pageSize])
 
   function getPageNumbers(): (number | string)[] {
     if (totalPages <= 7) {
@@ -386,13 +386,23 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
           </div>
 
           {/* Pagination */}
-          <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between text-sm">
-            <p className="text-gray-500">
-              {groupByClass
-                ? `Showing all ${filteredAndSorted.length} students, grouped by class`
-                : `Showing ${(currentPage - 1) * ITEMS_PER_PAGE + 1}-${Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSorted.length)} of ${filteredAndSorted.length} students`}
-            </p>
-            {!groupByClass && (
+          <div className="px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center gap-3 justify-between text-sm">
+            <div className="flex items-center gap-4">
+              <p className="text-gray-500">
+                Showing {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, filteredAndSorted.length)} of {filteredAndSorted.length} students
+              </p>
+              <label className="flex items-center gap-1.5 text-gray-500">
+                <span className="hidden sm:inline">Per page</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="px-2 py-1 border border-gray-200 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20"
+                >
+                  {PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+            </div>
+            {totalPages > 1 && (
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}

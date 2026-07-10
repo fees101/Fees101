@@ -22,13 +22,15 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
       .single()
     schoolId = firstSchool?.id
   }
-  if (!schoolId) return { 
-    students: [], 
-    classes: [], 
-    currentTermName: '', 
+  if (!schoolId) return {
+    students: [],
+    classes: [],
+    currentTermName: '',
     classCount: 0,
     statusCounts: { active: 0, withdrawn: 0, graduated: 0, all: 0 },
     activeStatusFilter: statusFilter,
+    paymentsConfigured: false,
+    studentsWithoutDvaCount: 0,
   }
 
   // Get current billing cycle
@@ -62,6 +64,22 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
     all: allStudentsForCount?.length || 0,
   }
 
+  // For the "some students have no payment account" banner — only relevant once
+  // the school has connected a payment provider.
+  const { data: schoolRow } = await supabase
+    .from('schools')
+    .select('payment_provider')
+    .eq('id', schoolId)
+    .single()
+  const paymentsConfigured = !!schoolRow?.payment_provider
+
+  const { count: studentsWithoutDvaCount } = await supabase
+    .from('students')
+    .select('id', { count: 'exact', head: true })
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .is('provider_dva_reference', null)
+
   // Get students with class and family info, filtered by status
   let studentsQuery = supabase
     .from('students')
@@ -82,13 +100,15 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
 
   const { data: students } = await studentsQuery.order('last_name')
 
-  if (!students) return { 
-    students: [], 
-    classes: classes || [], 
+  if (!students) return {
+    students: [],
+    classes: classes || [],
     currentTermName: currentCycle?.name || '',
     classCount: classes?.length || 0,
     statusCounts,
     activeStatusFilter: statusFilter,
+    paymentsConfigured,
+    studentsWithoutDvaCount: studentsWithoutDvaCount || 0,
   }
 
   // Get invoices for current cycle
@@ -131,13 +151,15 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
     }
   })
 
-  return { 
-    students: studentsWithStatus, 
+  return {
+    students: studentsWithStatus,
     classes: classes || [],
     currentTermName: currentCycle?.name || '',
     classCount: classes?.length || 0,
     statusCounts,
     activeStatusFilter: statusFilter,
+    paymentsConfigured,
+    studentsWithoutDvaCount: studentsWithoutDvaCount || 0,
   }
 }
 
