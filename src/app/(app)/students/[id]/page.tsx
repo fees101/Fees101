@@ -4,6 +4,7 @@ import StudentActivityTimeline from '@/components/students/StudentActivityTimeli
 import StudentSettingsTab from '@/components/students/StudentSettingsTab'
 import StudentPaymentHistoryTab from '@/components/students/StudentPaymentHistoryTab'
 import StudentFeesTab from '@/components/students/StudentFeesTab'
+import HeaderVirtualAccount from '@/components/students/HeaderVirtualAccount'
 import { getStudentById, getStudentPaymentHistory, getStudentFees } from '@/lib/queries/students'
 
 interface PageProps {
@@ -80,11 +81,13 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
             </div>
 
             <div className="border-l border-gray-200 pl-6">
-              <p className="text-xs text-gray-500 mb-1">Virtual account</p>
-              <div className="flex items-center gap-2">
-                <p className="text-2xl font-bold text-navy">Coming soon</p>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">Pending Paystack setup</p>
+              <HeaderVirtualAccount
+                studentId={student.id}
+                providerConfigured={student.virtualAccount.providerConfigured}
+                hasAccount={student.virtualAccount.hasAccount}
+                accountNumber={student.virtualAccount.accountNumber}
+                bankName={student.virtualAccount.bankName}
+              />
             </div>
 
             <div className="flex flex-col gap-2">
@@ -367,7 +370,7 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
         )}
 
         {activeTab === 'payments' && paymentHistory && (
-          <StudentPaymentHistoryTab data={paymentHistory} studentId={id} />
+          <StudentPaymentHistoryTab data={paymentHistory} />
         )}
         {activeTab === 'fees' && feesData && (
           <StudentFeesTab data={feesData} />

@@ -362,6 +362,7 @@ export interface CycleRow {
   startDate: string
   endDate: string
   dueDate: string | null
+  closedAt: string | null
   status: 'draft' | 'active' | 'closed'
   sessionId: string | null
   sessionName: string | null
@@ -434,6 +435,7 @@ export async function getAllCycles(): Promise<CycleRow[]> {
       start_date,
       end_date,
       due_date,
+      closed_at,
       status,
       session_id,
       sessions(name)
@@ -510,6 +512,7 @@ export async function getAllCycles(): Promise<CycleRow[]> {
       startDate: c.start_date,
       endDate: c.end_date,
       dueDate: c.due_date,
+      closedAt: c.closed_at,
       status: c.status as 'draft' | 'active' | 'closed',
       sessionId: c.session_id,
       // @ts-expect-error — joined
@@ -588,6 +591,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
       start_date,
       end_date,
       due_date,
+      closed_at,
       status,
       session_id,
       sessions(name)
@@ -732,6 +736,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     startDate: cycleData.start_date,
     endDate: cycleData.end_date,
     dueDate: cycleData.due_date,
+    closedAt: cycleData.closed_at,
     status: cycleData.status as 'draft' | 'active' | 'closed',
     sessionId: cycleData.session_id,
     // @ts-expect-error — joined

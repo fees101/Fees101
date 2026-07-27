@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { formatPaymentMethod } from '@/lib/paymentMethod'
-import PaymentAccountCard from './PaymentAccountCard'
 
 interface Invoice {
   id: string
@@ -34,17 +33,10 @@ interface PaymentHistoryData {
   }
   invoices: Invoice[]
   payments: Payment[]
-  paymentAccount: {
-    providerConfigured: boolean
-    hasAccount: boolean
-    accountNumber: string | null
-    bankName: string | null
-  }
 }
 
 interface Props {
   data: PaymentHistoryData
-  studentId: string
 }
 
 function formatNaira(amount: number): string {
@@ -91,7 +83,7 @@ function getStatusBadge(status: string) {
   }
 }
 
-export default function StudentPaymentHistoryTab({ data, studentId }: Props) {
+export default function StudentPaymentHistoryTab({ data }: Props) {
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set())
 
   function toggleInvoice(invoiceId: string) {
@@ -106,15 +98,6 @@ export default function StudentPaymentHistoryTab({ data, studentId }: Props) {
 
   return (
     <div className="space-y-6 mb-6">
-
-      {/* Payment account (DVA) */}
-      <PaymentAccountCard
-        studentId={studentId}
-        providerConfigured={data.paymentAccount.providerConfigured}
-        hasAccount={data.paymentAccount.hasAccount}
-        accountNumber={data.paymentAccount.accountNumber}
-        bankName={data.paymentAccount.bankName}
-      />
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

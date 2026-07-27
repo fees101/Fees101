@@ -359,17 +359,31 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
                   <p className="text-xs text-gray-500 mt-1">{outstandingPct}% of expected</p>
                 </div>
                 <div className="bg-white p-5 rounded-xl border border-gray-200">
-                  <p className="text-xs text-gray-500 mb-1">Days until due</p>
-                  {daysUntilDue === null ? (
-                    <p className="text-2xl font-bold text-navy">—</p>
+                  {selectedCycle.status === 'closed' ? (
+                    <>
+                      {/* A closed term is finished — "days overdue" is meaningless
+                          here, so show when it was closed instead. */}
+                      <p className="text-xs text-gray-500 mb-1">Closed on</p>
+                      <p className="text-2xl font-bold text-navy">
+                        {selectedCycle.closedAt ? formatDate(selectedCycle.closedAt) : '—'}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 truncate">{selectedCycle.name} · closed</p>
+                    </>
                   ) : (
-                    <p className={`text-2xl font-bold ${daysUntilDue < 0 ? 'text-red-600' : 'text-navy'}`}>
-                      {daysUntilDue < 0 ? `${Math.abs(daysUntilDue)}d overdue` : daysUntilDue}
-                    </p>
+                    <>
+                      <p className="text-xs text-gray-500 mb-1">Days until due</p>
+                      {daysUntilDue === null ? (
+                        <p className="text-2xl font-bold text-navy">—</p>
+                      ) : (
+                        <p className={`text-2xl font-bold ${daysUntilDue < 0 ? 'text-red-600' : 'text-navy'}`}>
+                          {daysUntilDue < 0 ? `${Math.abs(daysUntilDue)}d overdue` : daysUntilDue}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1 truncate">
+                        {selectedCycle.dueDate ? `Due ${formatDate(selectedCycle.dueDate)} · ${selectedCycle.name}` : 'No due date set'}
+                      </p>
+                    </>
                   )}
-                  <p className="text-xs text-gray-500 mt-1 truncate">
-                    {selectedCycle.dueDate ? `Due ${formatDate(selectedCycle.dueDate)} · ${selectedCycle.name}` : 'No due date set'}
-                  </p>
                 </div>
               </div>
 
