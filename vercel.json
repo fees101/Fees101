@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/admin/reminders", "schedule": "*/5 * * * *" },
+    { "path": "/api/admin/reconcile", "schedule": "*/5 * * * *" }
+  ]
+}

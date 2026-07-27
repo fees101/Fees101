@@ -1,9 +1,11 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { InvoiceDetail } from '@/lib/queries/fees'
 import { formatPaymentMethod } from '@/lib/paymentMethod'
+import { sendInvoice } from '@/app/(app)/invoices/[id]/actions'
 
 interface Props {
   invoice: InvoiceDetail
@@ -29,9 +31,26 @@ function statusBadge(invoice: InvoiceDetail) {
 }
 
 export default function InvoiceDetailLayout({ invoice }: Props) {
+  const router = useRouter()
   const badge = statusBadge(invoice)
   const pdfUrl = `/api/invoices/${invoice.id}/pdf`
   const payments = invoice.payments || []
+
+  const [sending, setSending] = useState(false)
+  const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  async function handleSend() {
+    setSending(true)
+    setSendResult(null)
+    const r = await sendInvoice(invoice.id)
+    setSending(false)
+    if (r.error) { setSendResult({ ok: false, message: r.error }); return }
+    setSendResult({
+      ok: true,
+      message: r.mock ? `Mock: would send to ${r.to}` : `Sent to ${r.to}`,
+    })
+    router.refresh()
+  }
 
   return (
     <>
@@ -234,6 +253,25 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           {/* Actions */}
           <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-2">
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Actions</p>
+
+            <button
+              onClick={handleSend}
+              disabled={sending}
+              className="w-full flex items-center justify-between px-4 py-2.5 bg-mint text-navy rounded-lg text-sm font-semibold hover:bg-mint/90 disabled:opacity-50"
+            >
+              {sending ? 'Sending…' : invoice.sentAt ? 'Resend to parent' : 'Send to parent'}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+            {sendResult ? (
+              <p className={`text-xs ${sendResult.ok ? 'text-mint' : 'text-red-600'}`}>{sendResult.message}</p>
+            ) : invoice.sentAt ? (
+              <p className="text-xs text-gray-500">Last sent {formatDate(invoice.sentAt)}</p>
+            ) : (
+              <p className="text-xs text-gray-400">Not sent to the parent yet</p>
+            )}
+
             <a
               href={pdfUrl}
               target="_blank"

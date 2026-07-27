@@ -59,6 +59,7 @@ export default function SchoolProfileForm({ school }: Props) {
 
   const initial = {
     name: school.name,
+    smsShortName: school.smsShortName || '',
     proprietressTitle: school.proprietressTitle || '',
     proprietressFirstName: school.proprietressFirstName || '',
     proprietressLastName: school.proprietressLastName || '',
@@ -93,6 +94,7 @@ export default function SchoolProfileForm({ school }: Props) {
     setSaving(true)
     const result = await updateSchoolGeneralInfo({
       name: form.name,
+      smsShortName: form.smsShortName,
       proprietressTitle: form.proprietressTitle,
       proprietressFirstName: form.proprietressFirstName,
       proprietressLastName: form.proprietressLastName,
@@ -212,6 +214,21 @@ export default function SchoolProfileForm({ school }: Props) {
                 onChange={(e) => update('name', e.target.value)}
                 className={inputCls}
               />
+            </div>
+
+            <div>
+              <label className={labelCls}>SMS short name</label>
+              <input
+                type="text"
+                value={form.smsShortName}
+                onChange={(e) => update('smsShortName', e.target.value.slice(0, 30))}
+                placeholder={getSchoolInitials(form.name || school.name)}
+                className={inputCls}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Used instead of the full school name in SMS to parents (e.g. &quot;CKEHS&quot;) — keeps
+                messages short so they don&apos;t split into extra billed segments. Leave blank to use the full name.
+              </p>
             </div>
 
             <div>

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 export interface SchoolSettings {
   id: string
   name: string
+  smsShortName: string | null
   logoUrl: string | null
   addressStreet: string | null
   addressCity: string | null
@@ -47,7 +48,7 @@ export async function getSchoolSettings(): Promise<SchoolSettings | null> {
   const { data: school } = await supabase
     .from('schools')
     .select(`
-      id, name, logo_url, phone, email, subscription_status,
+      id, name, logo_url, phone, email, subscription_status, settings,
       address_street, address_city, address_state,
       proprietress_title, proprietress_first_name, proprietress_last_name
     `)
@@ -59,6 +60,7 @@ export async function getSchoolSettings(): Promise<SchoolSettings | null> {
   return {
     id: school.id,
     name: school.name,
+    smsShortName: school.settings?.smsShortName || null,
     logoUrl: school.logo_url,
     addressStreet: school.address_street,
     addressCity: school.address_city,

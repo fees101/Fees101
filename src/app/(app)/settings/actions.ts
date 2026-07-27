@@ -31,6 +31,7 @@ async function getContext() {
 
 export async function updateSchoolGeneralInfo(form: {
   name: string
+  smsShortName: string
   proprietressTitle: string
   proprietressFirstName: string
   proprietressLastName: string
@@ -45,11 +46,24 @@ export async function updateSchoolGeneralInfo(form: {
   const { supabase, schoolId } = ctx
 
   if (!form.name.trim()) return { error: 'School name is required' }
+  if (form.smsShortName.trim().length > 30) return { error: 'SMS short name must be 30 characters or fewer' }
+
+  const { data: existing } = await supabase
+    .from('schools')
+    .select('settings')
+    .eq('id', schoolId)
+    .single()
+
+  const nextSettings = {
+    ...(existing?.settings || {}),
+    smsShortName: form.smsShortName.trim() || null,
+  }
 
   const { error } = await supabase
     .from('schools')
     .update({
       name: form.name.trim(),
+      settings: nextSettings,
       proprietress_title: form.proprietressTitle.trim() || null,
       proprietress_first_name: form.proprietressFirstName.trim() || null,
       proprietress_last_name: form.proprietressLastName.trim() || null,

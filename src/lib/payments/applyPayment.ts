@@ -5,6 +5,9 @@
 // it will run exactly once per real-world transaction.
 
 import { applyCreditBalanceDelta } from '@/lib/computeInvoice'
+import { sendMessage } from '@/lib/messaging/sendMessage'
+import { composePartialPaymentSMS, composeFullPaymentSMS } from '@/lib/messaging/composeInvoice'
+import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 
 interface ApplyPaymentParams {
   supabase: any
@@ -31,7 +34,7 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
   // the newer invoice (which already includes it) gets paid down.
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('id, outstanding_amount, billing_cycles!inner(start_date, status)')
+    .select('id, outstanding_amount, billing_cycles!inner(name, start_date, status)')
     .eq('student_id', studentId)
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
@@ -45,6 +48,34 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
   const notes = `provider settlementAmount=${settlementAmount} (fee not deducted from what the student is credited)`
   let remaining = amountPaid
   const paymentIds: string[] = []
+
+  // Payment-confirmation SMS is best-effort — a student/school lookup miss
+  // or a Termii failure should never break payment processing itself.
+  let notifyInfo: {
+    phone: string
+    studentName: string
+    schoolName: string
+    accountNumber: string
+  } | null = null
+  if (sorted.length > 0) {
+    const [{ data: student }, { data: school }] = await Promise.all([
+      supabase
+        .from('students')
+        .select('first_name, last_name, provider_dva_account_number, families(primary_parent_phone)')
+        .eq('id', studentId)
+        .single(),
+      supabase.from('schools').select('name, settings').eq('id', schoolId).single(),
+    ])
+    const phone = (student?.families as any)?.primary_parent_phone
+    if (phone && student?.provider_dva_account_number) {
+      notifyInfo = {
+        phone,
+        studentName: `${student.first_name} ${student.last_name}`.trim(),
+        schoolName: getSchoolSmsName(school),
+        accountNumber: student.provider_dva_account_number,
+      }
+    }
+  }
 
   for (const invoice of sorted) {
     if (remaining <= 0) break
@@ -73,6 +104,31 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
     if (error) throw new Error(`Failed to insert payment for invoice ${invoice.id}: ${error.message}`)
     paymentIds.push(paymentRow.id)
     remaining -= applyAmount
+
+    if (notifyInfo) {
+      const newOutstanding = outstanding - applyAmount
+      const text = newOutstanding <= 0
+        ? composeFullPaymentSMS({
+            studentName: notifyInfo.studentName,
+            schoolName: notifyInfo.schoolName,
+            termName: (invoice.billing_cycles as any)?.name || '',
+            amountPaid: applyAmount,
+          })
+        : composePartialPaymentSMS({
+            studentName: notifyInfo.studentName,
+            schoolName: notifyInfo.schoolName,
+            amountPaid: applyAmount,
+            balance: newOutstanding,
+            accountNumber: notifyInfo.accountNumber,
+          })
+
+      await sendMessage(
+        { supabase, schoolId, messageType: 'receipt', studentId, invoiceId: invoice.id },
+        notifyInfo.phone,
+        text,
+        'sms'
+      )
+    }
   }
 
   // Nothing left owed on any open invoice — park the rest as credit rather
