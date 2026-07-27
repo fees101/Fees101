@@ -133,7 +133,7 @@ export default function CycleDetailLayout({ data }: Props) {
           <p className="text-sm text-gray-500">
             {formatDate(cycle.startDate)} – {formatDate(cycle.endDate)}
             <span className="text-gray-400 font-bold"> · </span>
-            Due: {formatDate(cycle.dueDate)}
+            {isClosed && cycle.closedAt ? `Closed: ${formatDate(cycle.closedAt)}` : `Due: ${formatDate(cycle.dueDate)}`}
             {cycle.sessionName && (
               <>
                 <span className="text-gray-400 font-bold"> · </span>

@@ -196,6 +196,9 @@ export async function getStudentById(studentId: string) {
       admission_number,
       admission_date,
       status,
+      provider_dva_reference,
+      provider_dva_account_number,
+      provider_dva_bank_name,
       classes!inner(id, name),
       families!inner(
         id,
@@ -213,6 +216,14 @@ export async function getStudentById(studentId: string) {
     .single()
 
   if (!student) return null
+
+  // Whether this school has a payment provider at all — drives the header's
+  // virtual-account state (has account / can create / not configured).
+  const { data: schoolRow } = await supabase
+    .from('schools')
+    .select('payment_provider')
+    .eq('id', schoolId)
+    .single()
 
   // Get current billing cycle
   const { data: currentCycle } = await supabase
@@ -320,6 +331,12 @@ export async function getStudentById(studentId: string) {
       // @ts-expect-error — joined object
       notes: student.families?.notes || '',
     },
+    virtualAccount: {
+      providerConfigured: !!schoolRow?.payment_provider,
+      hasAccount: !!student.provider_dva_reference,
+      accountNumber: student.provider_dva_account_number || null,
+      bankName: student.provider_dva_bank_name || null,
+    },
     siblings: siblingsWithStatus,
     currentTermName: currentCycle?.name || '',
     currentInvoice: currentInvoice ? {
@@ -358,21 +375,17 @@ export async function getStudentPaymentHistory(studentId: string) {
   }
   if (!schoolId) return null
 
-  // Verify student belongs to this school, and pull their payment account (DVA) details
+  // Verify student belongs to this school; credit_balance feeds the
+  // "unapplied credit" note. The virtual account (DVA) now lives in the
+  // student header, not this tab, so it's no longer fetched here.
   const { data: student } = await supabase
     .from('students')
-    .select('id, provider_dva_reference, provider_dva_account_number, provider_dva_bank_name, credit_balance')
+    .select('id, credit_balance')
     .eq('id', studentId)
     .eq('school_id', schoolId)
     .single()
 
   if (!student) return null
-
-  const { data: school } = await supabase
-    .from('schools')
-    .select('payment_provider')
-    .eq('id', schoolId)
-    .single()
 
   // Get all invoices for this student, with billing cycle info
   const { data: invoices } = await supabase
@@ -461,12 +474,6 @@ export async function getStudentPaymentHistory(studentId: string) {
     },
     invoices: formattedInvoices,
     payments: formattedPayments,
-    paymentAccount: {
-      providerConfigured: !!school?.payment_provider,
-      hasAccount: !!student.provider_dva_reference,
-      accountNumber: student.provider_dva_account_number || null,
-      bankName: student.provider_dva_bank_name || null,
-    },
   }
 }
 // ============ STUDENT FEES (for Fees tab) ============
