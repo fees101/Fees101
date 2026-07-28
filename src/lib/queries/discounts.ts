@@ -21,10 +21,10 @@ export interface DiscountSettings {
 }
 
 export const DEFAULT_DISCOUNT_SETTINGS: Omit<DiscountSettings, 'schoolId'> = {
-  siblingTiers: [
-    { value: 10, isPercentage: true },
-    { value: 15, isPercentage: true },
-  ],
+  // Off by default — a school must opt into sibling discounts itself by
+  // configuring tiers. No tiers = no auto-discount (computeSiblingDiscount
+  // returns null on an empty list), so nothing is silently applied.
+  siblingTiers: [],
   staffDiscountDefaultPct: 50,
 }
 

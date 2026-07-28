@@ -774,7 +774,10 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
   // simulate this invoice's own credit being restored before recomputing,
   // so an already-correct invoice doesn't get flagged as stale forever.
   const effectiveCredit = Number(studentData.credit_balance || 0) + Number(existingInvoice?.credit_applied || 0)
-  const computedBill = await computeInvoiceForStudent(supabase, schoolId, studentId, cycle.id, effectiveCredit, Number(existingInvoice?.paid_amount || 0))
+  // Pass existingInvoice?.id so a manual one-off discount already on this
+  // invoice is included in the recompute — otherwise the Fees tab would show
+  // "adjustments have been made" perpetually for any discounted invoice.
+  const computedBill = await computeInvoiceForStudent(supabase, schoolId, studentId, cycle.id, effectiveCredit, Number(existingInvoice?.paid_amount || 0), existingInvoice?.id)
   const expectedBill = !('error' in computedBill)
     ? computedBill.total
     : requiredTotal - exemptionTotal + optInTotal + carryForwardAmount

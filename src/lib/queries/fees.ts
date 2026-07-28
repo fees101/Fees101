@@ -676,7 +676,12 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
       // credit-touched invoice as stale forever, since the balance it
       // originally consumed is now gone from the live figure.
       const effectiveCredit = (studentLiveCreditBalance[inv.studentId] || 0) + inv.creditApplied
-      const computed = await computeInvoiceForStudent(supabase, schoolId, inv.studentId, cycleId, effectiveCredit, inv.paidAmount)
+      // Pass inv.id so any manual one-off discount already applied to THIS
+      // invoice is folded into the recompute — without it the check would
+      // recompute a higher total (no discount) and flag the invoice stale
+      // forever, while a regenerate (which does pass the id) produces the
+      // same stored value, so the banner could never clear.
+      const computed = await computeInvoiceForStudent(supabase, schoolId, inv.studentId, cycleId, effectiveCredit, inv.paidAmount, inv.id)
       // Compare creditApplied too, not just total — a fee change can leave
       // the total unchanged when credit fully covers the bill either way,
       // while what's actually owed and drawn from credit still differs.

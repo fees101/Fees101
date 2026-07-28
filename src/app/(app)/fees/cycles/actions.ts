@@ -397,7 +397,9 @@ async function closeTermAndCarryForward(
         }
 
         const paid = Number(inv.paid_amount || 0)
-        const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, inv.billing_cycle_id, undefined, paid)
+        // Pass inv.id so a manual one-off discount on this future-term invoice
+        // survives the recompute triggered by closing the current term.
+        const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, inv.billing_cycle_id, undefined, paid, inv.id)
         if ('error' in computed) continue
 
         let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
