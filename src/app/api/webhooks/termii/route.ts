@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
+import { escalateFailedMessage } from '@/lib/messaging/sendMessage'
 
 function isValidSignature(rawBody: string, signature: string | null): boolean {
   const secret = process.env.TERMII_WEBHOOK_SECRET || process.env.TERMII_API_KEY || ''
@@ -79,10 +80,13 @@ export async function POST(request: NextRequest) {
     .from('message_logs')
     .update(update)
     .eq('provider_message_id', messageId)
-    .select('id')
+    .select('id, school_id, channel, message_type, content, related_student_id, related_invoice_id')
 
   if (error) console.error('[termii webhook] failed to update message_logs', error)
   else if (!data?.length) console.warn('[termii webhook] no message_logs row matched provider_message_id', messageId)
+  else if (status === 'failed') {
+    await escalateFailedMessage(supabase, data[0])
+  }
 
   return NextResponse.json({ received: true })
 }

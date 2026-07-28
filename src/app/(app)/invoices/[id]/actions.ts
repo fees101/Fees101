@@ -2,7 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { sendMessage } from '@/lib/messaging/sendMessage'
+import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
+import { MessageChannel } from '@/lib/messaging/types'
 import { composeInvoiceSMS } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 
@@ -20,7 +21,7 @@ async function getContext() {
   return { supabase, schoolId }
 }
 
-export async function sendInvoice(invoiceId: string) {
+export async function sendInvoice(invoiceId: string, channelOverride?: MessageChannel) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
@@ -30,7 +31,7 @@ export async function sendInvoice(invoiceId: string) {
     .select(`
       id, total_amount, paid_amount, outstanding_amount, status,
       students!inner(id, first_name, last_name, provider_dva_account_number, provider_dva_bank_name,
-        families(primary_parent_name, primary_parent_phone)),
+        families(primary_parent_name, primary_parent_phone, primary_parent_email)),
       billing_cycles!inner(name, due_date)
     `)
     .eq('id', invoiceId)
@@ -56,24 +57,24 @@ export async function sendInvoice(invoiceId: string) {
     inv.outstanding_amount ?? (Number(inv.total_amount) - Number(inv.paid_amount || 0))
   )
 
-  const text = composeInvoiceSMS({
-    schoolName: getSchoolSmsName(school),
+  const messageParams = {
     studentName: `${student.first_name} ${student.last_name}`.trim(),
     termName: (inv.billing_cycles as any)?.name || '',
     amountDue: outstanding,
     accountNumber: student.provider_dva_account_number,
     bankName: student.provider_dva_bank_name,
     dueDate,
-  })
+  }
+  const smsText = composeInvoiceSMS({ ...messageParams, schoolName: getSchoolSmsName(school) })
 
-  const result = await sendMessage(
+  const result = await sendMessageWithFallback(
     { supabase, schoolId, messageType: 'invoice', studentId: student.id, invoiceId },
-    parentPhone,
-    text,
-    'sms'
+    { phone: parentPhone },
+    { sms: smsText },
+    { channelOrder: channelOverride ? [channelOverride] : undefined }
   )
 
-  if (!result.ok) return { error: result.error || 'Failed to send' }
+  if (!result.ok) return { error: 'Failed to send on every available channel — check the notification banner for details.' }
 
   // Light the dormant "sent" machinery: mark sent, clear the resend flag.
   await supabase
@@ -83,5 +84,5 @@ export async function sendInvoice(invoiceId: string) {
     .eq('school_id', schoolId)
 
   revalidatePath(`/invoices/${invoiceId}`)
-  return { success: true, mock: !!result.mock, to: parentPhone, preview: text }
+  return { success: true, channelUsed: result.channelUsed, to: parentPhone, preview: smsText }
 }

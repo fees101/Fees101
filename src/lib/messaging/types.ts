@@ -1,19 +1,21 @@
 // Provider-agnostic messaging contract. The rest of the app sends through this
 // interface and never talks to Termii directly — so switching provider, or
 // tweaking Termii's v4 quirks, is confined to one adapter file.
+//
+// Email (SMTP + PDF attachments) was removed — invoice/receipt/reminder
+// delivery is SMS-only via Termii for now. Amazon SES will be wired back in
+// later as both a fallback channel and the sender for PDF-attached
+// invoice/receipt emails. WhatsApp was also removed (2026-07-28) — it will be
+// rebuilt against SendChamp once that account exists.
 
-export type MessageChannel = 'sms' | 'whatsapp'
+export type MessageChannel = 'sms'
 
 export interface SendParams {
-  // Recipient in international format without '+', e.g. 2348012345678.
+  // Recipient: phone in international format without '+'.
   to: string
-  // The plain-text body (SMS, or the resolved WhatsApp text).
+  // The plain-text body.
   text: string
   channel: MessageChannel
-  // WhatsApp only — the approved template + its variables. Ignored for SMS and
-  // in mock mode; wired up when the WhatsApp Business templates are approved.
-  templateName?: string
-  templateVars?: string[]
 }
 
 export interface SendResult {

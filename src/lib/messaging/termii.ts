@@ -1,6 +1,6 @@
 // Termii (v4) implementation of MessagingProvider. Verified against the real
 // account: base https://v4.api.termii.com, POST /api/sms/send, api_key in body,
-// channel "dnd" for transactional SMS / "whatsapp" for WhatsApp.
+// channel "dnd" for transactional SMS.
 //
 // TERMII_SENDER_ID is our approved custom Sender ID ("OE Alert"). The
 // original "Fees101" Sender ID application was rejected by Termii.
@@ -9,9 +9,14 @@
 //   mock  → no HTTP, no charge; returns Termii's success shape. Use for dev/tests.
 //   live  → real send.
 //
-// The WhatsApp branch is coded to the docs but not yet verifiable (needs an
-// approved WhatsApp device + Meta template), so it's isolated here — the one
-// place to adjust once WhatsApp is live.
+// WhatsApp support was removed (2026-07-28) — it was never verified against a
+// real approved device/template, and WhatsApp will be rebuilt against
+// SendChamp instead once that account exists, rather than finishing it here.
+// Termii stays as the SMS provider only for now.
+//
+// Email does NOT go through Termii (their email API is paid and
+// template-driven) — email sending was removed from the app entirely for now
+// and will be rebuilt against Amazon SES.
 
 import { MessagingProvider, SendParams, SendResult } from './types'
 
@@ -26,7 +31,7 @@ function config() {
 
 export class TermiiProvider implements MessagingProvider {
   async send(params: SendParams): Promise<SendResult> {
-    const { mode, baseUrl, apiKey, senderId } = config()
+    const { mode } = config()
 
     // MOCK: exercise the whole flow with no real message and no wallet spend.
     if (mode !== 'live') {
@@ -38,15 +43,18 @@ export class TermiiProvider implements MessagingProvider {
       }
     }
 
-    // LIVE
-    const channel = params.channel === 'whatsapp' ? 'whatsapp' : 'dnd'
+    return this.sendSms(params)
+  }
+
+  private async sendSms(params: SendParams): Promise<SendResult> {
+    const { baseUrl, apiKey, senderId } = config()
     const body: Record<string, unknown> = {
       api_key: apiKey,
       to: params.to,
       from: senderId,
       sms: params.text,
       type: 'plain',
-      channel,
+      channel: 'dnd',
     }
 
     try {

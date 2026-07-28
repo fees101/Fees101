@@ -6,6 +6,21 @@ import { useRouter } from 'next/navigation'
 import { InvoiceDetail } from '@/lib/queries/fees'
 import { formatPaymentMethod } from '@/lib/paymentMethod'
 import { sendInvoice } from '@/app/(app)/invoices/[id]/actions'
+import { MessageChannel } from '@/lib/messaging/types'
+
+const CHANNEL_LABELS: Record<MessageChannel, string> = {
+  sms: 'SMS',
+}
+
+function ChannelIcons() {
+  return (
+    <span className="flex items-center gap-1 text-navy/60" title="Sends via SMS">
+      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8-1.436 0-2.795-.29-4.001-.804L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+      </svg>
+    </span>
+  )
+}
 
 interface Props {
   invoice: InvoiceDetail
@@ -47,7 +62,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
     if (r.error) { setSendResult({ ok: false, message: r.error }); return }
     setSendResult({
       ok: true,
-      message: r.mock ? `Mock: would send to ${r.to}` : `Sent to ${r.to}`,
+      message: `Sent to ${r.to} via ${r.channelUsed ? CHANNEL_LABELS[r.channelUsed] : 'unknown channel'}`,
     })
     router.refresh()
   }
@@ -258,8 +273,12 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
               onClick={handleSend}
               disabled={sending}
               className="w-full flex items-center justify-between px-4 py-2.5 bg-mint text-navy rounded-lg text-sm font-semibold hover:bg-mint/90 disabled:opacity-50"
+              title="Sends via SMS"
             >
-              {sending ? 'Sending…' : invoice.sentAt ? 'Resend to parent' : 'Send to parent'}
+              <span className="flex items-center gap-2">
+                <ChannelIcons />
+                {sending ? 'Sending…' : invoice.sentAt ? 'Resend to parent' : 'Send to parent'}
+              </span>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>

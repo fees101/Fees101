@@ -3550,7 +3550,7 @@ CREATE TABLE public.message_logs (
     id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     school_id uuid NOT NULL,
     direction text NOT NULL,
-    recipient_phone text NOT NULL,
+    recipient_phone text,
     sender_phone text,
     message_type text NOT NULL,
     content text NOT NULL,
@@ -3569,9 +3569,15 @@ CREATE TABLE public.message_logs (
     read_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    channel text DEFAULT 'sms'::text NOT NULL,
+    recipient_email text,
+    fallback_of_message_id uuid,
     CONSTRAINT message_logs_direction_check CHECK ((direction = ANY (ARRAY['outbound'::text, 'inbound'::text]))),
     CONSTRAINT message_logs_message_type_check CHECK ((message_type = ANY (ARRAY['invoice'::text, 'invoice_short'::text, 'invoice_full'::text, 'receipt'::text, 'reminder_advance'::text, 'reminder_due'::text, 'reminder_overdue'::text, 'extras_prompt'::text, 'extras_confirmation'::text, 'parent_query_response'::text, 'manual'::text, 'inbound_parent'::text]))),
-    CONSTRAINT message_logs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'sent'::text, 'delivered'::text, 'read'::text, 'failed'::text])))
+    CONSTRAINT message_logs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'sent'::text, 'delivered'::text, 'read'::text, 'failed'::text]))),
+    CONSTRAINT message_logs_channel_check CHECK ((channel = ANY (ARRAY['sms'::text, 'whatsapp'::text, 'email'::text]))),
+    CONSTRAINT message_logs_recipient_check CHECK ((recipient_phone IS NOT NULL) OR (recipient_email IS NOT NULL)),
+    CONSTRAINT message_logs_fallback_of_message_id_fkey FOREIGN KEY (fallback_of_message_id) REFERENCES public.message_logs(id)
 );
 
 
@@ -3580,6 +3586,25 @@ CREATE TABLE public.message_logs (
 --
 
 COMMENT ON TABLE public.message_logs IS 'Every WhatsApp message in and out, with full delivery tracking.';
+
+
+--
+-- Name: admin_notifications; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_notifications (
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
+    school_id uuid NOT NULL,
+    type text NOT NULL,
+    title text NOT NULL,
+    body text NOT NULL,
+    related_message_id uuid REFERENCES public.message_logs(id),
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    read_at timestamp with time zone,
+    PRIMARY KEY (id)
+);
+
+ALTER TABLE public.admin_notifications ENABLE ROW LEVEL SECURITY;
 
 
 --

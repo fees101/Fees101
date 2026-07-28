@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { AllInvoiceRow } from '@/lib/queries/fees'
+import { bulkSendInvoices } from '@/app/(app)/invoices/actions'
 
 interface Props {
   invoices: AllInvoiceRow[]
@@ -28,6 +29,45 @@ export default function InvoicesListLayout({ invoices }: Props) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [termFilter, setTermFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sendProgress, setSendProgress] = useState<{ sent: number; failed: number } | null>(null)
+  const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  async function handleBulkSend() {
+    if (!confirm(`Send ${counts.needsSend} unsent/needs-resend invoice(s) now?`)) return
+    setSending(true)
+    setSendResult(null)
+    setSendProgress({ sent: 0, failed: 0 })
+
+    let totalSent = 0
+    let totalFailed = 0
+    const allErrors: string[] = []
+
+    // Loop in batches (rather than one giant request) so a large school
+    // never hits a serverless function timeout, and the bonus PDF emails get
+    // spread across multiple requests instead of firing all at once.
+    while (true) {
+      const r = await bulkSendInvoices()
+      if ('error' in r) { setSendResult({ ok: false, message: r.error }); break }
+      totalSent += r.sent
+      totalFailed += r.failed
+      allErrors.push(...r.errors.map(e => e.error))
+      setSendProgress({ sent: totalSent, failed: totalFailed })
+      if (r.remaining === 0) {
+        setSendResult({
+          ok: totalFailed === 0,
+          message: totalFailed === 0
+            ? `Sent ${totalSent} invoice(s).`
+            : `Sent ${totalSent}, failed ${totalFailed}: ${allErrors.join('; ')}`,
+        })
+        break
+      }
+    }
+
+    setSending(false)
+    setSendProgress(null)
+    router.refresh()
+  }
 
   const terms = useMemo(() => {
     const seen = new Map<string, string>()
@@ -43,6 +83,7 @@ export default function InvoicesListLayout({ invoices }: Props) {
     partial: invoices.filter(i => i.status === 'partial').length,
     unpaid: invoices.filter(i => i.status !== 'paid' && i.status !== 'partial').length,
     needsResend: invoices.filter(i => i.needsResend).length,
+    needsSend: invoices.filter(i => i.status !== 'cancelled' && (!i.sentAt || i.needsResend)).length,
   }), [invoices])
 
   const filtered = useMemo(() => {
@@ -67,9 +108,25 @@ export default function InvoicesListLayout({ invoices }: Props) {
 
   return (
     <>
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold text-navy">Invoices</h1>
-        <p className="text-gray-500 mt-2 text-sm">Every invoice across every term</p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-navy">Invoices</h1>
+          <p className="text-gray-500 mt-2 text-sm">Every invoice across every term</p>
+        </div>
+        {counts.needsSend > 0 && (
+          <div className="text-right">
+            <button
+              onClick={handleBulkSend}
+              disabled={sending}
+              className="px-4 py-2 bg-mint text-navy rounded-lg text-sm font-semibold hover:bg-mint/90 disabled:opacity-50"
+            >
+              {sending ? `Sending… (${sendProgress?.sent ?? 0} sent)` : `Send all (${counts.needsSend})`}
+            </button>
+            {sendResult && (
+              <p className={`text-xs mt-1 max-w-xs ${sendResult.ok ? 'text-mint' : 'text-red-600'}`}>{sendResult.message}</p>
+            )}
+          </div>
+        )}
       </header>
 
       {invoices.length === 0 ? (

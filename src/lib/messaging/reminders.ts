@@ -14,7 +14,7 @@
 // see src/lib/queries/reminders.ts) — these are per-school, not global.
 
 import { composeReminderSMS, composeOverdueSMS } from './composeInvoice'
-import { sendMessage, MessageType } from './sendMessage'
+import { sendMessageWithFallback, MessageType } from './sendMessage'
 import { mergeReminderSettings } from '@/lib/queries/reminders'
 import { getSchoolSmsName } from './schoolSmsName'
 
@@ -124,28 +124,31 @@ export async function sendDueRemindersForSchool(schoolId: string, supabase: any)
       continue
     }
 
-    const text = (messageType === 'reminder_overdue' ? composeOverdueSMS : composeReminderSMS)({
+    const isOverdue = messageType === 'reminder_overdue'
+    const messageParams = {
       studentName: `${student.first_name} ${student.last_name}`.trim(),
-      schoolName: getSchoolSmsName(school),
       termName,
       balance: Number(invoice.outstanding_amount),
       dueDate,
       accountNumber,
+    }
+    const smsText = (isOverdue ? composeOverdueSMS : composeReminderSMS)({
+      ...messageParams,
+      schoolName: getSchoolSmsName(school),
     })
 
     try {
-      const sendResult = await sendMessage(
+      const sendResult = await sendMessageWithFallback(
         { supabase, schoolId, messageType, studentId: student.id, invoiceId: invoice.id },
-        phone,
-        text,
-        'sms'
+        { phone },
+        { sms: smsText }
       )
       if (sendResult.ok) {
         if (messageType === 'reminder_advance') result.sent.advance++
         else if (messageType === 'reminder_due') result.sent.due++
         else result.sent.overdue++
       } else {
-        result.errors.push(`invoice ${invoice.id}: ${sendResult.error || 'send failed'}`)
+        result.errors.push(`invoice ${invoice.id}: failed on every available channel`)
       }
     } catch (err: any) {
       result.errors.push(`invoice ${invoice.id}: ${err?.message || 'unknown error'}`)

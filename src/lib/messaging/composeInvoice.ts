@@ -1,25 +1,12 @@
-// Message text for every outbound SMS type, sent under our approved custom
-// Sender ID ("OE Alert" — see TERMII_SENDER_ID).
+// Message text for every outbound message type.
 //
-// Templates:
-//   Invoice:  Hello {{StudentName}}, your {{School}} {{Term}} fees invoice is
-//             NGN {{Amount}}, due {{DueDate}}. Pay to {{AccountNumber}}
-//             ({{BankName}}). Powered by Fees101
-//   Partial:  Hello {{StudentName}}, NGN {{Amount}} received for your
-//             {{School}} fees. Balance: NGN {{Balance}}. Pay to
-//             {{AccountNumber}}. Powered by Fees101
-//   Full:     Hello {{StudentName}}, NGN {{Amount}} received. Your
-//             {{School}} {{Term}} fees are fully paid. Thank you.
-//             Powered by Fees101
-//   Reminder: Hello {{StudentName}}, your {{School}} {{Term}} fees of
-//             NGN {{Balance}} are due {{DueDate}}. Pay to {{AccountNumber}}.
-//             Powered by Fees101
-//   Overdue:  Hello {{StudentName}}, your {{School}} {{Term}} fees of
-//             NGN {{Balance}} were due {{DueDate}}. Pay to {{AccountNumber}}.
-//             Powered by Fees101
+// SMS: sent under our approved custom Sender ID ("OE Alert" — see
+// TERMII_SENDER_ID). "NGN" (not the ₦ sign) keeps SMS in the cheap GSM-7
+// encoding — ₦ forces costlier Unicode segments.
 //
-// "NGN" (not the ₦ sign) keeps SMS in the cheap GSM-7 encoding — ₦ forces
-// costlier Unicode segments.
+// Email compose functions (SMTP + PDF attachment) were removed along with the
+// rest of the SMTP email sender — see src/lib/messaging/sendMessage.ts. Will
+// be rebuilt against Amazon SES.
 
 const SIGNATURE = 'Powered by Fees101'
 
@@ -35,7 +22,7 @@ function safeSchoolName(name: string): string {
 }
 
 function withSignature(body: string): string {
-  return `${body} ${SIGNATURE}`
+  return `${body}\n\n${SIGNATURE}`
 }
 
 function amount(n: number): string {

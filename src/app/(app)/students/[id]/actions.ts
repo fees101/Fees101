@@ -4,6 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 import { provisionStudentDVA } from '@/lib/payments/provisionDVA'
+import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
+import { MessageChannel } from '@/lib/messaging/types'
+import { composeReminderSMS, composeOverdueSMS } from '@/lib/messaging/composeInvoice'
+import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 
 export async function updateStudentDetails(studentId: string, formData: {
   firstName: string
@@ -448,4 +452,79 @@ export async function createDVAsForAllStudents(batchSize = 25): Promise<BulkDVAR
   revalidatePath('/settings/payments')
   revalidatePath('/students')
   return { success: true, created, failed: failures.length, remaining: remaining ?? 0, failures }
+}
+
+// ============ MANUAL REMINDER ============
+
+type SendManualReminderResult =
+  | { error: string }
+  | { success: true; channelUsed: MessageChannel | null; to: string }
+
+export async function sendManualReminder(
+  studentId: string,
+  channelOverride?: MessageChannel
+): Promise<SendManualReminderResult> {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  const { data: student } = await supabase
+    .from('students')
+    .select(`
+      id, first_name, last_name, provider_dva_account_number,
+      families(primary_parent_phone)
+    `)
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!student) return { error: 'Student not found' }
+
+  const family: any = student.families
+  const phone: string | undefined = family?.primary_parent_phone
+  if (!phone) return { error: 'No parent phone number on file for this student.' }
+  if (!student.provider_dva_account_number) return { error: 'No payment account provisioned for this student yet.' }
+
+  const { data: invoice } = await supabase
+    .from('invoices')
+    .select('id, outstanding_amount, billing_cycles!inner(name, due_date, status)')
+    .eq('student_id', studentId)
+    .eq('school_id', schoolId)
+    .neq('status', 'cancelled')
+    .gt('outstanding_amount', 0)
+    .neq('billing_cycles.status', 'closed')
+    .not('billing_cycles.due_date', 'is', null)
+    .order('due_date', { foreignTable: 'billing_cycles', ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (!invoice) return { error: 'No outstanding invoice with a due date for this student.' }
+
+  const { data: school } = await supabase.from('schools').select('name, settings').eq('id', schoolId).single()
+
+  const dueDate: string = (invoice.billing_cycles as any).due_date
+  const isOverdue = new Date(dueDate) < new Date()
+  const messageParams = {
+    studentName: `${student.first_name} ${student.last_name}`.trim(),
+    termName: (invoice.billing_cycles as any).name || '',
+    balance: Number(invoice.outstanding_amount),
+    dueDate,
+    accountNumber: student.provider_dva_account_number,
+  }
+  const smsText = (isOverdue ? composeOverdueSMS : composeReminderSMS)({
+    ...messageParams,
+    schoolName: getSchoolSmsName(school),
+  })
+
+  const result = await sendMessageWithFallback(
+    { supabase, schoolId, messageType: isOverdue ? 'reminder_overdue' : 'reminder_due', studentId, invoiceId: invoice.id },
+    { phone },
+    { sms: smsText },
+    channelOverride ? { channelOrder: [channelOverride] } : undefined
+  )
+
+  if (!result.ok) return { error: 'Failed to send on every available channel — check the notification banner for details.' }
+
+  revalidatePath(`/students/${studentId}`)
+  return { success: true, channelUsed: result.channelUsed, to: phone }
 }

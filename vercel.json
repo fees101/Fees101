@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/admin/reconcile", "schedule": "0 7 * * *" },
-    { "path": "/api/admin/reminders", "schedule": "30 7 * * *" }
+    { "path": "/api/admin/reminders", "schedule": "30 7 * * *" },
+    { "path": "/api/admin/message-sweep", "schedule": "0 8 * * *" }
   ]
 }

@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Sidebar from '@/components/layout/Sidebar'
+import AdminNotificationBanner from '@/components/layout/AdminNotificationBanner'
 
 export default async function AppLayout({
   children,
@@ -41,6 +42,21 @@ export default async function AppLayout({
     .limit(1)
     .single()
 
+  const { data: notificationRows } = await supabase
+    .from('admin_notifications')
+    .select('id, title, body, created_at')
+    .eq('school_id', schoolId || '')
+    .is('read_at', null)
+    .order('created_at', { ascending: false })
+    .limit(10)
+
+  const notifications = (notificationRows || []).map(n => ({
+    id: n.id,
+    title: n.title,
+    body: n.body,
+    createdAt: n.created_at,
+  }))
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <Sidebar
@@ -54,7 +70,10 @@ export default async function AppLayout({
         currentTermName={currentCycle?.name || null}
         currentTermId={currentCycle?.id || null}
       />
-      <main className="flex-1 min-w-0">{children}</main>
+      <main className="flex-1 min-w-0">
+        <AdminNotificationBanner notifications={notifications} />
+        {children}
+      </main>
     </div>
   )
 }

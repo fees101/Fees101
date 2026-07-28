@@ -5,7 +5,7 @@
 // it will run exactly once per real-world transaction.
 
 import { applyCreditBalanceDelta } from '@/lib/computeInvoice'
-import { sendMessage } from '@/lib/messaging/sendMessage'
+import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
 import { composePartialPaymentSMS, composeFullPaymentSMS } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 
@@ -52,7 +52,7 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
   // Payment-confirmation SMS is best-effort — a student/school lookup miss
   // or a Termii failure should never break payment processing itself.
   let notifyInfo: {
-    phone: string
+    phone?: string
     studentName: string
     schoolName: string
     accountNumber: string
@@ -107,11 +107,13 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
 
     if (notifyInfo) {
       const newOutstanding = outstanding - applyAmount
-      const text = newOutstanding <= 0
+      const isFull = newOutstanding <= 0
+      const termName = (invoice.billing_cycles as any)?.name || ''
+      const smsText = isFull
         ? composeFullPaymentSMS({
             studentName: notifyInfo.studentName,
             schoolName: notifyInfo.schoolName,
-            termName: (invoice.billing_cycles as any)?.name || '',
+            termName,
             amountPaid: applyAmount,
           })
         : composePartialPaymentSMS({
@@ -122,11 +124,10 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
             accountNumber: notifyInfo.accountNumber,
           })
 
-      await sendMessage(
+      await sendMessageWithFallback(
         { supabase, schoolId, messageType: 'receipt', studentId, invoiceId: invoice.id },
-        notifyInfo.phone,
-        text,
-        'sms'
+        { phone: notifyInfo.phone },
+        { sms: smsText }
       )
     }
   }
