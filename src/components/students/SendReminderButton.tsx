@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { sendManualReminder } from '@/app/(app)/students/[id]/actions'
 import { MessageChannel } from '@/lib/messaging/types'
+import Toast from '@/components/ui/Toast'
 
 const CHANNEL_LABELS: Record<MessageChannel, string> = {
   sms: 'SMS',
@@ -19,7 +20,17 @@ function ChannelIcons() {
   )
 }
 
-export default function SendReminderButton({ studentId }: { studentId: string }) {
+export default function SendReminderButton({
+  studentId,
+  needsResend,
+  sentAt,
+  status,
+}: {
+  studentId: string
+  needsResend?: boolean
+  sentAt?: string | null
+  status?: string
+}) {
   const router = useRouter()
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
@@ -34,20 +45,38 @@ export default function SendReminderButton({ studentId }: { studentId: string })
     router.refresh()
   }
 
+  // Needs-resend always wins — the parent's last copy is stale regardless of
+  // payment status. Paid wins next — nothing is owed, so there's nothing to
+  // invoice or remind about, even if never sent (e.g. a 100%-discounted
+  // invoice). Otherwise the label reflects what the parent still needs: the
+  // invoice itself if they've never been sent one, or a nudge while a
+  // balance remains.
+  const label = needsResend
+    ? 'Needs resend'
+    : status === 'paid'
+    ? 'Send receipt'
+    : !sentAt
+    ? 'Send invoice'
+    : 'Send reminder'
+
   return (
-    <div className="flex flex-col gap-1">
+    <>
       <button
         onClick={handleSend}
         disabled={sending}
-        className="px-4 py-2 border border-mint text-mint rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-mint-light disabled:opacity-50"
-        title="Sends via SMS"
+        className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50 ${
+          needsResend
+            ? 'border border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100'
+            : 'border border-mint text-mint hover:bg-mint-light'
+        }`}
+        title={needsResend ? 'The invoice changed since it was last sent — resend to update the parent' : 'Sends via SMS'}
       >
         <ChannelIcons />
-        {sending ? 'Sending…' : 'Send reminder'}
+        {sending ? 'Sending…' : label}
       </button>
       {result && (
-        <p className={`text-xs ${result.ok ? 'text-mint' : 'text-red-600'}`}>{result.message}</p>
+        <Toast message={result.message} ok={result.ok} onDismiss={() => setResult(null)} />
       )}
-    </div>
+    </>
   )
 }

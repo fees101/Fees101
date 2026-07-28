@@ -24,12 +24,15 @@ type BulkSendResult =
 
 // Sends ONE batch of invoices that have never been sent, or were flagged
 // needs_resend after being updated post-send, then reports how many still
-// remain. The client calls this repeatedly (a batch at a time, with a
-// progress bar) — same pattern as createDVAsForAllStudents — so a school
-// with hundreds/thousands of invoices never runs as one giant request that
-// would blow past a serverless function's execution timeout, and the SMTP
-// bonus-email sends get naturally spread across multiple requests instead of
-// firing in one burst against the mailbox's rate limit.
+// remain. Invoices with nothing outstanding (fully covered by a discount or
+// by credit) are skipped — there's nothing to remind the parent about, so
+// sending would just be a wasted SMS/WhatsApp cost. The client calls this
+// repeatedly (a batch at a time, with a progress bar) — same pattern as
+// createDVAsForAllStudents — so a school with hundreds/thousands of invoices
+// never runs as one giant request that would blow past a serverless
+// function's execution timeout, and the SMTP bonus-email sends get naturally
+// spread across multiple requests instead of firing in one burst against the
+// mailbox's rate limit.
 export async function bulkSendInvoices(batchSize = 20): Promise<BulkSendResult> {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -41,6 +44,7 @@ export async function bulkSendInvoices(batchSize = 20): Promise<BulkSendResult> 
     .select('id')
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
+    .gt('outstanding_amount', 0)
     .or('sent_at.is.null,needs_resend.eq.true')
     .limit(limit)
 
@@ -66,6 +70,7 @@ export async function bulkSendInvoices(batchSize = 20): Promise<BulkSendResult> 
     .select('id', { count: 'exact', head: true })
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
+    .gt('outstanding_amount', 0)
     .or('sent_at.is.null,needs_resend.eq.true')
 
   revalidatePath('/invoices')

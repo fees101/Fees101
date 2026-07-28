@@ -2,11 +2,19 @@
 // invoices (fees/cycles/actions.ts) and when checking whether an already
 // generated invoice is stale relative to current fees/opt-ins (queries/fees.ts).
 
+import { computeDiscountsForInvoice, type AppliedDiscount } from '@/lib/discounts/compute'
+import { getDiscountSettingsFor } from '@/lib/queries/discounts'
+
 export interface ComputedLineItem {
   name: string
   amount: number
   kind: 'required' | 'opt_in' | 'previous_balance' | 'credit_applied'
   fee_item_id?: string
+  // Whether this line item counts toward the base that % discounts are
+  // computed against — false for fee items a school has marked non-discountable
+  // (e.g. exam fees, uniforms), so a sibling/staff discount only ever
+  // reduces the fees the school chose to make discountable, not everything.
+  discountable?: boolean
 }
 
 export interface ComputedInvoice {
@@ -16,6 +24,9 @@ export interface ComputedInvoice {
   lineItems: ComputedLineItem[]
   subtotal: number
   previousBalance: number
+  discountAmount: number
+  discountReason: string
+  appliedDiscounts: AppliedDiscount[]
   creditApplied: number
   total: number
   warning?: string
@@ -42,12 +53,13 @@ export async function computeInvoiceForStudent(
   studentId: string,
   cycleId: string,
   creditBalanceOverride?: number,
-  alreadyPaidAmount: number = 0
+  alreadyPaidAmount: number = 0,
+  existingInvoiceId?: string
 ): Promise<ComputedInvoice | { error: string }> {
   // Get student
   const { data: student } = await supabase
     .from('students')
-    .select('id, first_name, last_name, class_id, status, credit_balance, classes(name)')
+    .select('id, first_name, last_name, class_id, family_id, status, credit_balance, classes(name)')
     .eq('id', studentId)
     .eq('school_id', schoolId)
     .single()
@@ -61,7 +73,7 @@ export async function computeInvoiceForStudent(
   // Fee items: per-class for this student's class + school-wide
   let feeItemsQuery = supabase
     .from('fee_items')
-    .select('id, class_id, name, amount, is_mandatory, is_optional_extra')
+    .select('id, class_id, name, amount, is_mandatory, is_optional_extra, is_discountable')
     .eq('school_id', schoolId)
     .eq('billing_cycle_id', cycleId)
 
@@ -80,6 +92,9 @@ export async function computeInvoiceForStudent(
       lineItems: [],
       subtotal: 0,
       previousBalance: 0,
+      discountAmount: 0,
+      discountReason: '',
+      appliedDiscounts: [],
       creditApplied: 0,
       total: 0,
       warning: 'No fees configured for this term',
@@ -106,6 +121,7 @@ export async function computeInvoiceForStudent(
           amount: Number(f.amount),
           kind: 'required',
           fee_item_id: f.id,
+          discountable: f.is_discountable !== false,
         })
       }
     } else if (f.is_optional_extra && optInIds.has(f.id)) {
@@ -114,6 +130,7 @@ export async function computeInvoiceForStudent(
         amount: Number(f.amount),
         kind: 'opt_in',
         fee_item_id: f.id,
+        discountable: f.is_discountable !== false,
       })
     }
   })
@@ -166,7 +183,24 @@ export async function computeInvoiceForStudent(
   }
 
   const subtotal = lineItems.filter(li => li.kind !== 'previous_balance').reduce((s, li) => s + li.amount, 0)
-  const amountDue = subtotal + previousBalance
+  const discountableSubtotal = lineItems
+    .filter(li => li.kind !== 'previous_balance' && li.discountable !== false)
+    .reduce((s, li) => s + li.amount, 0)
+
+  const discountSettings = await getDiscountSettingsFor(supabase, schoolId)
+  const { discountAmount, discountReason, appliedDiscounts } = await computeDiscountsForInvoice(
+    supabase,
+    schoolId,
+    { id: student.id, family_id: student.family_id },
+    discountableSubtotal,
+    discountSettings,
+    existingInvoiceId
+  )
+
+  // Discount only reduces this term's own fees — previous balance carried
+  // forward from a prior term is added back in full afterward, so a staff or
+  // sibling discount never quietly writes down debt the parent already owed.
+  const amountDue = Math.max(0, subtotal - discountAmount) + previousBalance
 
   // Spend down any available credit (e.g. from a prior overpayment) against
   // whatever's still actually unpaid on this term's charges — never against
@@ -199,6 +233,9 @@ export async function computeInvoiceForStudent(
     lineItems,
     subtotal,
     previousBalance,
+    discountAmount,
+    discountReason,
+    appliedDiscounts,
     creditApplied,
     total,
   }

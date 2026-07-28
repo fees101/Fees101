@@ -13,6 +13,7 @@ interface ExistingItem {
   classDisplayOrder: number
   amount: number
   optInCount: number
+  isDiscountable?: boolean
 }
 
 interface Props {
@@ -43,6 +44,7 @@ export default function EditFeeGroupPanel({
   const [uniformAmount, setUniformAmount] = useState<string>('')
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set())
   const [perClassAmounts, setPerClassAmounts] = useState<Record<string, string>>({})
+  const [isDiscountable, setIsDiscountable] = useState(true)
 
   // Confirmation
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -62,6 +64,7 @@ export default function EditFeeGroupPanel({
       }
       const items = result.items as ExistingItem[]
       setExisting(items)
+      if (items.length > 0) setIsDiscountable(items[0].isDiscountable !== false)
 
       if (isSchoolWide) {
         // Single row for school-wide
@@ -204,6 +207,7 @@ export default function EditFeeGroupPanel({
         isOptional,
         uniformAmount: parseInt(uniformAmount),
         selectedClassIds: [],
+        isDiscountable,
       })
     } else {
       const perClass: Record<string, number> = {}
@@ -223,6 +227,7 @@ export default function EditFeeGroupPanel({
         uniformAmount: pricingMode === 'uniform' ? parseInt(uniformAmount) : undefined,
         perClassAmounts: pricingMode === 'per-class' ? perClass : undefined,
         selectedClassIds: Array.from(selectedClassIds),
+        isDiscountable,
       })
     }
 
@@ -259,6 +264,7 @@ export default function EditFeeGroupPanel({
   // Detect if anything has actually changed (disable Save if nothing changed)
   const hasChanges = useMemo(() => {
     if (name.trim() !== currentName) return true
+    if (existing.length > 0 && isDiscountable !== (existing[0].isDiscountable !== false)) return true
     if (isSchoolWide) {
       const newAmt = parseInt(uniformAmount)
       return !isNaN(newAmt) && newAmt !== existing[0]?.amount
@@ -279,7 +285,7 @@ export default function EditFeeGroupPanel({
       }
     }
     return false
-  }, [name, currentName, uniformAmount, pricingMode, selectedClassIds, perClassAmounts, existing, isSchoolWide, summary])
+  }, [name, currentName, uniformAmount, pricingMode, selectedClassIds, perClassAmounts, existing, isSchoolWide, summary, isDiscountable])
 
   return (
     <>
@@ -316,6 +322,19 @@ export default function EditFeeGroupPanel({
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
                 />
               </div>
+
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isDiscountable}
+                  onChange={(e) => setIsDiscountable(e.target.checked)}
+                  className="mt-0.5 text-mint"
+                />
+                <div>
+                  <span className="text-sm text-navy">Eligible for discounts</span>
+                  <p className="text-xs text-gray-500">Sibling/staff discounts reduce this item's share of the invoice.</p>
+                </div>
+              </label>
 
               {isSchoolWide ? (
                 <div>

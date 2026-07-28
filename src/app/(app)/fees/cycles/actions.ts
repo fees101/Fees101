@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { computeInvoiceForStudent, ComputedInvoice, applyCreditBalanceDelta } from '@/lib/computeInvoice'
+import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 
 async function getContext() {
   const supabase = await createClient()
@@ -898,14 +899,15 @@ export async function generateInvoicesForCycle(cycleId: string) {
     const status: 'pending' | 'paid' = computed.total === 0 ? 'paid' : 'pending'
     const invoiceNumber = `INV-${yy}/${String(nextSeq).padStart(5, '0')}`
 
-    const { error } = await supabase.from('invoices').insert({
+    const { data: inserted, error } = await supabase.from('invoices').insert({
       school_id: schoolId,
       student_id: s.id,
       billing_cycle_id: cycleId,
       invoice_number: invoiceNumber,
       line_items: computed.lineItems,
       subtotal: computed.subtotal,
-      discount_amount: 0,
+      discount_amount: computed.discountAmount,
+      discount_reason: computed.discountReason || null,
       previous_balance: computed.previousBalance,
       credit_applied: computed.creditApplied,
       total_amount: computed.total,
@@ -914,11 +916,14 @@ export async function generateInvoicesForCycle(cycleId: string) {
       sent_at: null,
       needs_resend: false,
       generated_at: new Date().toISOString(),
-    })
+    }).select('id').single()
 
     if (error) {
       errors.push({ studentId: s.id, error: error.message })
       continue
+    }
+    if (computed.appliedDiscounts.length > 0) {
+      await recordAppliedDiscounts(supabase, schoolId, s.id, inserted.id, computed.appliedDiscounts)
     }
     if (computed.creditApplied > 0) {
       await applyCreditBalanceDelta(supabase, schoolId, s.id, -computed.creditApplied)
@@ -991,7 +996,8 @@ export async function generateInvoiceForStudent(studentId: string, cycleId: stri
       invoice_number: invoiceNumber,
       line_items: computed.lineItems,
       subtotal: computed.subtotal,
-      discount_amount: 0,
+      discount_amount: computed.discountAmount,
+      discount_reason: computed.discountReason || null,
       previous_balance: computed.previousBalance,
       credit_applied: computed.creditApplied,
       total_amount: computed.total,
@@ -1006,6 +1012,9 @@ export async function generateInvoiceForStudent(studentId: string, cycleId: stri
 
   if (error) return { error: error.message }
 
+  if (computed.appliedDiscounts.length > 0) {
+    await recordAppliedDiscounts(supabase, schoolId, studentId, data.id, computed.appliedDiscounts)
+  }
   if (computed.creditApplied > 0) {
     await applyCreditBalanceDelta(supabase, schoolId, studentId, -computed.creditApplied)
   }
@@ -1042,7 +1051,7 @@ export async function regenerateInvoice(invoiceId: string) {
   }
 
   const paid = Number(existing.paid_amount || 0)
-  const computed = await computeInvoiceForStudent(supabase, schoolId, existing.student_id, existing.billing_cycle_id, undefined, paid)
+  const computed = await computeInvoiceForStudent(supabase, schoolId, existing.student_id, existing.billing_cycle_id, undefined, paid, invoiceId)
   if ('error' in computed) return { error: computed.error }
 
   // Determine new status
@@ -1055,6 +1064,8 @@ export async function regenerateInvoice(invoiceId: string) {
     .update({
       line_items: computed.lineItems,
       subtotal: computed.subtotal,
+      discount_amount: computed.discountAmount,
+      discount_reason: computed.discountReason || null,
       previous_balance: computed.previousBalance,
       credit_applied: computed.creditApplied,
       total_amount: computed.total,
@@ -1066,6 +1077,7 @@ export async function regenerateInvoice(invoiceId: string) {
 
   if (error) return { error: error.message }
 
+  await recordAppliedDiscounts(supabase, schoolId, existing.student_id, invoiceId, computed.appliedDiscounts)
   if (computed.creditApplied > 0) {
     await applyCreditBalanceDelta(supabase, schoolId, existing.student_id, -computed.creditApplied)
   }
@@ -1110,7 +1122,7 @@ export async function regenerateStaleInvoicesForCycle(cycleId: string) {
     }
 
     const paid = Number(inv.paid_amount || 0)
-    const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, cycleId, undefined, paid)
+    const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, cycleId, undefined, paid, inv.id)
     if ('error' in computed) {
       errors.push({ studentId: inv.student_id, error: computed.error })
       continue
@@ -1134,6 +1146,8 @@ export async function regenerateStaleInvoicesForCycle(cycleId: string) {
       .update({
         line_items: computed.lineItems,
         subtotal: computed.subtotal,
+        discount_amount: computed.discountAmount,
+        discount_reason: computed.discountReason || null,
         previous_balance: computed.previousBalance,
         credit_applied: computed.creditApplied,
         total_amount: computed.total,
@@ -1147,6 +1161,7 @@ export async function regenerateStaleInvoicesForCycle(cycleId: string) {
       errors.push({ studentId: inv.student_id, error: error.message })
       continue
     }
+    await recordAppliedDiscounts(supabase, schoolId, inv.student_id, inv.id, computed.appliedDiscounts)
     if (computed.creditApplied > 0) {
       await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -computed.creditApplied)
     }

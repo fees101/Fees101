@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { computeInvoiceForStudent } from '@/lib/computeInvoice'
+import { getRecurringDiscounts } from '@/lib/discounts/compute'
 
 export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'graduated' | 'all' = 'active') {
   const supabase = await createClient()
@@ -243,6 +244,42 @@ export async function getStudentById(studentId: string) {
     .eq('billing_cycle_id', currentCycle?.id || '')
     .maybeSingle()
 
+  // Discounts the admin can revoke from this invoice via the "Edit discount"
+  // button — recurring ones (scoped by student+category, since a carried-
+  // forward discount's stored invoice_id may point at an earlier term) plus
+  // one-off manual discounts requested directly against this exact invoice.
+  // Sibling discounts are excluded — they're auto-computed every generation,
+  // never a standalone approved row, so there's nothing to revoke.
+  //
+  // Two separate gates, since "sent" and "paid" mean different things here:
+  // - canAddDiscount: blocked only once a payment has landed — a parent can
+  //   still notice a missed discount and get it applied after the invoice
+  //   was sent but before they've paid anything.
+  // - canFullyRevokeDiscount: blocked once EITHER the invoice was sent OR
+  //   paid against — once the parent has seen a total, changing it away
+  //   (rather than just stopping it going forward) needs a firmer bar.
+  let revocableDiscounts: { id: string; category: string; reason: string; isRecurring: boolean }[] = []
+  let canAddDiscount = false
+  let canFullyRevokeDiscount = false
+  if (currentInvoice) {
+    const recurring = await getRecurringDiscounts(supabase, schoolId, studentId)
+    const { data: oneOffRows } = await supabase
+      .from('discounts')
+      .select('id, category, reason')
+      .eq('school_id', schoolId)
+      .eq('invoice_id', currentInvoice.id)
+      .eq('status', 'applied')
+      .eq('is_recurring', false)
+      .not('requested_by', 'is', null)
+
+    revocableDiscounts = [
+      ...recurring.map((row: any) => ({ id: row.id, category: row.category, reason: row.reason, isRecurring: true })),
+      ...(oneOffRows || []).map((row: any) => ({ id: row.id, category: row.category, reason: row.reason, isRecurring: false })),
+    ]
+    canAddDiscount = Number(currentInvoice.paid_amount || 0) === 0
+    canFullyRevokeDiscount = !currentInvoice.sent_at && Number(currentInvoice.paid_amount || 0) === 0
+  }
+
   // Get siblings (other students in same family)
   // @ts-expect-error — families is joined object
   const familyId = student.families?.id
@@ -343,11 +380,18 @@ export async function getStudentById(studentId: string) {
       id: currentInvoice.id,
       lineItems: currentInvoice.line_items || [],
       subtotal: Number(currentInvoice.subtotal || 0),
+      discountAmount: Number(currentInvoice.discount_amount || 0),
+      discountReason: currentInvoice.discount_reason || '',
       totalAmount: Number(currentInvoice.total_amount),
       paidAmount: Number(currentInvoice.paid_amount),
       status: currentInvoice.status,
       generatedAt: currentInvoice.generated_at,
       fullyPaidAt: currentInvoice.fully_paid_at,
+      needsResend: currentInvoice.needs_resend,
+      sentAt: currentInvoice.sent_at,
+      revocableDiscounts,
+      canAddDiscount,
+      canFullyRevokeDiscount,
     } : null,
     payments,
   }
@@ -513,12 +557,16 @@ export interface StudentFeesData {
   optInTotal: number
   expectedCreditApplied: number
   expectedBill: number
+  expectedDiscountAmount: number
+  expectedDiscountReason: string
   existingInvoice: {
     id: string
     totalAmount: number
     paidAmount: number
     outstandingAmount: number
     creditApplied: number
+    discountAmount: number
+    discountReason: string
     status: 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled'
     sentAt: string | null
     needsResend: boolean
@@ -600,6 +648,8 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
       optInTotal: 0,
       expectedBill: 0,
       expectedCreditApplied: 0,
+      expectedDiscountAmount: 0,
+      expectedDiscountReason: '',
       existingInvoice: null,
     }
   }
@@ -711,7 +761,7 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
   // Check if an invoice already exists for this student + cycle
   const { data: existingInvoice } = await supabase
     .from('invoices')
-    .select('id, total_amount, paid_amount, credit_applied, status, sent_at, needs_resend, previous_balance, line_items, generated_at')
+    .select('id, total_amount, paid_amount, credit_applied, status, sent_at, needs_resend, previous_balance, line_items, generated_at, discount_amount, discount_reason')
     .eq('student_id', studentId)
     .eq('billing_cycle_id', cycle.id)
     .maybeSingle()
@@ -733,6 +783,8 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
   // fully covers the bill either way, while credit_applied itself differs.
   // Comparing total alone would miss that the invoice is genuinely stale.
   const expectedCreditApplied = !('error' in computedBill) ? computedBill.creditApplied : 0
+  const expectedDiscountAmount = !('error' in computedBill) ? computedBill.discountAmount : 0
+  const expectedDiscountReason = !('error' in computedBill) ? computedBill.discountReason : ''
 
   const existingInvoiceInfo = existingInvoice ? {
     id: existingInvoice.id,
@@ -740,6 +792,8 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
     paidAmount: Number(existingInvoice.paid_amount || 0),
     outstandingAmount: Number(existingInvoice.total_amount) - Number(existingInvoice.paid_amount || 0),
     creditApplied: Number(existingInvoice.credit_applied || 0),
+    discountAmount: Number(existingInvoice.discount_amount || 0),
+    discountReason: existingInvoice.discount_reason || '',
     status: existingInvoice.status as 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled',
     sentAt: existingInvoice.sent_at,
     needsResend: existingInvoice.needs_resend,
@@ -757,6 +811,8 @@ return {
     optInTotal,
     expectedBill,
     expectedCreditApplied,
+    expectedDiscountAmount,
+    expectedDiscountReason,
     existingInvoice: existingInvoiceInfo,
   }
 }

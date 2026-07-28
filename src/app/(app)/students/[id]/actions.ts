@@ -8,6 +8,8 @@ import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
 import { MessageChannel } from '@/lib/messaging/types'
 import { composeReminderSMS, composeOverdueSMS } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
+import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
+import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 
 export async function updateStudentDetails(studentId: string, formData: {
   firstName: string
@@ -354,6 +356,117 @@ export async function removeStudentExemption(studentId: string, feeItemId: strin
 
   revalidatePath(`/students/${studentId}`)
   return { success: true }
+}
+
+// ============ DISCOUNTS ============
+
+type RevokeDiscountResult =
+  | { error: string }
+  | { success: true; fullyRemoved: boolean }
+
+// Revoking from the student page (as opposed to /discounts, which only ever
+// stops future carry-forward) can also lift the discount off THIS invoice —
+// but only while there's nothing yet to unwind: not sent to the parent, and
+// no payment received against it. Past that point we never touch the
+// invoice's history, we just stop it recurring into future ones.
+export async function revokeDiscount(discountId: string): Promise<RevokeDiscountResult> {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: discount } = await supabase
+    .from('discounts')
+    .select('id, invoice_id, student_id, category, is_recurring, status')
+    .eq('id', discountId)
+    .eq('school_id', schoolId)
+    .single()
+  if (!discount) return { error: 'Discount not found' }
+  if (discount.status !== 'approved' && discount.status !== 'applied') {
+    return { error: 'This discount is not currently active' }
+  }
+  if (discount.category === 'sibling_discount') {
+    return { error: 'Sibling discounts are auto-applied and cannot be revoked directly.' }
+  }
+
+  const { data: invoice } = await supabase
+    .from('invoices')
+    .select('id, billing_cycle_id, paid_amount, credit_applied, sent_at, status')
+    .eq('id', discount.invoice_id)
+    .eq('school_id', schoolId)
+    .single()
+  if (!invoice) return { error: 'Invoice not found' }
+
+  const canFullyRemove = !invoice.sent_at && Number(invoice.paid_amount || 0) === 0
+
+  if (!canFullyRemove && !discount.is_recurring) {
+    return { error: 'This invoice has already been sent or paid against, so this one-off discount can no longer be removed.' }
+  }
+
+  const now = new Date().toISOString()
+
+  if (!canFullyRemove) {
+    // Sent/paid — only stop it carrying forward. This invoice's numbers
+    // (already sent/paid against) are left untouched.
+    const { error } = await supabase
+      .from('discounts')
+      .update({ is_recurring: false, updated_at: now })
+      .eq('id', discountId)
+    if (error) return { error: error.message }
+    revalidatePath(`/students/${discount.student_id}`)
+    return { success: true, fullyRemoved: false }
+  }
+
+  // Nothing sent or paid yet — fully lift it off this invoice and recompute.
+  const { error: rejectError } = await supabase
+    .from('discounts')
+    .update({
+      status: 'rejected',
+      rejected_by: userId,
+      rejected_at: now,
+      rejection_reason: 'Revoked from student page before the invoice was sent',
+    })
+    .eq('id', discountId)
+  if (rejectError) return { error: rejectError.message }
+
+  const previouslyApplied = Number(invoice.credit_applied || 0)
+  if (previouslyApplied > 0) {
+    await applyCreditBalanceDelta(supabase, schoolId, discount.student_id, previouslyApplied)
+  }
+
+  const paid = Number(invoice.paid_amount || 0)
+  const computed = await computeInvoiceForStudent(
+    supabase, schoolId, discount.student_id, invoice.billing_cycle_id, undefined, paid, invoice.id
+  )
+  if ('error' in computed) return { error: computed.error }
+
+  let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
+  if (paid >= computed.total) newStatus = 'paid'
+  else if (paid > 0) newStatus = 'partial'
+
+  const { error: updateError } = await supabase
+    .from('invoices')
+    .update({
+      line_items: computed.lineItems,
+      subtotal: computed.subtotal,
+      discount_amount: computed.discountAmount,
+      discount_reason: computed.discountReason || null,
+      previous_balance: computed.previousBalance,
+      credit_applied: computed.creditApplied,
+      total_amount: computed.total,
+      status: newStatus,
+      updated_at: now,
+    })
+    .eq('id', invoice.id)
+  if (updateError) return { error: updateError.message }
+
+  await recordAppliedDiscounts(supabase, schoolId, discount.student_id, invoice.id, computed.appliedDiscounts)
+  if (computed.creditApplied > 0) {
+    await applyCreditBalanceDelta(supabase, schoolId, discount.student_id, -computed.creditApplied)
+  }
+
+  revalidatePath(`/students/${discount.student_id}`)
+  revalidatePath(`/invoices/${invoice.id}`)
+  return { success: true, fullyRemoved: true }
 }
 
 // ============ PAYMENT ACCOUNT (DVA) ============

@@ -17,6 +17,7 @@ interface FeeItem {
   isRequired: boolean
   isOptional: boolean
   isSchoolWide: boolean
+  isDiscountable?: boolean
   optInCount: number
 }
 interface Cycle { id: string, name: string, status: string }

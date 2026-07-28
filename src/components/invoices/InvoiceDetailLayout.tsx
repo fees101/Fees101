@@ -7,6 +7,8 @@ import { InvoiceDetail } from '@/lib/queries/fees'
 import { formatPaymentMethod } from '@/lib/paymentMethod'
 import { sendInvoice } from '@/app/(app)/invoices/[id]/actions'
 import { MessageChannel } from '@/lib/messaging/types'
+import RequestDiscountModal from '@/components/invoices/RequestDiscountModal'
+import Toast from '@/components/ui/Toast'
 
 const CHANNEL_LABELS: Record<MessageChannel, string> = {
   sms: 'SMS',
@@ -53,6 +55,8 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
 
   const [sending, setSending] = useState(false)
   const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [discountModalOpen, setDiscountModalOpen] = useState(false)
+  const [discountSubmitted, setDiscountSubmitted] = useState(false)
 
   async function handleSend() {
     setSending(true)
@@ -217,8 +221,13 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
                 </tr>
                 {invoice.discountAmount > 0 && (
                   <tr>
-                    <td className="py-1 text-sm text-gray-600">Discount</td>
-                    <td className="py-1 text-right text-sm text-navy">-{formatNaira(invoice.discountAmount)}</td>
+                    <td className="py-1 text-sm text-gray-600">
+                      Discount
+                      {invoice.discountReason && (
+                        <span className="block text-xs text-gray-400 font-normal">{invoice.discountReason}</span>
+                      )}
+                    </td>
+                    <td className="py-1 text-right text-sm text-navy align-top">-{formatNaira(invoice.discountAmount)}</td>
                   </tr>
                 )}
                 {invoice.previousBalance > 0 && (
@@ -283,12 +292,13 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
             </button>
-            {sendResult ? (
-              <p className={`text-xs ${sendResult.ok ? 'text-mint' : 'text-red-600'}`}>{sendResult.message}</p>
-            ) : invoice.sentAt ? (
+            {invoice.sentAt ? (
               <p className="text-xs text-gray-500">Last sent {formatDate(invoice.sentAt)}</p>
             ) : (
               <p className="text-xs text-gray-400">Not sent to the parent yet</p>
+            )}
+            {sendResult && (
+              <Toast message={sendResult.message} ok={sendResult.ok} onDismiss={() => setSendResult(null)} />
             )}
 
             <a
@@ -314,10 +324,50 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
               </svg>
             </a>
+
+            {invoice.status !== 'cancelled' && (
+              invoice.paidAmount > 0 ? (
+                <button
+                  disabled
+                  title="This invoice already has a payment against it — discounts can no longer be applied"
+                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-400 font-medium opacity-60 cursor-not-allowed"
+                >
+                  Request discount
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setDiscountModalOpen(true); setDiscountSubmitted(false) }}
+                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-navy font-medium hover:bg-gray-50"
+                >
+                  Request discount
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                </button>
+              )
+            )}
+            {discountSubmitted && (
+              <p className="text-xs text-mint">Discount request submitted — awaiting admin approval</p>
+            )}
           </div>
 
         </div>
       </div>
+
+      {discountModalOpen && (
+        <RequestDiscountModal
+          invoiceId={invoice.id}
+          onClose={() => setDiscountModalOpen(false)}
+          onSuccess={() => {
+            setDiscountModalOpen(false)
+            setDiscountSubmitted(true)
+            router.refresh()
+          }}
+        />
+      )}
 
       {/* Payment history — full width */}
       <div className="mt-6 bg-white p-6 rounded-xl border border-gray-200">

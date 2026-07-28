@@ -215,6 +215,14 @@ export default function StudentFeesTab({ data }: Props) {
                   <span className="text-sm text-mint">
                     Paid: {formatNaira(existingInvoice.paidAmount)}
                   </span>
+                  {existingInvoice.discountAmount > 0 && (
+                    <>
+                      <span className="text-gray-300">·</span>
+                      <span className="text-sm text-mint" title={existingInvoice.discountReason || undefined}>
+                        Discount: -{formatNaira(existingInvoice.discountAmount)}
+                      </span>
+                    </>
+                  )}
                   {existingInvoice.creditApplied > 0 && (
                     <>
                       <span className="text-gray-300">·</span>
@@ -238,8 +246,8 @@ export default function StudentFeesTab({ data }: Props) {
                 </div>
                 {!isInvoiceUpToDate && (
                   <p className="text-xs text-amber-700 mt-2">
-                    Adjustments have been made. Current invoice ({formatNaira(existingInvoice.totalAmount)}) 
-                    differs from expected ({formatNaira(data.expectedBill)}). 
+                    Adjustments have been made. Current invoice ({formatNaira(existingInvoice.totalAmount)})
+                    differs from expected ({formatNaira(data.expectedBill)}).
                     Click &quot;Update invoice&quot; to apply.
                   </p>
                 )}
@@ -414,7 +422,11 @@ export default function StudentFeesTab({ data }: Props) {
                 Required ({formatNaira(data.requiredTotal)})
                 {data.exemptionTotal > 0 && ` − Exemptions (${formatNaira(data.exemptionTotal)})`}
                 {data.optInTotal > 0 && ` + Opt-ins (${formatNaira(data.optInTotal)})`}
+                {data.expectedDiscountAmount > 0 && ` − Discount (${formatNaira(data.expectedDiscountAmount)})`}
               </p>
+              {data.expectedDiscountAmount > 0 && data.expectedDiscountReason && (
+                <p className="text-xs text-gray-400 mt-0.5">{data.expectedDiscountReason}</p>
+              )}
             </div>
             <p className="text-3xl font-bold text-navy">{formatNaira(data.expectedBill)}</p>
           </div>

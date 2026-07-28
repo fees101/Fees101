@@ -13,6 +13,7 @@ interface FeeItem {
   isRequired: boolean
   isOptional: boolean
   isSchoolWide: boolean
+  isDiscountable?: boolean
 }
 
 interface Props {
@@ -31,6 +32,7 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
   const [name, setName] = useState(editItem?.name || '')
   const [amount, setAmount] = useState(editItem ? String(editItem.amount) : '')
   const [isRequired, setIsRequired] = useState(editItem ? editItem.isRequired : true)
+  const [isDiscountable, setIsDiscountable] = useState(editItem ? editItem.isDiscountable !== false : true)
   const [scope, setScope] = useState<'one' | 'multiple' | 'all-school'>(
     editItem
       ? (editItem.isSchoolWide ? 'all-school' : 'one')
@@ -70,7 +72,7 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
 
     let result
     if (isEdit) {
-      result = await updateFeeItem(editItem!.id, { name, amount: amt })
+      result = await updateFeeItem(editItem!.id, { name, amount: amt, isDiscountable })
     } else {
       result = await addFeeItem(cycleId, {
         name,
@@ -78,6 +80,7 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
         isRequired,
         scope,
         classIds: scope === 'all-school' ? [] : Array.from(selectedClassIds),
+        isDiscountable,
       })
     }
 
@@ -164,6 +167,19 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
           />
         </div>
+
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isDiscountable}
+            onChange={(e) => setIsDiscountable(e.target.checked)}
+            className="mt-0.5 text-mint"
+          />
+          <div>
+            <span className="text-sm text-navy">Eligible for discounts</span>
+            <p className="text-xs text-gray-500">Sibling/staff discounts reduce this item's share of the invoice. Turn off for fees like exams or uniforms that shouldn't be discounted.</p>
+          </div>
+        </label>
 
         {!isEdit && (
           <div>

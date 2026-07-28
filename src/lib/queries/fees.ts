@@ -289,7 +289,7 @@ export async function getFeeStructure(billingCycleId?: string) {
 
   const { data: feeItems } = await supabase
     .from('fee_items')
-    .select('id, class_id, name, amount, is_mandatory, is_optional_extra')
+    .select('id, class_id, name, amount, is_mandatory, is_optional_extra, is_discountable')
     .eq('school_id', schoolId)
     .eq('billing_cycle_id', cycle.id)
 
@@ -340,6 +340,7 @@ export async function getFeeStructure(billingCycleId?: string) {
       isRequired: f.is_mandatory,
       isOptional: f.is_optional_extra,
       isSchoolWide: f.class_id === null,
+      isDiscountable: f.is_discountable !== false,
       optInCount: optInCountMap[f.id] || 0,
     })),
     studentCountByClass,
@@ -785,6 +786,7 @@ export interface InvoiceDetail {
   lineItems: Array<{ name: string, amount: number, kind?: string }>
   subtotal: number
   discountAmount: number
+  discountReason: string
   previousBalance: number
   totalAmount: number
   paidAmount: number
@@ -812,8 +814,13 @@ export interface InvoiceDetail {
 export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail | null> {
   const ctx = await getSchoolContext()
   if (!ctx) return null
-  const { supabase, schoolId } = ctx
+  return getInvoiceByIdForSchool(ctx.supabase, ctx.schoolId, invoiceId)
+}
 
+// Same as getInvoiceById but takes an already-resolved supabase client + schoolId
+// instead of deriving them from the request's cookies — usable from cron jobs,
+// webhooks, and other contexts with no logged-in user session.
+export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, invoiceId: string): Promise<InvoiceDetail | null> {
   const { data: invoice } = await supabase
     .from('invoices')
     .select(`
@@ -822,6 +829,7 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
       total_amount,
       subtotal,
       discount_amount,
+      discount_reason,
       previous_balance,
       paid_amount,
       status,
@@ -899,21 +907,13 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoice_number || null,
-    // @ts-expect-error — joined
     studentId: invoice.students.id,
-    // @ts-expect-error
     studentFirstName: invoice.students.first_name,
-    // @ts-expect-error
     studentLastName: invoice.students.last_name,
-    // @ts-expect-error
     studentAdmissionNumber: invoice.students.admission_number,
-    // @ts-expect-error
     className: invoice.students.classes?.name || '',
-    // @ts-expect-error
     cycleId: invoice.billing_cycles.id,
-    // @ts-expect-error
     cycleName: invoice.billing_cycles.name,
-    // @ts-expect-error
     cycleDueDate: invoice.billing_cycles.due_date,
     schoolName: school?.name || '',
     schoolLogoUrl: school?.logo_url || null,
@@ -921,17 +921,14 @@ export async function getInvoiceById(invoiceId: string): Promise<InvoiceDetail |
     schoolPhone: school?.phone || null,
     schoolEmail: school?.email || null,
     proprietressName: composeProprietressName(school?.proprietress_title, school?.proprietress_first_name, school?.proprietress_last_name),
-    // @ts-expect-error
     primaryParentName: invoice.students.families?.primary_parent_name || '',
-    // @ts-expect-error
     primaryParentPhone: invoice.students.families?.primary_parent_phone || '',
-    // @ts-expect-error
     dvaAccountNumber: invoice.students.provider_dva_account_number || null,
-    // @ts-expect-error
     dvaBankName: invoice.students.provider_dva_bank_name || null,
     lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
     subtotal: Number(invoice.subtotal || 0),
     discountAmount: Number(invoice.discount_amount || 0),
+    discountReason: invoice.discount_reason || '',
     previousBalance: Number(invoice.previous_balance || 0),
     totalAmount: total,
     paidAmount: paid,
@@ -972,6 +969,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       total_amount,
       subtotal,
       discount_amount,
+      discount_reason,
       previous_balance,
       paid_amount,
       status,
@@ -1053,6 +1051,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
       subtotal: Number(invoice.subtotal || 0),
       discountAmount: Number(invoice.discount_amount || 0),
+      discountReason: invoice.discount_reason || '',
       previousBalance: Number(invoice.previous_balance || 0),
       totalAmount: total,
       paidAmount: paid,

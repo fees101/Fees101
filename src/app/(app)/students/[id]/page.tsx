@@ -6,6 +6,7 @@ import StudentPaymentHistoryTab from '@/components/students/StudentPaymentHistor
 import StudentFeesTab from '@/components/students/StudentFeesTab'
 import HeaderVirtualAccount from '@/components/students/HeaderVirtualAccount'
 import SendReminderButton from '@/components/students/SendReminderButton'
+import ApplyDiscountButton from '@/components/students/ApplyDiscountButton'
 import { getStudentById, getStudentPaymentHistory, getStudentFees } from '@/lib/queries/students'
 
 interface PageProps {
@@ -92,17 +93,18 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
             </div>
 
             <div className="flex flex-col gap-2">
-              <SendReminderButton studentId={student.id} />
-              <button
-                disabled
-                className="px-4 py-2 border border-mint text-mint rounded-lg text-sm font-medium flex items-center gap-2 opacity-50 cursor-not-allowed"
-                title="Coming soon"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                </svg>
-                Apply discount
-              </button>
+              <SendReminderButton
+                studentId={student.id}
+                needsResend={student.currentInvoice?.needsResend}
+                sentAt={student.currentInvoice?.sentAt}
+                status={student.currentInvoice?.status}
+              />
+              <ApplyDiscountButton
+                currentInvoiceId={student.currentInvoice?.id ?? null}
+                discounts={student.currentInvoice?.revocableDiscounts ?? []}
+                canAddDiscount={student.currentInvoice?.canAddDiscount ?? false}
+                canFullyRevoke={student.currentInvoice?.canFullyRevokeDiscount ?? false}
+              />
             </div>
 
           </div>
@@ -178,6 +180,21 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
                       ))}
                     </tbody>
                     <tfoot className="text-sm">
+                      <tr>
+                        <td className="pt-3 text-navy">Subtotal</td>
+                        <td className="pt-3 text-right text-navy">{formatNaira(student.currentInvoice.subtotal)}</td>
+                      </tr>
+                      {student.currentInvoice.discountAmount > 0 && (
+                        <tr>
+                          <td className="py-1 text-gray-600">
+                            Discount
+                            {student.currentInvoice.discountReason && (
+                              <span className="block text-xs text-gray-400 font-normal">{student.currentInvoice.discountReason}</span>
+                            )}
+                          </td>
+                          <td className="py-1 text-right text-navy align-top">-{formatNaira(student.currentInvoice.discountAmount)}</td>
+                        </tr>
+                      )}
                       <tr>
                         <td className="pt-3 text-navy font-semibold">Total</td>
                         <td className="pt-3 text-right text-navy font-bold">{formatNaira(student.currentInvoice.totalAmount)}</td>

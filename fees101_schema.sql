@@ -3404,10 +3404,13 @@ CREATE TABLE public.discounts (
     applied_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    is_percentage boolean DEFAULT true NOT NULL,
+    is_recurring boolean DEFAULT false NOT NULL,
     CONSTRAINT discounts_amount_check CHECK ((amount > (0)::numeric)),
     CONSTRAINT discounts_category_check CHECK ((category = ANY (ARRAY['sibling_discount'::text, 'bursary'::text, 'staff_child'::text, 'financial_hardship'::text, 'scholarship'::text, 'fee_waiver'::text, 'other'::text]))),
     CONSTRAINT discounts_reason_check CHECK ((length(reason) >= 20)),
-    CONSTRAINT discounts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'applied'::text])))
+    CONSTRAINT discounts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'applied'::text]))),
+    CONSTRAINT discounts_percentage_range_check CHECK ((NOT is_percentage) OR (amount <= (100)::numeric))
 );
 
 
@@ -3457,6 +3460,7 @@ CREATE TABLE public.fee_items (
     amount numeric(12,2) NOT NULL,
     is_mandatory boolean DEFAULT true NOT NULL,
     is_optional_extra boolean DEFAULT false NOT NULL,
+    is_discountable boolean DEFAULT true NOT NULL,
     display_order integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,

@@ -83,7 +83,7 @@ export default function InvoicesListLayout({ invoices }: Props) {
     partial: invoices.filter(i => i.status === 'partial').length,
     unpaid: invoices.filter(i => i.status !== 'paid' && i.status !== 'partial').length,
     needsResend: invoices.filter(i => i.needsResend).length,
-    needsSend: invoices.filter(i => i.status !== 'cancelled' && (!i.sentAt || i.needsResend)).length,
+    needsSend: invoices.filter(i => i.status !== 'cancelled' && i.outstandingAmount > 0 && (!i.sentAt || i.needsResend)).length,
   }), [invoices])
 
   const filtered = useMemo(() => {

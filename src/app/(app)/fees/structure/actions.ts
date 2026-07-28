@@ -68,6 +68,7 @@ export async function addFeeItem(cycleId: string, form: {
   isRequired: boolean
   scope: 'one' | 'multiple' | 'all-school'
   classIds: string[]
+  isDiscountable?: boolean
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -78,6 +79,7 @@ export async function addFeeItem(cycleId: string, form: {
 
   if (!form.name.trim()) return { error: 'Name is required' }
   if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
+  const isDiscountable = form.isDiscountable ?? true
 
   if (form.scope === 'all-school') {
     const { error } = await supabase.from('fee_items').insert({
@@ -88,6 +90,7 @@ export async function addFeeItem(cycleId: string, form: {
       amount: form.amount,
       is_mandatory: form.isRequired,
       is_optional_extra: !form.isRequired,
+      is_discountable: isDiscountable,
     })
     if (error) return { error: error.message }
   } else {
@@ -101,6 +104,7 @@ export async function addFeeItem(cycleId: string, form: {
       amount: form.amount,
       is_mandatory: form.isRequired,
       is_optional_extra: !form.isRequired,
+      is_discountable: isDiscountable,
     }))
 
     const { error } = await supabase.from('fee_items').insert(rows)
@@ -116,6 +120,7 @@ export async function addPerClassFeeItem(cycleId: string, form: {
   name: string
   amount: number
   classIds: string[]
+  isDiscountable?: boolean
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -136,6 +141,7 @@ export async function addPerClassFeeItem(cycleId: string, form: {
     amount: form.amount,
     is_mandatory: true,
     is_optional_extra: false,
+    is_discountable: form.isDiscountable ?? true,
   }))
 
   const { error } = await supabase.from('fee_items').insert(rows)
@@ -149,6 +155,7 @@ export async function addPerClassFeeItem(cycleId: string, form: {
 export async function addOptionalFeeItem(cycleId: string, form: {
   name: string
   amount: number
+  isDiscountable?: boolean
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -168,6 +175,7 @@ export async function addOptionalFeeItem(cycleId: string, form: {
     amount: form.amount,
     is_mandatory: false,
     is_optional_extra: true,
+    is_discountable: form.isDiscountable ?? true,
   })
 
   if (error) return { error: error.message }
@@ -180,6 +188,7 @@ export async function addOptionalFeeItem(cycleId: string, form: {
 export async function updateFeeItem(id: string, form: {
   name: string
   amount: number
+  isDiscountable?: boolean
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -203,6 +212,7 @@ export async function updateFeeItem(id: string, form: {
     .update({
       name: form.name.trim(),
       amount: form.amount,
+      ...(form.isDiscountable !== undefined ? { is_discountable: form.isDiscountable } : {}),
     })
     .eq('id', id)
 
@@ -393,6 +403,7 @@ export async function editFeeGroup(cycleId: string, form: {
   uniformAmount?: number  // If set, applies to all selected classes
   perClassAmounts?: Record<string, number>  // classId → amount (overrides uniformAmount)
   selectedClassIds: string[]  // Only for per-class groups
+  isDiscountable?: boolean
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -448,6 +459,7 @@ export async function editFeeGroup(cycleId: string, form: {
       .update({
         name: newName,
         amount: form.uniformAmount,
+        ...(form.isDiscountable !== undefined ? { is_discountable: form.isDiscountable } : {}),
       })
       .in('id', existingRows.map(r => r.id))
 
@@ -483,7 +495,7 @@ export async function editFeeGroup(cycleId: string, form: {
   // Load existing rows for this group
   const { data: existingRows } = await supabase
     .from('fee_items')
-    .select('id, class_id, amount')
+    .select('id, class_id, amount, is_discountable')
     .eq('school_id', schoolId)
     .eq('billing_cycle_id', cycle.id)
     .eq('name', form.currentName)
@@ -491,10 +503,10 @@ export async function editFeeGroup(cycleId: string, form: {
     .eq('is_optional_extra', form.isOptional)
     .eq('is_mandatory', !form.isOptional)
 
-  const existingByClass = new Map<string, { id: string, amount: number }>()
+  const existingByClass = new Map<string, { id: string, amount: number, isDiscountable: boolean }>()
   existingRows?.forEach(r => {
     if (r.class_id) {
-      existingByClass.set(r.class_id, { id: r.id, amount: Number(r.amount) })
+      existingByClass.set(r.class_id, { id: r.id, amount: Number(r.amount), isDiscountable: r.is_discountable !== false })
     }
   })
 
@@ -547,10 +559,11 @@ export async function editFeeGroup(cycleId: string, form: {
   for (const classId of toUpdate) {
     const existing = existingByClass.get(classId)!
     const newAmount = amountForClass(classId)
-    if (newName !== form.currentName || newAmount !== existing.amount) {
+    const newIsDiscountable = form.isDiscountable ?? existing.isDiscountable
+    if (newName !== form.currentName || newAmount !== existing.amount || newIsDiscountable !== existing.isDiscountable) {
       const { error: upErr } = await supabase
         .from('fee_items')
-        .update({ name: newName, amount: newAmount })
+        .update({ name: newName, amount: newAmount, is_discountable: newIsDiscountable })
         .eq('id', existing.id)
       if (upErr) return { error: upErr.message }
       updated++
@@ -567,6 +580,7 @@ export async function editFeeGroup(cycleId: string, form: {
       amount: amountForClass(classId),
       is_mandatory: !form.isOptional,
       is_optional_extra: form.isOptional,
+      is_discountable: form.isDiscountable ?? true,
     }))
     const { error: addErr } = await supabase
       .from('fee_items')
@@ -592,6 +606,7 @@ export async function getFeeGroupDetails(cycleId: string, currentName: string, i
       id,
       class_id,
       amount,
+      is_discountable,
       classes(id, name, display_order)
     `)
     .eq('school_id', schoolId)
@@ -632,6 +647,7 @@ export async function getFeeGroupDetails(cycleId: string, currentName: string, i
       // @ts-expect-error — joined
       classDisplayOrder: d.classes?.display_order || 0,
       amount: Number(d.amount),
+      isDiscountable: d.is_discountable !== false,
       optInCount: optInCounts[d.id] || 0,
     })),
   }
