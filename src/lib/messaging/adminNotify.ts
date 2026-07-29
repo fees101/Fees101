@@ -1,9 +1,8 @@
 // Fires when a message exhausts every channel in the fallback chain (either
-// synchronously in sendMessageWithFallback, or later from the Termii webhook /
-// the daily sweep once a channel's delivery report comes back failed). Writes
-// an in-app banner (admin_notifications row) — the notification of record.
-// Used to also best-effort email the school admin via SMTP; removed along
-// with the rest of the SMTP email sender, to be rebuilt against Amazon SES.
+// synchronously in sendMessageWithFallback/sendMultiChannel, or later from
+// the Termii webhook / the daily sweep once a channel's delivery report
+// comes back failed). Writes an in-app banner (admin_notifications row) —
+// the notification of record.
 
 interface MessageFailureDetails {
   studentName?: string

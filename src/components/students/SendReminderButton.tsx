@@ -8,6 +8,7 @@ import Toast from '@/components/ui/Toast'
 
 const CHANNEL_LABELS: Record<MessageChannel, string> = {
   sms: 'SMS',
+  email: 'Email',
 }
 
 function ChannelIcons() {

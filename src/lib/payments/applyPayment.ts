@@ -5,9 +5,11 @@
 // it will run exactly once per real-world transaction.
 
 import { applyCreditBalanceDelta } from '@/lib/computeInvoice'
-import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
-import { composePartialPaymentSMS, composeFullPaymentSMS } from '@/lib/messaging/composeInvoice'
+import { sendMultiChannel } from '@/lib/messaging/sendMessage'
+import { composePartialPaymentSMS, composeFullPaymentSMS, composePartialPaymentEmail, composeFullPaymentEmail } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
+import { getInvoiceByIdForSchool } from '@/lib/queries/fees'
+import { renderInvoicePdfBuffer } from '@/lib/pdf/renderInvoicePdf'
 
 interface ApplyPaymentParams {
   supabase: any
@@ -49,29 +51,34 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
   let remaining = amountPaid
   const paymentIds: string[] = []
 
-  // Payment-confirmation SMS is best-effort — a student/school lookup miss
-  // or a Termii failure should never break payment processing itself.
+  // Payment-confirmation message is best-effort — a student/school lookup
+  // miss or a delivery failure should never break payment processing itself.
   let notifyInfo: {
     phone?: string
+    email?: string
     studentName: string
     schoolName: string
+    schoolFullName: string
     accountNumber: string
   } | null = null
   if (sorted.length > 0) {
     const [{ data: student }, { data: school }] = await Promise.all([
       supabase
         .from('students')
-        .select('first_name, last_name, provider_dva_account_number, families(primary_parent_phone)')
+        .select('first_name, last_name, provider_dva_account_number, families(primary_parent_phone, primary_parent_email)')
         .eq('id', studentId)
         .single(),
       supabase.from('schools').select('name, settings').eq('id', schoolId).single(),
     ])
     const phone = (student?.families as any)?.primary_parent_phone
-    if (phone && student?.provider_dva_account_number) {
+    const email = (student?.families as any)?.primary_parent_email
+    if ((phone || email) && student?.provider_dva_account_number) {
       notifyInfo = {
         phone,
+        email,
         studentName: `${student.first_name} ${student.last_name}`.trim(),
         schoolName: getSchoolSmsName(school),
+        schoolFullName: school?.name || '',
         accountNumber: student.provider_dva_account_number,
       }
     }
@@ -124,10 +131,41 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
             accountNumber: notifyInfo.accountNumber,
           })
 
-      await sendMessageWithFallback(
+      // Email carries the receipt as a PDF (the invoice's own PDF, now
+      // reflecting this payment) — an SMS can't attach anything, so it's
+      // only built when there's an address to send it to.
+      let emailContent
+      if (notifyInfo.email) {
+        const email = isFull
+          ? composeFullPaymentEmail({
+              studentName: notifyInfo.studentName,
+              schoolName: notifyInfo.schoolFullName,
+              termName,
+              amountPaid: applyAmount,
+            })
+          : composePartialPaymentEmail({
+              studentName: notifyInfo.studentName,
+              schoolName: notifyInfo.schoolFullName,
+              amountPaid: applyAmount,
+              balance: newOutstanding,
+              accountNumber: notifyInfo.accountNumber,
+            })
+        const invoiceDetail = await getInvoiceByIdForSchool(supabase, schoolId, invoice.id)
+        const pdfBuffer = invoiceDetail
+          ? await renderInvoicePdfBuffer(invoiceDetail, invoiceDetail.schoolLogoUrl)
+          : null
+        emailContent = {
+          ...email,
+          attachments: pdfBuffer
+            ? [{ filename: 'receipt.pdf', content: pdfBuffer, contentType: 'application/pdf' }]
+            : undefined,
+        }
+      }
+
+      await sendMultiChannel(
         { supabase, schoolId, messageType: 'receipt', studentId, invoiceId: invoice.id },
-        { phone: notifyInfo.phone },
-        { sms: smsText }
+        { phone: notifyInfo.phone, email: notifyInfo.email },
+        { sms: smsText, email: emailContent }
       )
     }
   }

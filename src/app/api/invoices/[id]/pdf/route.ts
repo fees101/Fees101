@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { renderToBuffer } from '@react-pdf/renderer'
-import { createElement } from 'react'
-import InvoicePDF from '@/components/invoices/InvoicePDF'
+import { renderInvoicePdfBuffer } from '@/lib/pdf/renderInvoicePdf'
 import { getInvoiceById } from '@/lib/queries/fees'
 
 export async function GET(
@@ -17,10 +15,7 @@ export async function GET(
 
   const logoUrl = invoice.schoolLogoUrl
 
-  // Render to PDF buffer
-  const pdfBuffer = await renderToBuffer(
-    createElement(InvoicePDF, { invoice, logoUrl }) as any
-  )
+  const pdfBuffer = await renderInvoicePdfBuffer(invoice, logoUrl)
 
   // Generate a friendly filename
   const safeStudentName = `${invoice.studentFirstName}_${invoice.studentLastName}`.replace(/[^a-zA-Z0-9_]/g, '')

@@ -15,8 +15,8 @@
 // Termii stays as the SMS provider only for now.
 //
 // Email does NOT go through Termii (their email API is paid and
-// template-driven) — email sending was removed from the app entirely for now
-// and will be rebuilt against Amazon SES.
+// template-driven) — email sending goes through Amazon SES instead, see
+// ses.ts.
 
 import { MessagingProvider, SendParams, SendResult } from './types'
 
