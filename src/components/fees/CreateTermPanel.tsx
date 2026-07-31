@@ -23,16 +23,17 @@ interface Props {
 export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, forceNewSession, onClose, onSuccess }: Props) {
   const isEdit = mode === 'edit'
 
-  // A closed session shouldn't be offered for new terms — but if we're editing a term
-  // whose session was closed after the fact, keep that one session selectable so the
-  // form doesn't break; it just won't be swappable for another closed session.
+  // A closed session shouldn't be offered for new terms — draft sessions are, so a term
+  // (with fee items) can be prepared ahead of time under a session that isn't current yet.
+  // If we're editing a term whose session was closed after the fact, keep that one session
+  // selectable so the form doesn't break; it just won't be swappable for another closed one.
   const selectableSessions = useMemo(() => {
-    const active = sessions.filter(s => s.status === 'active')
-    if (isEdit && editingCycle?.sessionId && !active.some(s => s.id === editingCycle.sessionId)) {
+    const usable = sessions.filter(s => s.status === 'active' || s.status === 'draft')
+    if (isEdit && editingCycle?.sessionId && !usable.some(s => s.id === editingCycle.sessionId)) {
       const current = sessions.find(s => s.id === editingCycle.sessionId)
-      if (current) return [...active, current]
+      if (current) return [...usable, current]
     }
-    return active
+    return usable
   }, [sessions, isEdit, editingCycle])
 
   const [name, setName] = useState(editingCycle?.name || '')
@@ -43,7 +44,8 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
   const [sessionMode, setSessionMode] = useState<'existing' | 'new' | 'none'>(() => {
     if (isEdit) return editingCycle?.sessionId ? 'existing' : 'none'
     if (forceNewSession) return 'new'
-    return selectableSessions.length > 0 ? 'existing' : 'none'
+    if (selectableSessions.length > 0) return 'existing'
+    return 'new'
   })
   const [sessionId, setSessionId] = useState<string>(
     editingCycle?.sessionId || (isEdit ? '' : (selectableSessions[0]?.id ?? ''))
@@ -57,6 +59,11 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const selectedSession = sessionMode === 'existing'
+    ? selectableSessions.find(s => s.id === sessionId)
+    : undefined
+  const activationBlockedByDraftSession = selectedSession?.status === 'draft'
 
   const sortedCycles = useMemo(() => {
     return [...cycles].sort((a, b) => b.startDate.localeCompare(a.startDate))
@@ -76,6 +83,10 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
       setError('Due date is required')
       return
     }
+    if (!isEdit && sessionMode === 'new' && !newSessionName.trim()) {
+      setError('Session name is required (or choose an existing session / "No session")')
+      return
+    }
 
     setSaving(true)
 
@@ -86,7 +97,6 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
         startDate,
         endDate,
         dueDate,
-        sessionId: sessionMode === 'existing' ? sessionId : null,
       })
     } else {
       result = await createTerm({
@@ -99,7 +109,7 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
         newSessionStart: sessionMode === 'new' ? newSessionStart : undefined,
         newSessionEnd: sessionMode === 'new' ? newSessionEnd : undefined,
         rollForwardFromCycleId: rollForwardFromId || null,
-        activateImmediately,
+        activateImmediately: activationBlockedByDraftSession ? false : activateImmediately,
       })
     }
 
@@ -177,6 +187,14 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
 
         <div>
           <label className="block text-xs text-gray-500 mb-2">Session</label>
+          {isEdit ? (
+            <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
+              {editingCycle?.sessionId
+                ? <>{selectableSessions.find(s => s.id === editingCycle.sessionId)?.name || 'Unknown session'} <span className="text-xs text-gray-400">— fixed at creation, cannot be changed</span></>
+                : <>No session <span className="text-xs text-gray-400">— fixed at creation, cannot be changed</span></>
+              }
+            </div>
+          ) : (
           <div className="space-y-2">
             {selectableSessions.length > 0 && (
               <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
@@ -195,14 +213,14 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
                       className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
                     >
                       {selectableSessions.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}{s.status === 'closed' ? ' (closed)' : ''}</option>
+                        <option key={s.id} value={s.id}>{s.name}{s.status === 'closed' ? ' (closed)' : s.status === 'draft' ? ' (draft)' : ''}</option>
                       ))}
                     </select>
                   )}
                 </div>
               </label>
             )}
-            {!isEdit && (
+            {(forceNewSession || selectableSessions.length === 0) && (
               <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
                 <input
                   type="radio"
@@ -255,6 +273,7 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
               </div>
             </label>
           </div>
+          )}
         </div>
 
         {!isEdit && sortedCycles.length > 0 && (
@@ -279,20 +298,26 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
         )}
 
         {!isEdit && (
-          <div className="p-3 bg-gray-50 rounded-lg">
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={activateImmediately}
-                onChange={(e) => setActivateImmediately(e.target.checked)}
-                className="mt-0.5 text-mint"
-              />
-              <div>
-                <span className="text-sm text-navy">Activate immediately</span>
-                <p className="text-xs text-gray-500">Otherwise, this term will be saved as a draft</p>
-              </div>
-            </label>
-          </div>
+          activationBlockedByDraftSession ? (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+              This session is still a draft, so this term will be saved as a draft too. Set the session as current from Academic Structure → Sessions, then activate this term.
+            </div>
+          ) : (
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={activateImmediately}
+                  onChange={(e) => setActivateImmediately(e.target.checked)}
+                  className="mt-0.5 text-mint"
+                />
+                <div>
+                  <span className="text-sm text-navy">Activate immediately</span>
+                  <p className="text-xs text-gray-500">Otherwise, this term will be saved as a draft</p>
+                </div>
+              </label>
+            </div>
+          )
         )}
 
         {error && (

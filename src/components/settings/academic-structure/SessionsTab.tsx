@@ -148,12 +148,12 @@ export default function SessionsTab({ sessions, termCounts }: Props) {
             {sessions.map(session => (
               <div key={session.id} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 border border-gray-200 rounded-lg">
                 <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${session.status === 'active' ? 'bg-mint' : 'bg-gray-400'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${session.status === 'active' ? 'bg-mint' : session.status === 'draft' ? 'bg-amber-400' : 'bg-gray-400'}`} />
                   <span className="text-sm font-medium text-navy">{session.name}</span>
                   <span className="text-xs text-gray-400">
                     {formatDate(session.startDate)} – {formatDate(session.endDate)}
                   </span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${session.status === 'active' ? 'bg-mint-light text-mint' : 'bg-gray-100 text-gray-600'}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${session.status === 'active' ? 'bg-mint-light text-mint' : session.status === 'draft' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
                     {session.status}
                   </span>
                   <span className="text-xs text-gray-400">
@@ -161,7 +161,7 @@ export default function SessionsTab({ sessions, termCounts }: Props) {
                   </span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {session.status !== 'active' && (
+                  {session.status === 'draft' && (
                     <button
                       onClick={() => handleSetActive(session)}
                       disabled={busyId === session.id}

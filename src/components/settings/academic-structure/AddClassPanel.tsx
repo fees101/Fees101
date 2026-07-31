@@ -9,14 +9,20 @@ interface Section {
   name: string
 }
 
+interface ClassOption {
+  id: string
+  name: string
+}
+
 interface Props {
   sections: Section[]
   existingDisplayOrders: number[]
+  allClasses: ClassOption[]
   onClose: () => void
   onSuccess: () => void
 }
 
-export default function AddClassPanel({ sections: initialSections, existingDisplayOrders, onClose, onSuccess }: Props) {
+export default function AddClassPanel({ sections: initialSections, existingDisplayOrders, allClasses, onClose, onSuccess }: Props) {
   const maxOrder = existingDisplayOrders.length > 0 ? Math.max(...existingDisplayOrders) : 0
 
   const [sections, setSections] = useState<Section[]>(initialSections)
@@ -24,6 +30,7 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
     name: '',
     sectionId: initialSections[0]?.id || '',
     displayOrder: maxOrder + 1,
+    nextClassId: '' as string,
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -78,7 +85,7 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
     }
     setError(null)
     setLoading(true)
-    const result = await addClass(form)
+    const result = await addClass({ ...form, nextClassId: form.nextClassId || null })
     if (result.error) {
       setError(result.error)
       setLoading(false)
@@ -191,6 +198,21 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
             />
             <p className="text-xs text-gray-500 mt-1">Lower numbers appear first in lists</p>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Promotes to</label>
+            <select
+              value={form.nextClassId}
+              onChange={(e) => setForm({...form, nextClassId: e.target.value})}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+            >
+              <option value="">— Exits school (graduates) —</option>
+              {allClasses.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">Where students in this class move to at year-end rollover. Leave as &quot;Exits school&quot; if this is a graduating class.</p>
           </div>
 
           {error && (

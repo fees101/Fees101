@@ -164,6 +164,23 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
 
   function handleActivate(cycle: CycleRow) {
     setError(null)
+
+    // A draft term whose session predates the current active session belongs
+    // to a past academic year — the server rejects activating it. Catch it here
+    // so the admin gets a clear message instead of confirming, then hitting a
+    // wall after the fact.
+    const activeSession = sessions.find(s => s.status === 'active')
+    const cycleSession = cycle.sessionId ? sessions.find(s => s.id === cycle.sessionId) : undefined
+    if (
+      activeSession &&
+      cycleSession &&
+      cycleSession.id !== activeSession.id &&
+      cycleSession.startDate < activeSession.startDate
+    ) {
+      setError(`"${cycle.name}" belongs to "${cycleSession.name}", a past academic year. Terms from past years can't be activated.`)
+      return
+    }
+
     const currentlyActive = cycles.find(c => c.status === 'active')
     let message = `Make "${cycle.name}" the active term.`
     if (currentlyActive && currentlyActive.id !== cycle.id) {
@@ -296,6 +313,12 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
           {cycles.length > 0 && (
             <TermSelector cycles={cycles} currentCycleId={selectedCycle?.id || null} paramName="cycle" />
           )}
+          <Link
+            href="/fees/year-end"
+            className="px-4 py-2 bg-white border border-gray-200 text-navy text-sm font-semibold rounded-lg hover:bg-gray-50 whitespace-nowrap"
+          >
+            Year-end rollover
+          </Link>
           <button
             onClick={openCreate}
             className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 whitespace-nowrap"

@@ -24,6 +24,7 @@ export interface ComputedInvoice {
   lineItems: ComputedLineItem[]
   subtotal: number
   previousBalance: number
+  previousInvoiceId: string | null
   discountAmount: number
   discountReason: string
   appliedDiscounts: AppliedDiscount[]
@@ -92,6 +93,7 @@ export async function computeInvoiceForStudent(
       lineItems: [],
       subtotal: 0,
       previousBalance: 0,
+      previousInvoiceId: null,
       discountAmount: 0,
       discountReason: '',
       appliedDiscounts: [],
@@ -143,7 +145,12 @@ export async function computeInvoiceForStudent(
   // invoice total (from when *it* was carried forward). Until the
   // immediately preceding cycle is closed, there's nothing new to carry —
   // its own invoice is still the live record of what's owed for it.
+  // Draft cycles are excluded from this lookup: a term prepared ahead of time
+  // may carry a start_date that interleaves between the real closed prior term
+  // and this one, and it has no billing history of its own — letting it be the
+  // "preceding cycle" would silently zero out a legitimate carry-forward.
   let previousBalance = 0
+  let previousInvoiceId: string | null = null
   const { data: thisCycle } = await supabase
     .from('billing_cycles')
     .select('start_date')
@@ -156,6 +163,7 @@ export async function computeInvoiceForStudent(
       .select('id, name, status')
       .eq('school_id', schoolId)
       .lt('start_date', thisCycle.start_date)
+      .neq('status', 'draft')
       .order('start_date', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -163,7 +171,7 @@ export async function computeInvoiceForStudent(
     if (precedingCycle && precedingCycle.status === 'closed') {
       const { data: priorInvoice } = await supabase
         .from('invoices')
-        .select('outstanding_amount, total_amount, paid_amount')
+        .select('id, outstanding_amount, total_amount, paid_amount')
         .eq('student_id', studentId)
         .eq('billing_cycle_id', precedingCycle.id)
         .maybeSingle()
@@ -172,6 +180,7 @@ export async function computeInvoiceForStudent(
         const outstanding = Number(priorInvoice.outstanding_amount ?? (Number(priorInvoice.total_amount) - Number(priorInvoice.paid_amount || 0)))
         if (outstanding > 0) {
           previousBalance = outstanding
+          previousInvoiceId = priorInvoice.id
           lineItems.push({
             name: `Outstanding balance from ${precedingCycle.name}`,
             amount: outstanding,
@@ -233,6 +242,7 @@ export async function computeInvoiceForStudent(
     lineItems,
     subtotal,
     previousBalance,
+    previousInvoiceId,
     discountAmount,
     discountReason,
     appliedDiscounts,

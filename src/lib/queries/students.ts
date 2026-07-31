@@ -120,6 +120,31 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
     .in('student_id', studentIds)
     .eq('billing_cycle_id', currentCycle?.id || '')
 
+  // Total owed across every non-cancelled, non-superseded invoice — not just
+  // the current term's. This is what makes a former student's debt visible:
+  // a withdrawn/graduated student has no current-cycle invoice at all, so
+  // invoiceTotal/invoiceStatus above would otherwise read as "no_invoice"
+  // even while they still owe money from their last term.
+  const { data: allOutstandingInvoices } = await supabase
+    .from('invoices')
+    .select('student_id, outstanding_amount, previous_balance_from_invoice_id, id')
+    .in('student_id', studentIds)
+    .neq('status', 'cancelled')
+
+  const supersededIds = new Set(
+    (allOutstandingInvoices || [])
+      .map((inv: any) => inv.previous_balance_from_invoice_id)
+      .filter(Boolean)
+  )
+
+  const outstandingBalanceByStudent: Record<string, number> = {}
+  ;(allOutstandingInvoices || []).forEach((inv: any) => {
+    if (supersededIds.has(inv.id)) return
+    const outstanding = Number(inv.outstanding_amount || 0)
+    if (outstanding <= 0) return
+    outstandingBalanceByStudent[inv.student_id] = (outstandingBalanceByStudent[inv.student_id] || 0) + outstanding
+  })
+
   // Merge invoice data into students
   const studentsWithStatus = students.map(student => {
     const invoice = invoices?.find(inv => inv.student_id === student.id)
@@ -149,6 +174,10 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
       invoicePaid: invoice ? Number(invoice.paid_amount) : 0,
       creditApplied: invoice ? Number(invoice.credit_applied || 0) : 0,
       invoiceStatus: invoice?.status || 'no_invoice',
+      // All-time outstanding balance (across every term, not just the
+      // current one) — the figure that matters for a former student, since
+      // they'll never have a current-cycle invoice again.
+      outstandingBalance: outstandingBalanceByStudent[student.id] || 0,
     }
   })
 

@@ -28,20 +28,34 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
     providerReference, providerTransactionId, paidAt,
   } = params
 
-  // Only invoices in non-closed terms are eligible. A closed term's
-  // outstanding balance was already carried forward as a previous_balance
-  // line item on a newer invoice (closeTermAndCarryForward) — the debt now
-  // lives on that newer invoice's total. Paying the old, frozen invoice
-  // directly would settle the same debt twice: once here, and again when
-  // the newer invoice (which already includes it) gets paid down.
-  const { data: invoices } = await supabase
+  // Eligible invoices are any non-cancelled, outstanding invoice that hasn't
+  // been superseded — i.e. no other invoice has folded its balance forward
+  // via previous_balance_from_invoice_id (closeTermAndCarryForward does this
+  // when a student already has a future invoice to carry the debt onto).
+  // Closed-cycle status alone is NOT disqualifying: a graduate or a terminal
+  // mid-term withdrawal never gets a future invoice, so their last invoice
+  // stays the live record of what's owed and must remain payable indefinitely
+  // — excluding by cycle status alone silently orphaned their payments into
+  // credit_balance forever.
+  const { data: supersedingInvoices } = await supabase
+    .from('invoices')
+    .select('previous_balance_from_invoice_id')
+    .eq('student_id', studentId)
+    .not('previous_balance_from_invoice_id', 'is', null)
+
+  const supersededIds = new Set(
+    (supersedingInvoices || []).map((inv: any) => inv.previous_balance_from_invoice_id)
+  )
+
+  const { data: candidateInvoices } = await supabase
     .from('invoices')
     .select('id, outstanding_amount, billing_cycles!inner(name, start_date, status)')
     .eq('student_id', studentId)
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
     .gt('outstanding_amount', 0)
-    .neq('billing_cycles.status', 'closed')
+
+  const invoices = (candidateInvoices || []).filter((inv: any) => !supersededIds.has(inv.id))
 
   const sorted = [...(invoices || [])].sort((a: any, b: any) =>
     a.billing_cycles.start_date.localeCompare(b.billing_cycles.start_date)

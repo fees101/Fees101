@@ -17,6 +17,7 @@ interface Student {
   invoicePaid: number
   creditApplied: number
   invoiceStatus: string
+  outstandingBalance: number
 }
 
 interface Class {
@@ -359,6 +360,11 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
                               {formatNaira(student.creditApplied)} credit applied
                             </p>
                           )}
+                        </div>
+                      ) : student.outstandingBalance > 0 ? (
+                        <div>
+                          <p className="text-red-600">{formatNaira(student.outstandingBalance)}</p>
+                          <p className="text-xs text-gray-400 font-normal">owed from a past term</p>
                         </div>
                       ) : '—'}
                     </td>

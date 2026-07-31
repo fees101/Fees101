@@ -7339,3 +7339,88 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 
 \unrestrict PrpPZybjaKTrW4FPG8NcZmohmZcbcjQjPRNPHF64B537Ar7XtWNh4nxFTwYEoMz
 
+
+-- ============================================================
+-- Manually-applied addition (not part of the pg_dump above):
+-- year-end rollover — class promotion map + resumable run tracking.
+-- Run this block directly against the live database.
+-- Written idempotently — safe to run whether or not it was applied before.
+-- ============================================================
+
+ALTER TABLE public.classes
+    ADD COLUMN IF NOT EXISTS next_class_id uuid REFERENCES public.classes(id) ON DELETE SET NULL;
+
+COMMENT ON COLUMN public.classes.next_class_id IS 'Class students promote into at year-end rollover. NULL = this class is an exit point (student graduates out of the school).';
+
+CREATE TABLE IF NOT EXISTS public.rollover_runs (
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
+    school_id uuid NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+    from_cycle_id uuid NOT NULL REFERENCES public.billing_cycles(id),
+    to_session_id uuid REFERENCES public.sessions(id),
+    to_cycle_id uuid REFERENCES public.billing_cycles(id),
+    status text DEFAULT 'in_progress'::text NOT NULL,
+    step text DEFAULT 'started'::text NOT NULL,
+    error_detail text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT rollover_runs_pkey PRIMARY KEY (id),
+    CONSTRAINT rollover_runs_status_check CHECK ((status = ANY (ARRAY['in_progress'::text, 'completed'::text, 'failed'::text]))),
+    CONSTRAINT rollover_runs_step_check CHECK ((step = ANY (ARRAY['started'::text, 'cycle_created'::text, 'promoted'::text, 'adjustments_carried'::text, 'invoices_generated'::text, 'completed'::text])))
+);
+
+COMMENT ON TABLE public.rollover_runs IS 'One row per year-end rollover attempt for a school. Tracks progress so a failed run can be safely resumed rather than re-run from scratch.';
+
+CREATE TABLE IF NOT EXISTS public.rollover_promotions (
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
+    run_id uuid NOT NULL REFERENCES public.rollover_runs(id) ON DELETE CASCADE,
+    student_id uuid NOT NULL REFERENCES public.students(id) ON DELETE CASCADE,
+    from_class_id uuid REFERENCES public.classes(id),
+    to_class_id uuid REFERENCES public.classes(id),
+    action text NOT NULL,
+    applied_at timestamp with time zone,
+    CONSTRAINT rollover_promotions_pkey PRIMARY KEY (id),
+    CONSTRAINT rollover_promotions_action_check CHECK ((action = ANY (ARRAY['promote'::text, 'repeat'::text, 'graduate'::text])))
+);
+
+COMMENT ON TABLE public.rollover_promotions IS 'Per-student promotion decision snapshotted once at rollover start (before any mutation), so a resume or accidental re-run applies the same original decision instead of re-deriving one off an already-changed class_id.';
+
+CREATE INDEX IF NOT EXISTS idx_rollover_runs_school ON public.rollover_runs USING btree (school_id);
+CREATE INDEX IF NOT EXISTS idx_rollover_promotions_run ON public.rollover_promotions USING btree (run_id);
+CREATE INDEX IF NOT EXISTS idx_rollover_promotions_applied ON public.rollover_promotions USING btree (run_id, applied_at);
+
+ALTER TABLE public.rollover_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rollover_promotions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "School admin manages rollover runs" ON public.rollover_runs;
+CREATE POLICY "School admin manages rollover runs" ON public.rollover_runs USING (((school_id = public.current_school_id()) AND (EXISTS ( SELECT 1
+   FROM public.users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'school_admin'::text))))));
+
+DROP POLICY IF EXISTS "Super admin manages all rollover runs" ON public.rollover_runs;
+CREATE POLICY "Super admin manages all rollover runs" ON public.rollover_runs USING (public.is_super_admin());
+
+DROP POLICY IF EXISTS "Users see own school rollover runs" ON public.rollover_runs;
+CREATE POLICY "Users see own school rollover runs" ON public.rollover_runs FOR SELECT USING (((school_id = public.current_school_id()) OR public.is_super_admin()));
+
+DROP POLICY IF EXISTS "School admin manages rollover promotions" ON public.rollover_promotions;
+CREATE POLICY "School admin manages rollover promotions" ON public.rollover_promotions USING (((EXISTS ( SELECT 1 FROM public.rollover_runs WHERE ((rollover_runs.id = rollover_promotions.run_id) AND (rollover_runs.school_id = public.current_school_id())))) AND (EXISTS ( SELECT 1
+   FROM public.users
+  WHERE ((users.id = auth.uid()) AND (users.role = 'school_admin'::text))))));
+
+DROP POLICY IF EXISTS "Super admin manages all rollover promotions" ON public.rollover_promotions;
+CREATE POLICY "Super admin manages all rollover promotions" ON public.rollover_promotions USING (public.is_super_admin());
+
+DROP POLICY IF EXISTS "Users see own school rollover promotions" ON public.rollover_promotions;
+CREATE POLICY "Users see own school rollover promotions" ON public.rollover_promotions FOR SELECT USING (((EXISTS ( SELECT 1 FROM public.rollover_runs WHERE ((rollover_runs.id = rollover_promotions.run_id) AND (rollover_runs.school_id = public.current_school_id())))) OR public.is_super_admin()));
+
+-- ============================================================
+-- Sessions: add 'draft' status — a session being prepared (fees,
+-- terms) ahead of time while the current session is still active.
+-- Run this block directly against the live database.
+-- Written idempotently — safe to run whether or not it was applied before.
+-- ============================================================
+
+ALTER TABLE public.sessions DROP CONSTRAINT IF EXISTS sessions_status_check;
+ALTER TABLE public.sessions ADD CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'closed'::text])));
+ALTER TABLE public.sessions ALTER COLUMN status SET DEFAULT 'draft'::text;
+

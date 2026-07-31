@@ -9,6 +9,7 @@ interface ClassRow {
   displayOrder: number
   isActive: boolean
   sectionId: string
+  nextClassId?: string | null
 }
 
 interface Section {
@@ -16,20 +17,27 @@ interface Section {
   name: string
 }
 
+interface ClassOption {
+  id: string
+  name: string
+}
+
 interface Props {
   classData: ClassRow
   sections: Section[]
+  allClasses: ClassOption[]
   onClose: () => void
   onSuccess: () => void
 }
 
-export default function EditClassPanel({ classData, sections: initialSections, onClose, onSuccess }: Props) {
+export default function EditClassPanel({ classData, sections: initialSections, allClasses, onClose, onSuccess }: Props) {
   const [sections, setSections] = useState<Section[]>(initialSections)
   const [form, setForm] = useState({
     name: classData.name,
     sectionId: classData.sectionId,
     displayOrder: classData.displayOrder,
     isActive: classData.isActive,
+    nextClassId: classData.nextClassId || '',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -75,7 +83,7 @@ export default function EditClassPanel({ classData, sections: initialSections, o
     }
     setError(null)
     setLoading(true)
-    const result = await updateClass(classData.id, form)
+    const result = await updateClass(classData.id, { ...form, nextClassId: form.nextClassId || null })
     if (result.error) {
       setError(result.error)
       setLoading(false)
@@ -185,6 +193,21 @@ export default function EditClassPanel({ classData, sections: initialSections, o
               onChange={(e) => setForm({...form, displayOrder: parseInt(e.target.value) || 0})}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Promotes to</label>
+            <select
+              value={form.nextClassId}
+              onChange={(e) => setForm({...form, nextClassId: e.target.value})}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+            >
+              <option value="">— Exits school (graduates) —</option>
+              {allClasses.filter(c => c.id !== classData.id).map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">Where students in this class move to at year-end rollover. Leave as &quot;Exits school&quot; if this is a graduating class.</p>
           </div>
 
           <div className="flex items-center justify-between pt-2 border-t border-gray-100">

@@ -39,6 +39,7 @@ export async function addClass(formData: {
   name: string
   sectionId: string
   displayOrder: number
+  nextClassId?: string | null
 }) {
   const supabase = await createClient()
   const schoolId = await getSchoolId()
@@ -74,6 +75,7 @@ export async function addClass(formData: {
       name: formData.name.trim(),
       display_order: formData.displayOrder,
       is_active: true,
+      next_class_id: formData.nextClassId || null,
     })
 
   if (error) return { error: error.message }
@@ -88,6 +90,7 @@ export async function updateClass(classId: string, formData: {
   sectionId: string
   displayOrder: number
   isActive: boolean
+  nextClassId?: string | null
 }) {
   const supabase = await createClient()
   const schoolId = await getSchoolId()
@@ -114,6 +117,10 @@ export async function updateClass(classId: string, formData: {
     return { error: `A class named "${formData.name}" already exists` }
   }
 
+  if (formData.nextClassId === classId) {
+    return { error: 'A class cannot promote into itself' }
+  }
+
   const { error } = await supabase
     .from('classes')
     .update({
@@ -121,6 +128,7 @@ export async function updateClass(classId: string, formData: {
       section_id: formData.sectionId,
       display_order: formData.displayOrder,
       is_active: formData.isActive,
+      next_class_id: formData.nextClassId || null,
     })
     .eq('id', classId)
     .eq('school_id', schoolId)

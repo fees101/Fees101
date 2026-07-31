@@ -127,7 +127,11 @@ export async function updateStudentStatus(studentId: string, status: 'withdrawn'
 
   const { error } = await supabase
     .from('students')
-    .update({ status })
+    .update({
+      status,
+      withdrawn_at: status === 'withdrawn' ? new Date().toISOString() : null,
+      graduated_at: status === 'graduated' ? new Date().toISOString() : null,
+    })
     .eq('id', studentId)
     .eq('school_id', schoolId)
 
@@ -196,7 +200,7 @@ async function getStudentFeeContext() {
   }
   if (!schoolId) return null
 
-  return { supabase, schoolId, userId: user.id }
+  return { supabase, schoolId, userId: user.id, role: userProfile?.role as string | undefined }
 }
 
 type FeeContext = NonNullable<Awaited<ReturnType<typeof getStudentFeeContext>>>
@@ -374,6 +378,13 @@ export async function revokeDiscount(discountId: string): Promise<RevokeDiscount
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
 
+  // Revoking a discount changes what a family owes, so it's an admin action —
+  // same bar as adding/approving one on the /discounts page. Without this,
+  // any staff member could quietly lift an approved discount off an invoice.
+  if (ctx.role !== 'school_admin' && ctx.role !== 'super_admin') {
+    return { error: 'Only an admin can revoke discounts.' }
+  }
+
   const { data: discount } = await supabase
     .from('discounts')
     .select('id, invoice_id, student_id, category, is_recurring, status')
@@ -451,6 +462,7 @@ export async function revokeDiscount(discountId: string): Promise<RevokeDiscount
       discount_amount: computed.discountAmount,
       discount_reason: computed.discountReason || null,
       previous_balance: computed.previousBalance,
+      previous_balance_from_invoice_id: computed.previousInvoiceId,
       credit_applied: computed.creditApplied,
       total_amount: computed.total,
       status: newStatus,

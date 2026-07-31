@@ -175,6 +175,7 @@ export async function getClasses() {
       display_order,
       is_active,
       section_id,
+      next_class_id,
       sections(name)
     `)
     .eq('school_id', schoolId)
@@ -214,6 +215,7 @@ export async function getClasses() {
     displayOrder: cls.display_order,
     isActive: cls.is_active,
     sectionId: cls.section_id,
+    nextClassId: cls.next_class_id,
     // @ts-expect-error — joined object
     sectionName: cls.sections?.name || '',
     studentCount: studentCountMap[cls.id] || 0,
@@ -354,7 +356,7 @@ export interface SessionRow {
   name: string
   startDate: string
   endDate: string
-  status: 'active' | 'closed'
+  status: 'draft' | 'active' | 'closed'
 }
 
 export interface CycleRow {
@@ -418,7 +420,7 @@ export async function getSessions(): Promise<SessionRow[]> {
     name: s.name,
     startDate: s.start_date,
     endDate: s.end_date,
-    status: s.status as 'active' | 'closed',
+    status: s.status as 'draft' | 'active' | 'closed',
   }))
 }
 

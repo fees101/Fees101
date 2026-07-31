@@ -82,7 +82,7 @@ export default function CycleDetailLayout({ data }: Props) {
     setError(null)
     setRegeneratingAll(true)
     const result = await regenerateStaleInvoicesForCycle(cycle.id)
-    if (result.error) {
+    if ('error' in result) {
       setError(result.error)
     } else {
       setRegenerateSummary(
@@ -97,9 +97,12 @@ export default function CycleDetailLayout({ data }: Props) {
     setError(null)
     setRegeneratingId(invoiceId)
     const result = await regenerateInvoice(invoiceId)
-    if (result.error) {
+    if ('error' in result) {
       setError(result.error)
     } else {
+      if (result.wasOverpaid) {
+        setError('Invoice updated — the new total is now less than what the student has already paid. Review for a possible refund or credit.')
+      }
       router.refresh()
     }
     setRegeneratingId(null)

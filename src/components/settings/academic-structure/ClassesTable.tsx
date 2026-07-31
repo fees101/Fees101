@@ -15,6 +15,7 @@ interface ClassRow {
   sectionName: string
   studentCount: number
   feeItemCount: number
+  nextClassId?: string | null
 }
 
 interface Section {
@@ -52,6 +53,17 @@ export default function ClassesTable({ classes, sections }: Props) {
     () => classes.filter(c => !sections.some(s => s.id === c.sectionId)),
     [classes, sections]
   )
+
+  const classNameById = useMemo(() => {
+    const map: Record<string, string> = {}
+    classes.forEach(c => { map[c.id] = c.name })
+    return map
+  }, [classes])
+
+  function promotesToLabel(cls: ClassRow) {
+    if (!cls.nextClassId) return <span className="text-amber-600">Exits school</span>
+    return classNameById[cls.nextClassId] || <span className="text-gray-400 italic">Unknown class</span>
+  }
 
   async function handleDeactivate(cls: ClassRow) {
     setError(null)
@@ -128,6 +140,7 @@ export default function ClassesTable({ classes, sections }: Props) {
                   <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Class</th>
                   <th className="text-center text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Students</th>
                   <th className="text-center text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Fee items</th>
+                  <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Promotes to</th>
                   <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Status</th>
                   <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Actions</th>
                 </tr>
@@ -136,13 +149,13 @@ export default function ClassesTable({ classes, sections }: Props) {
                 {groupedBySection.map(({ section, classes: sectionClasses }) => (
                   <Fragment key={section.id}>
                     <tr className="bg-gray-50/70">
-                      <td colSpan={6} className="px-6 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <td colSpan={7} className="px-6 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                         {section.name} <span className="text-gray-400 font-normal normal-case">({sectionClasses.length})</span>
                       </td>
                     </tr>
                     {sectionClasses.length === 0 ? (
                       <tr key={`empty-${section.id}`}>
-                        <td colSpan={6} className="px-6 py-4 text-sm text-gray-400 italic text-center">
+                        <td colSpan={7} className="px-6 py-4 text-sm text-gray-400 italic text-center">
                           No classes in this section yet.
                         </td>
                       </tr>
@@ -153,6 +166,7 @@ export default function ClassesTable({ classes, sections }: Props) {
                           <td className="px-6 py-3 text-sm font-medium text-navy">{cls.name}</td>
                           <td className="px-6 py-3 text-sm text-center text-navy">{cls.studentCount}</td>
                           <td className="px-6 py-3 text-sm text-center text-navy">{cls.feeItemCount}</td>
+                          <td className="px-6 py-3 text-sm text-navy">{promotesToLabel(cls)}</td>
                           <td className="px-6 py-3">
                             {cls.isActive ? (
                               <span className="inline-flex px-2 py-0.5 text-xs font-medium bg-mint-light text-mint rounded-full">
@@ -194,7 +208,7 @@ export default function ClassesTable({ classes, sections }: Props) {
                 {orphanedClasses.length > 0 && (
                   <>
                     <tr className="bg-gray-50/70">
-                      <td colSpan={6} className="px-6 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <td colSpan={7} className="px-6 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                         No section <span className="text-gray-400 font-normal normal-case">({orphanedClasses.length})</span>
                       </td>
                     </tr>
@@ -204,6 +218,7 @@ export default function ClassesTable({ classes, sections }: Props) {
                         <td className="px-6 py-3 text-sm font-medium text-navy">{cls.name}</td>
                         <td className="px-6 py-3 text-sm text-center text-navy">{cls.studentCount}</td>
                         <td className="px-6 py-3 text-sm text-center text-navy">{cls.feeItemCount}</td>
+                        <td className="px-6 py-3 text-sm text-navy">{promotesToLabel(cls)}</td>
                         <td className="px-6 py-3">
                           {cls.isActive ? (
                             <span className="inline-flex px-2 py-0.5 text-xs font-medium bg-mint-light text-mint rounded-full">
@@ -249,6 +264,7 @@ export default function ClassesTable({ classes, sections }: Props) {
           <AddClassPanel
             sections={sections}
             existingDisplayOrders={existingDisplayOrders}
+            allClasses={classes}
             onClose={closeAdd}
             onSuccess={() => { closeAdd(); router.refresh() }}
           />
@@ -258,6 +274,7 @@ export default function ClassesTable({ classes, sections }: Props) {
           <EditClassPanel
             classData={editingClass}
             sections={sections}
+            allClasses={classes}
             onClose={closeEdit}
             onSuccess={() => { closeEdit(); router.refresh() }}
           />

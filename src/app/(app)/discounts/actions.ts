@@ -78,6 +78,7 @@ export async function approveDiscount(discountId: string) {
       discount_amount: computed.discountAmount,
       discount_reason: computed.discountReason || null,
       previous_balance: computed.previousBalance,
+      previous_balance_from_invoice_id: computed.previousInvoiceId,
       credit_applied: computed.creditApplied,
       total_amount: computed.total,
       status: newStatus,
