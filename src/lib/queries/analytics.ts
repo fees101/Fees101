@@ -24,168 +24,166 @@ async function resolveSchoolId(supabase: any): Promise<string | null> {
   return schoolId || null
 }
 
-export interface FeeRevenueRow {
+const n = (v: any) => Number(v) || 0
+
+// ---------------------------------------------------------------------------
+// Raw per-cycle series. The /payments page is a client-side dashboard: it pulls
+// these small per-cycle rows once and does ALL scoping/aggregation/comparison
+// in the browser (brush a range, overlay periods, hover for detail) with no
+// round-trips. See src/lib/analytics/aggregate.ts for the aggregation helpers.
+// ---------------------------------------------------------------------------
+
+export interface TermPoint {
+  cycleId: string
+  cycleName: string
+  startDate: string
+  sessionId: string | null
+  sessionName: string | null
+  status: string
+  invoiceCount: number
+  billed: number
+  collected: number
+  outstanding: number
+  discountTotal: number
+  grossPotential: number
+}
+
+export interface FeeCyclePoint {
+  cycleId: string
+  cycleName: string
+  startDate: string
   name: string
   kind: 'required' | 'opt_in'
   studentsBilled: number
   billed: number
   collected: number
-  outstanding: number
-  rate: number
 }
 
-export interface ClassRevenueRow {
+export interface DiscountCyclePoint {
+  cycleId: string
+  category: string
+  discountCount: number
+  studentCount: number
+  estAmount: number
+}
+
+export interface ClassCyclePoint {
+  cycleId: string
   className: string
   studentsBilled: number
   billed: number
   collected: number
   outstanding: number
-  rate: number
 }
 
-export interface PaymentsAnalytics {
-  cycles: { id: string; name: string; status: string }[]
-  selectedCycle: { id: string; name: string } | null
-  summary: {
-    billed: number
-    collected: number
-    outstanding: number
-    creditApplied: number
-    discountTotal: number
-    invoiceCount: number
-    collectionRate: number
-  }
-  byFee: FeeRevenueRow[]
-  byClass: ClassRevenueRow[]
+export interface FeeClassPoint {
+  cycleId: string
+  cycleName: string
+  startDate: string
+  name: string
+  kind: 'required' | 'opt_in'
+  className: string
+  studentsBilled: number
+  billed: number
+  price: number
 }
 
-const EMPTY: PaymentsAnalytics = {
-  cycles: [],
-  selectedCycle: null,
-  summary: { billed: 0, collected: 0, outstanding: 0, creditApplied: 0, discountTotal: 0, invoiceCount: 0, collectionRate: 0 },
-  byFee: [],
-  byClass: [],
+export interface AnalyticsBundle {
+  ready: boolean            // false if the DB functions aren't installed yet
+  error?: string
+  hasData: boolean          // false if there are no cycles at all
+  termSeries: TermPoint[]
+  feeSeries: FeeCyclePoint[]
+  discountSeries: DiscountCyclePoint[]
+  classSeries: ClassCyclePoint[]
+  feeClassSeries: FeeClassPoint[]  // empty if analytics_fee_class_series isn't installed yet
 }
 
-// Everything on this page is deliberately INVOICE-ALLOCATION based (not the
-// date-of-payment "collected" used on the dashboard) so every figure — the
-// summary tiles, the by-fee table, the by-class table — reconciles exactly
-// with each other. "Collected" here means "of what was billed, how much has
-// been paid down", and per-fee/per-class collected is allocated by how far
-// each invoice is settled (money is fungible across an invoice's lines, so a
-// per-line figure can only ever be a proportional estimate — labelled as such
-// in the UI).
-export async function getPaymentsAnalytics(cycleId?: string): Promise<PaymentsAnalytics> {
+const EMPTY: AnalyticsBundle = {
+  ready: true, hasData: false,
+  termSeries: [], feeSeries: [], discountSeries: [], classSeries: [], feeClassSeries: [],
+}
+
+// Aggregation is done DB-side (see db/analytics_functions.sql) which returns a
+// small per-cycle row set; the client then rolls those up for whatever the user
+// selects. Keeps the DB calls to a fixed 4 no matter the history size.
+export async function getAnalyticsBundle(): Promise<AnalyticsBundle> {
   const supabase = await createClient()
   const schoolId = await resolveSchoolId(supabase)
   if (!schoolId) return EMPTY
 
-  const { data: cycles } = await supabase
-    .from('billing_cycles')
-    .select('id, name, status, start_date')
-    .eq('school_id', schoolId)
-    .order('start_date', { ascending: false })
+  const { data: terms, error: termErr } = await supabase.rpc('analytics_term_series', { p_school_id: schoolId })
 
-  if (!cycles || cycles.length === 0) return EMPTY
+  // If the RPC is missing, the migration hasn't been run yet — surface a clear
+  // message instead of crashing the page.
+  if (termErr) return { ...EMPTY, ready: false, error: termErr.message }
 
-  // Default to the active cycle, else the most recent one.
-  const selected = (cycleId && cycles.find((c: any) => c.id === cycleId))
-    || cycles.find((c: any) => c.status === 'active')
-    || cycles[0]
+  const termSeries: TermPoint[] = (terms || []).map((t: any) => ({
+    cycleId: t.cycle_id,
+    cycleName: t.cycle_name,
+    startDate: t.start_date,
+    sessionId: t.session_id,
+    sessionName: t.session_name,
+    status: t.status,
+    invoiceCount: n(t.invoice_count),
+    billed: n(t.billed),
+    collected: n(t.collected),
+    outstanding: n(t.outstanding),
+    discountTotal: n(t.discount_total),
+    grossPotential: n(t.gross_potential),
+  }))
 
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('total_amount, paid_amount, outstanding_amount, credit_applied, discount_amount, status, line_items, students(class_id, classes(name))')
-    .eq('school_id', schoolId)
-    .eq('billing_cycle_id', selected.id)
-    .neq('status', 'cancelled')
+  if (termSeries.length === 0) return EMPTY
 
-  const rows = invoices || []
+  const [{ data: feeRows }, { data: discRows }, { data: classRows }, feeClassRes] = await Promise.all([
+    supabase.rpc('analytics_fee_series', { p_school_id: schoolId }),
+    supabase.rpc('analytics_discount_series', { p_school_id: schoolId }),
+    supabase.rpc('analytics_class_series', { p_school_id: schoolId }),
+    supabase.rpc('analytics_fee_class_series', { p_school_id: schoolId }),
+  ])
 
-  // ---- Term summary ----
-  // Billed (gross) = net total + whatever credit covered part of it, same
-  // definition the dashboard/fees overview use so the number is familiar.
-  let billed = 0, collected = 0, outstanding = 0, creditApplied = 0, discountTotal = 0
-  for (const inv of rows) {
-    const total = Number(inv.total_amount) || 0
-    const paid = Number(inv.paid_amount) || 0
-    const credit = Number(inv.credit_applied) || 0
-    billed += total + credit
-    collected += paid + credit
-    outstanding += Number(inv.outstanding_amount ?? (total - paid)) || 0
-    creditApplied += credit
-    discountTotal += Number(inv.discount_amount) || 0
-  }
-  const collectionRate = billed > 0 ? Math.round((collected / billed) * 100) : 0
+  const feeSeries: FeeCyclePoint[] = (feeRows || []).map((f: any) => ({
+    cycleId: f.cycle_id,
+    cycleName: f.cycle_name,
+    startDate: f.start_date,
+    name: f.fee_name,
+    kind: (f.kind === 'opt_in' ? 'opt_in' : 'required'),
+    studentsBilled: n(f.students_billed),
+    billed: n(f.billed),
+    collected: Math.round(n(f.collected_est)),
+  }))
 
-  // Per-invoice settlement ratio, used to allocate collected money across the
-  // fee lines and classes. total_amount is net of credit, so an invoice fully
-  // covered by credit (paid_amount 0, outstanding 0) still counts as settled.
-  function settledRatio(inv: any): number {
-    const total = Number(inv.total_amount) || 0
-    const paid = Number(inv.paid_amount) || 0
-    const out = Number(inv.outstanding_amount ?? (total - paid)) || 0
-    if (out <= 0) return 1
-    if (total <= 0) return 0
-    return Math.max(0, Math.min(1, paid / total))
-  }
+  const discountSeries: DiscountCyclePoint[] = (discRows || []).map((d: any) => ({
+    cycleId: d.cycle_id,
+    category: d.category,
+    discountCount: n(d.discount_count),
+    studentCount: n(d.student_count),
+    estAmount: n(d.est_amount),
+  }))
 
-  // ---- Revenue by fee / opt-in ----
-  // Aggregate each invoice's current-term fee lines (required + opt_in only —
-  // previous_balance and credit_applied lines aren't fees) grouped by name.
-  const feeMap = new Map<string, FeeRevenueRow>()
-  for (const inv of rows) {
-    const ratio = settledRatio(inv)
-    const lines = Array.isArray(inv.line_items) ? inv.line_items : []
-    for (const li of lines) {
-      if (li.kind !== 'required' && li.kind !== 'opt_in') continue
-      const amount = Number(li.amount) || 0
-      if (amount <= 0) continue
-      const key = `${li.kind}::${li.name}`
-      const existing = feeMap.get(key) || {
-        name: li.name, kind: li.kind, studentsBilled: 0, billed: 0, collected: 0, outstanding: 0, rate: 0,
-      }
-      existing.studentsBilled += 1
-      existing.billed += amount
-      existing.collected += amount * ratio
-      feeMap.set(key, existing)
-    }
-  }
-  const byFee = Array.from(feeMap.values()).map(r => {
-    r.collected = Math.round(r.collected)
-    r.outstanding = Math.max(0, r.billed - r.collected)
-    r.rate = r.billed > 0 ? Math.round((r.collected / r.billed) * 100) : 0
-    return r
-  }).sort((a, b) => b.billed - a.billed)
+  const classSeries: ClassCyclePoint[] = (classRows || []).map((c: any) => ({
+    cycleId: c.cycle_id,
+    className: c.class_name,
+    studentsBilled: n(c.students_billed),
+    billed: n(c.billed),
+    collected: n(c.collected),
+    outstanding: n(c.outstanding),
+  }))
 
-  // ---- Revenue by class ----
-  const classMap = new Map<string, ClassRevenueRow>()
-  for (const inv of rows) {
-    const student: any = inv.students
-    const className = student?.classes?.name || 'Unassigned'
-    const total = Number(inv.total_amount) || 0
-    const credit = Number(inv.credit_applied) || 0
-    const paid = Number(inv.paid_amount) || 0
-    const out = Number(inv.outstanding_amount ?? (total - paid)) || 0
-    const existing = classMap.get(className) || {
-      className, studentsBilled: 0, billed: 0, collected: 0, outstanding: 0, rate: 0,
-    }
-    existing.studentsBilled += 1
-    existing.billed += total + credit
-    existing.collected += paid + credit
-    existing.outstanding += out
-    classMap.set(className, existing)
-  }
-  const byClass = Array.from(classMap.values()).map(r => {
-    r.rate = r.billed > 0 ? Math.round((r.collected / r.billed) * 100) : 0
-    return r
-  }).sort((a, b) => b.billed - a.billed)
+  // Additive: absent on installs that predate analytics_fee_class_series. Its
+  // error is non-fatal — the fee-price chart just shows an empty state until the
+  // updated db/analytics_functions.sql is re-run.
+  const feeClassSeries: FeeClassPoint[] = (feeClassRes?.data || []).map((f: any) => ({
+    cycleId: f.cycle_id,
+    cycleName: f.cycle_name,
+    startDate: f.start_date,
+    name: f.fee_name,
+    kind: (f.kind === 'opt_in' ? 'opt_in' : 'required'),
+    className: f.class_name,
+    studentsBilled: n(f.students_billed),
+    billed: n(f.billed),
+    price: n(f.price),
+  }))
 
-  return {
-    cycles: cycles.map((c: any) => ({ id: c.id, name: c.name, status: c.status })),
-    selectedCycle: { id: selected.id, name: selected.name },
-    summary: { billed, collected, outstanding, creditApplied, discountTotal, invoiceCount: rows.length, collectionRate },
-    byFee,
-    byClass,
-  }
+  return { ready: true, hasData: true, termSeries, feeSeries, discountSeries, classSeries, feeClassSeries }
 }

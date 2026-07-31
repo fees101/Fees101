@@ -73,14 +73,23 @@ The kind of useful information schools actually want to see and take away. **Dis
 *Reports* = files a school downloads (CSV/Excel — e.g. an audit/export they keep).
 *Analytics/insights* = the in-app payments/insights views below.
 
-- [~] **Payments / analytics page** — dedicated in-app view for financial insights *(first slice shipped: `/payments`)*:
+- [~] **Payments / analytics page** — dedicated in-app view for financial insights *(built out: `/payments`, DB-side aggregation via `db/analytics_functions.sql`)*:
+  - [x] **Client-side dashboard architecture** — one fetch of small per-cycle series (`getAnalyticsBundle`, 4 RPCs), then ALL scoping/aggregation/comparison happens in the browser (`src/lib/analytics/aggregate.ts`) with zero round-trips. Scales to unlimited history — selection is instant. Replaces the old scope-selector / searchParams / per-selection re-render model
+  - [x] **Explore mode — stock-market timeline hero** — a full-history line chart (billed/collected/outstanding) with a drag-to-zoom **brush** + presets (This term / This session / Last 12 months / All). The brushed window drives every card below; hover any term for its figures (`TimelineHero`)
+  - [x] **Period-over-period deltas** — KPI tiles show ▲/▼ % vs a smart baseline: a single-term selection compares to the same term a year earlier, a whole-session selection to the prior session
+  - [x] **Compare mode — searchable multi-select (up to 5)** — type-to-filter picker over terms or sessions (handles 20+ periods), pick up to 5 → grouped billed-vs-collected bars, collection-rate bars, and a side-by-side table with ▲/▼ vs the first pick (`PeriodPicker`, `CompareBars`/`CompareRates`)
+  - [x] **Compare overlay line** — alongside the bars: comparing whole sessions overlays each as a line vs term position (1st/2nd/3rd term) so years line up term-by-term ("compare years against themselves"); comparing individual terms is a single chronological line. Billed/Collected metric toggle (`CompareOverlay`). In compare mode the overlay sits above the bars, with the side-by-side table below
+  - [x] **Fee price over time (the "fan")** — pick a fee → its price plotted per class across terms, so you can watch e.g. Tuition climb year on year with inflation. Handles fees that vary by class (a per-class fee fans into a line per class; a single school-wide price collapses to one "All classes" line). Needs `analytics_fee_class_series` (added to `db/analytics_functions.sql`); degrades to an empty state if not yet installed (`FeePriceChart`, `feeChoices`/`feePriceFan`)
   - [x] **Revenue by opt-in / fee** — per optional & required fee: students billed, billed, collected (est.), outstanding, rate
-  - [x] **Outstanding / collection by class** (term-selectable)
-  - [x] Term summary tiles (billed, collected, outstanding, discounts given, credit applied)
-  - [ ] Collection trends over time, per term/session
-  - [ ] Discount impact broken down by category
+  - [x] **Outstanding / collection by class**
+  - [x] **Discount waterfall** — Potential → −Discounts → Billed → −Outstanding → Collected, with foregone-to-discounts callout
+  - [x] **Revenue mix** (share of collected by fee), **opt-in uptake** (adoption %), **collected-vs-outstanding per fee**
+  - [x] **Discount impact by category** — chart + detail table (scoped)
+  - [x] **Revenue by fee over time** — multi-line chart, one coloured line per fee by default (compare what each brings in); focus a single fee to see its billed vs collected
   - [ ] Drill-down from a fee/class to the underlying students
-- [ ] **Categorized activity / history page** — a browsable, filterable feed of the events we notify on (invoices sent, payments received, receipts, reminders, discounts, etc.), searchable by activity type and by student — so a school can find "what happened around X / this student." *(next, after analytics)*
+  - [x] **Seed data for testing** — `db/seed_analytics.sql` builds an isolated demo school (4 sessions × 3 terms + a summer coaching period, 40 students, invoices/payments/discounts) so the scope toggles can actually be exercised
+  - [ ] **Consolidate the dashboard onto the same RPCs** — the dashboard's collection-by-class is `analytics_class_series`; point it at the RPC and delete the duplicate JS (faster + consistent). *Not urgent — dashboard works today.*
+- [ ] **Categorized activity / history page** — a browsable, filterable feed of the events we notify on (invoices sent, payments received, receipts, reminders, discounts, etc.), searchable by activity type and by student — so a school can find "what happened around X / this student." *This is also where rolling time-windows live (last 30 days / last N months) — analytics stays term/session-based; operational "what landed recently" belongs here.* *(next, after analytics)*
 - [ ] **Downloadable reports / data export** — schools download their data (collections, outstanding, per-class, per-student, transactions, audit) as CSV/Excel. "It's their data — they can have it."
 - [ ] **Incoming-payment feed** — chronological view of payments as they land
 
