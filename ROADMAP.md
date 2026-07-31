@@ -69,15 +69,19 @@ Core to running a school's fees. Prioritized for the "no Monnify / no messaging 
 
 ## 📊 Reporting, analytics & data (a headline V1 feature)
 
-The kind of useful information schools actually want to see and take away.
+The kind of useful information schools actually want to see and take away. **Distinction:**
+*Reports* = files a school downloads (CSV/Excel — e.g. an audit/export they keep).
+*Analytics/insights* = the in-app payments/insights views below.
 
-- [ ] **Downloadable reports / data export** — schools can download their data (collections, outstanding, per-class, per-student, transactions) as CSV/PDF. "It's their data — they can have it."
-- [ ] **Payments / analytics tab** — a dedicated view for financial insights:
-  - [ ] **Revenue by opt-in** — e.g. total money coming from transport / specific optional fees
+- [~] **Payments / analytics page** — dedicated in-app view for financial insights *(first slice shipped: `/payments`)*:
+  - [x] **Revenue by opt-in / fee** — per optional & required fee: students billed, billed, collected (est.), outstanding, rate
+  - [x] **Outstanding / collection by class** (term-selectable)
+  - [x] Term summary tiles (billed, collected, outstanding, discounts given, credit applied)
   - [ ] Collection trends over time, per term/session
-  - [ ] Outstanding by class / by student
-  - [ ] Discount impact (how much given away, by category)
-  - [ ] Any other insights that help a school understand their money
+  - [ ] Discount impact broken down by category
+  - [ ] Drill-down from a fee/class to the underlying students
+- [ ] **Categorized activity / history page** — a browsable, filterable feed of the events we notify on (invoices sent, payments received, receipts, reminders, discounts, etc.), searchable by activity type and by student — so a school can find "what happened around X / this student." *(next, after analytics)*
+- [ ] **Downloadable reports / data export** — schools download their data (collections, outstanding, per-class, per-student, transactions, audit) as CSV/Excel. "It's their data — they can have it."
 - [ ] **Incoming-payment feed** — chronological view of payments as they land
 
 ---
@@ -161,6 +165,9 @@ Visible "coming soon" text currently in the UI.
 ## 🌱 Future / bigger bets (post-V1)
 
 - [ ] **Parent-facing portal** — parent login to view invoices, balances, pay
+- [ ] **Per-student one-off charges** — fines, replacement books, individual exam/late fees as ad-hoc invoice lines. *Deferred: build only if a school asks. Workaround for now = add an optional fee (e.g. "Damages") and leave a note.*
+- [ ] **Installment / part-payment plans** — structured "pay in N" schedules (partial payment already works; formal plans deferred until a school needs them)
+- [ ] **Automatic late fees** — penalty added when an invoice goes overdue (deferred until requested)
 - [ ] **Standalone Payments operations page** — feed, unapplied credits, manual entry, "reconcile now" (overlaps with reporting/analytics above)
 - [ ] **Collection-by-class operations page** — drill-down stats (separate from Settings academic structure)
 
