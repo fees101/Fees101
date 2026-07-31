@@ -57,7 +57,7 @@ The app has evolved a lot; the foundations need a clean pass before onboarding r
 
 Core to running a school's fees. Prioritized for the "no Monnify / no messaging needed" phase where possible.
 
-- [ ] **Manual payment entry** — record cash / offline / direct bank-transfer payments against an invoice. *(Highest priority — real schools take cash. Also lets us test payment application without live Monnify.)*
+- [ ] **Optional manual payment entry — per-school toggle, OFF by default** — The product deliberately does NOT build around cash. Core model: handle a school's full cash inflow **autonomously** via DVA/transfers, to avoid missing-money situations. A school may *request* to accept other forms (cash, POS); only then does the owner enable a per-account toggle **(via the admin dashboard)**, and only after the school signs a liability agreement acknowledging they accept and are responsible for non-transfer payments. *Depends on the owner/admin dashboard + per-school feature toggles.*
 - [ ] **Reporting & analytics page** — see the dedicated section below
 - [ ] **Refunds / credits workflow** — currently only a "review for possible refund" warning; no actual refund path
 - [ ] **Reconciliation UI** — surface the backend reconcile job; let a bursar review/match/resolve payments
@@ -99,7 +99,8 @@ For schools of 500–1,000+ students on Vercel serverless. (No Monnify/messaging
 No owner-facing product surface exists yet. Schools are created directly in the DB; signup makes everyone a `super_admin`.
 
 - [ ] **School onboarding / creation flow** — create a new school tenant from the app (no `.from('schools').insert` exists anywhere today)
-- [ ] **Fix signup role model** — signup currently sets every new user to `super_admin` with `school_id: null`
+- [ ] **Per-school feature toggles** — e.g. enable optional manual/cash/POS payment entry per account (only after a signed liability agreement); store the agreement/consent record
+- [ ] **Remove public signup** — "create a user" will be removed after stress testing (not needed; the owner provisions schools/users). Until then it sets every new user to `super_admin` with `school_id: null`.
 - [ ] **Tenant directory** — list/manage all schools (the owner's dashboard)
 - [ ] **Impersonation / school switcher** — owner views a specific school
 - [ ] **Billing / subscription per tenant** — plans, invoicing the schools themselves
@@ -143,8 +144,8 @@ Kept until near launch so login friction doesn't slow daily testing.
 - [ ] **Documentation** — proper product docs (replace default create-next-app README too)
 - [ ] **Help / support center** — in-product page with step-by-step guides for common tasks
 - [ ] **Tutorial videos** — YouTube walkthroughs of key workflows (later)
-- [ ] **Marketing landing page** — root `/` is literally `<h1>Fees101</h1><p>Coming soon.</p>`
-- [ ] **Trust/legitimacy basics** — contact, pricing, terms/privacy, "about" (what businesses expect to see)
+- [x] **Marketing landing page** — lives externally at **fees101.com**. The in-app root `/` "coming soon" is an *intentional guard* for anyone who hits the app URL directly; the real app starts at `/dashboard` when logged in. *(No in-app landing page needed.)*
+- [ ] **Trust/legitimacy basics** — contact, pricing, terms/privacy, "about" (mostly handled by fees101.com; confirm coverage)
 
 ---
 
