@@ -86,16 +86,6 @@ const styles = StyleSheet.create({
   infoFieldLabel: { fontSize: 7.5, color: GRAY },
   infoFieldValue: { fontSize: 8, color: NAVY },
   paymentDesc: { fontSize: 7.5, color: NAVY, lineHeight: 1.7, marginBottom: 12 },
-  comingSoonBadge: {
-    marginTop: 4,
-    paddingVertical: 9,
-    paddingHorizontal: 10,
-    backgroundColor: '#f9fafb',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  comingSoonText: { fontSize: 7.5, color: GRAY, fontWeight: 'bold', textAlign: 'center' },
 
   // Table
   table: {
@@ -266,11 +256,11 @@ export function InvoicePage({ invoice, logoUrl }: Props) {
 
         <View style={styles.boxSecond}>
           <Text style={styles.boxLabel}>payment instructions</Text>
-          <Text style={styles.paymentDesc}>
-            Please pay via bank transfer to the student&apos;s virtual account below.
-          </Text>
           {invoice.dvaAccountNumber ? (
             <>
+              <Text style={styles.paymentDesc}>
+                Please pay via bank transfer to the student&apos;s virtual account below.
+              </Text>
               <View style={styles.infoFieldRow}>
                 <Text style={styles.infoFieldLabel}>Account number</Text>
                 <Text style={styles.infoFieldValue}>{invoice.dvaAccountNumber}</Text>
@@ -281,9 +271,9 @@ export function InvoicePage({ invoice, logoUrl }: Props) {
               </View>
             </>
           ) : (
-            <View style={styles.comingSoonBadge}>
-              <Text style={styles.comingSoonText}>Bank transfer details coming soon</Text>
-            </View>
+            <Text style={styles.paymentDesc}>
+              Please reach out to the school to generate a payment account for this student.
+            </Text>
           )}
         </View>
       </View>

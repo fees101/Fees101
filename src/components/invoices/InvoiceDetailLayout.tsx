@@ -254,17 +254,20 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
               </div>
             ) : (
               <>
-                <p className="text-sm text-navy mb-3">
-                  Pay directly to the student&apos;s virtual account. Use the admission number as payment reference.
-                </p>
                 {invoice.dvaAccountNumber ? (
-                  <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
-                    <p className="text-base font-bold text-navy tracking-wide">{invoice.dvaAccountNumber}</p>
-                    <p className="text-xs text-gray-500 mt-1">{invoice.dvaBankName}</p>
-                  </div>
+                  <>
+                    <p className="text-sm text-navy mb-3">
+                      Pay directly to the student&apos;s virtual account. Use the admission number as payment reference.
+                    </p>
+                    <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
+                      <p className="text-base font-bold text-navy tracking-wide">{invoice.dvaAccountNumber}</p>
+                      <p className="text-xs text-gray-500 mt-1">{invoice.dvaBankName}</p>
+                    </div>
+                  </>
                 ) : (
-                  <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
-                    <p className="text-sm font-semibold text-mint">Bank transfer details coming soon</p>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg py-3 px-3 text-center">
+                    <p className="text-sm font-semibold text-amber-700">No virtual account yet</p>
+                    <p className="text-xs text-amber-600 mt-1">This student needs a virtual account before they can be paid by transfer — create one from the student&apos;s profile to generate their payment details.</p>
                   </div>
                 )}
               </>
