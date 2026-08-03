@@ -7424,3 +7424,22 @@ ALTER TABLE public.sessions DROP CONSTRAINT IF EXISTS sessions_status_check;
 ALTER TABLE public.sessions ADD CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'closed'::text])));
 ALTER TABLE public.sessions ALTER COLUMN status SET DEFAULT 'draft'::text;
 
+
+
+--
+-- Name: report_downloads; Type: TABLE; Schema: public; Owner: -
+-- Audit log of CSV report downloads (see db/report_downloads.sql for the
+-- runnable migration incl. indexes and RLS policies).
+--
+
+CREATE TABLE IF NOT EXISTS public.report_downloads (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    school_id uuid NOT NULL,
+    user_id uuid,
+    report_type text NOT NULL,
+    scope_label text,
+    params jsonb,
+    row_count integer,
+    filename text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
