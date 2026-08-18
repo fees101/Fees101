@@ -1,27 +1,36 @@
-// The send engine: provider-agnostic business logic. SMS goes through the
-// Termii adapter, email through the Amazon SES adapter (ses.ts). Every
-// attempt is recorded in message_logs (append-only audit + delivery
-// tracking).
+// The send engine: provider-agnostic business logic. SMS goes through
+// whichever adapter SMS_PROVIDER selects (default Sendchamp, now that our
+// Sender ID is approved there; set SMS_PROVIDER=termii to fall back), email
+// through the Amazon SES adapter (ses.ts). Every attempt is recorded in
+// message_logs (append-only audit + delivery tracking).
 //
 // Two distinct multi-channel behaviors, because they answer different
 // questions:
 //   sendMessageWithFallback — "get *a* message through." Stops at the first
 //     channel that succeeds (only advances on a *synchronous* failure — an
 //     accepted-but-later-failed delivery is handled asynchronously by the
-//     Termii webhook or the daily sweep via escalateFailedMessage, not here).
+//     provider's webhook or the daily sweep via escalateFailedMessage, not
+//     here).
 //   sendMultiChannel — "every channel carries something the others can't."
 //     Fires every channel with a recipient + content, independent of whether
 //     the others succeeded — used for invoice-sent/payment-receipt, where
 //     SMS is the quick alert and email carries the actual PDF, so one
 //     succeeding is never a substitute for the other.
 //
-// WhatsApp was removed (2026-07-28) — will be rebuilt against SendChamp once
-// that account exists.
+// WhatsApp was removed (2026-07-28) — will be rebuilt against Sendchamp once
+// that's prioritized.
 
 import { termii } from './termii'
+import { sendchamp } from './sendchamp'
 import { ses } from './ses'
 import { MessageChannel, SendResult, EmailAttachment } from './types'
 import { notifyAdminOfMessageFailure } from './adminNotify'
+
+// SMS_PROVIDER=termii rolls back to Termii in one env change if Sendchamp has
+// issues in practice — see sendchamp.ts for why Termii is kept, not deleted.
+const smsProviderName = process.env.SMS_PROVIDER === 'termii' ? 'termii' : 'sendchamp'
+const smsProvider = smsProviderName === 'termii' ? termii : sendchamp
+
 
 // Allowed message_logs.message_type values (DB CHECK constraint).
 export type MessageType =
@@ -29,6 +38,7 @@ export type MessageType =
   | 'receipt'
   | 'reminder_advance' | 'reminder_due' | 'reminder_overdue'
   | 'manual'
+  | 'invite'
 
 interface SendContext {
   // RLS-scoped or service-role Supabase client, provided by the caller.
@@ -39,7 +49,7 @@ interface SendContext {
   invoiceId?: string
 }
 
-// Normalise a Nigerian number to Termii's expected international, no-'+' form.
+// Normalise a Nigerian number to the international, no-'+' form both SMS providers expect.
 export function normalizePhone(raw: string): string {
   const digits = (raw || '').replace(/[^\d]/g, '')
   if (digits.startsWith('234')) return digits
@@ -76,7 +86,7 @@ async function insertLog(
       channel: params.channel,
       message_type: ctx.messageType,
       content: params.content,
-      provider: params.channel === 'email' ? 'ses' : 'termii',
+      provider: params.channel === 'email' ? 'ses' : smsProviderName,
       provider_message_id: params.result.providerMessageId || null,
       status: params.result.ok ? 'sent' : 'failed',
       failed_reason: params.result.ok ? null : (params.result.error || null),
@@ -98,7 +108,7 @@ export async function sendMessage(
   opts?: SendOpts
 ): Promise<LoggedSendResult> {
   const recipient = normalizePhone(to)
-  const result = await termii.send({ to: recipient, text, channel })
+  const result = await smsProvider.send({ to: recipient, text, channel })
   const messageLogId = await insertLog(ctx, {
     channel, recipientPhone: recipient, content: text, result,
     fallbackOfMessageId: opts?.fallbackOfMessageId,

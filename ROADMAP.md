@@ -124,6 +124,7 @@ No owner-facing product surface exists yet. Schools are created directly in the 
 ## ⏳ Deferred but tracked (waiting on external setup — not now)
 
 - [ ] **Move Monnify to LIVE** — swap sandbox → production credentials so we can test real payments end-to-end
+- [~] **SMS provider switch: Termii → Sendchamp** — Sendchamp Sender ID approved; new adapter (`src/lib/messaging/sendchamp.ts`) built and wired in via `SMS_PROVIDER` env var (default `sendchamp`, set to `termii` to roll back). Termii's adapter (`termii.ts`) and its webhook route are left in place untouched, not deleted, as the rollback path. Webhook receiver added at `api/webhooks/sendchamp` — verifies via a shared-secret query param (`SENDCHAMP_WEBHOOK_SECRET`) since Sendchamp's docs don't document an HMAC signature scheme like Termii's. Needed before switching a school over: set `SENDCHAMP_API_KEY`, `SENDCHAMP_SENDER_ID`, `SENDCHAMP_MODE=mock|live`, `SENDCHAMP_WEBHOOK_SECRET` in `.env.local`; test in mock mode, then one real live send, then register the webhook URL in Sendchamp's dashboard before flipping any school's traffic over. Not yet tested end-to-end — do that before removing Termii from the default path for good.
 - [ ] **WhatsApp channel** — rebuild messaging channel (evaluating SendChamp)
 
 ---
