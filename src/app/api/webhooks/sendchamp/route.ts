@@ -39,6 +39,15 @@ function mapStatus(sendchampStatus: string): 'delivered' | 'failed' | null {
   return null
 }
 
+// Matches sendMessage.ts's normalizePhone — kept duplicated here since this
+// route is deliberately self-contained (see the file header).
+function normalizePhone(raw: string): string {
+  const digits = (raw || '').replace(/[^\d]/g, '')
+  if (digits.startsWith('234')) return digits
+  if (digits.startsWith('0')) return '234' + digits.slice(1)
+  return digits
+}
+
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -51,34 +60,64 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // providerMessageId is stored as the send response's `data.reference` —
-  // the webhook payload's `reference` field is assumed to be the same value,
-  // per Sendchamp's docs example.
-  const messageId: string | undefined = payload?.reference || payload?.sms_uid
-  const status = mapStatus(payload?.status)
-  console.log('[sendchamp webhook] received', { messageId, rawStatus: payload?.status, mappedStatus: status })
-
-  if (!messageId || !status) {
-    return NextResponse.json({ received: true })
-  }
-
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
+  // Recorded regardless of whether we can match a message_logs row — this is
+  // how we confirm Sendchamp is actually calling this URL at all.
+  const { data: eventRow } = await supabase
+    .from('webhook_events')
+    .insert({ source: 'sendchamp', payload })
+    .select('id')
+    .single()
+
+  // providerMessageId is stored as the send response's `data.reference` — in
+  // practice a real live send never returns one (confirmed 2026-08-18), so
+  // this branch currently never matches; kept in case Sendchamp starts
+  // returning one. Falls back to the most recent unresolved 'sent' row to
+  // the same phone number instead.
+  const messageId: string | undefined = payload?.reference || payload?.sms_uid
+  const status = mapStatus(payload?.status)
+  const phone = payload?.phone_number ? normalizePhone(payload.phone_number) : undefined
+
+  if (!status) {
+    return NextResponse.json({ received: true })
+  }
+
   const update: Record<string, unknown> = { status }
   if (status === 'delivered') update.delivered_at = new Date().toISOString()
   if (status === 'failed') update.failed_reason = payload.status
 
-  const { data, error } = await supabase
-    .from('message_logs')
-    .update(update)
-    .eq('provider_message_id', messageId)
-    .select('id')
+  let data: any[] | null = null
+  let error: any = null
+
+  if (messageId) {
+    ;({ data, error } = await supabase
+      .from('message_logs')
+      .update(update)
+      .eq('provider_message_id', messageId)
+      .select('id'))
+  }
+
+  if ((!data || !data.length) && phone) {
+    ;({ data, error } = await supabase
+      .from('message_logs')
+      .update(update)
+      .eq('provider', 'sendchamp')
+      .eq('channel', 'sms')
+      .eq('recipient_phone', phone)
+      .eq('status', 'sent')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .select('id'))
+  }
 
   if (error) console.error('[sendchamp webhook] failed to update message_logs', error)
-  else if (!data?.length) console.warn('[sendchamp webhook] no message_logs row matched provider_message_id', messageId)
+  if (eventRow?.id) {
+    await supabase.from('webhook_events').update({ matched: !!data?.length }).eq('id', eventRow.id)
+  }
 
   return NextResponse.json({ received: true })
 }
