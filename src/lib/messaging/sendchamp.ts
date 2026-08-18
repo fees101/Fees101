@@ -12,15 +12,15 @@
 // "route: dnd" is the transactional route that bypasses Nigerian DND-active
 // numbers — the equivalent of Termii's channel: 'dnd' we used before.
 //
-// REALITY (confirmed against a real live send, 2026-08-18): the actual
-// response has no `data.reference`/`data.id` at all — it's account/batch
-// level: { code:200, status:'success', message:'sent',
-// data:{ business_id, total_contacts, valid_count, created_at, updated_at } }.
-// So there is currently no per-message ID to key a delivery-report webhook
-// off of — providerMessageId is null on a real send until Sendchamp support
-// clarifies where a message-level ID comes from. The webhook route's match
-// against provider_message_id will not fire for now; delivery status stays
-// at 'sent' (accepted) rather than upgrading to delivered/failed.
+// BUG FOUND (2026-08-18): sending `to` as an array (per the docs' literal
+// type) silently puts the request in batch/bulk mode — accepted and billed,
+// but the response is account-level ({business_id, total_contacts,
+// valid_count, ...}) with no per-message id/reference at all, and this may
+// be why the DLR webhook never fired for any real send so far. Confirmed via
+// direct curl against the live API with the real key that sending `to` as a
+// bare string (not an array) returns the proper single-message shape
+// ({id, reference, phone_number, status: 'processing'}), matching Sendchamp's
+// own dashboard "Test SMS" tool and its Transaction Ref format (MN-SMS-...).
 //
 // Webhook delivery reports (webhook.ts / route.ts) — Sendchamp's docs show a
 // payload shape but do NOT document any signature/secret scheme for verifying
@@ -61,10 +61,11 @@ export class SendchampProvider implements MessagingProvider {
   private async sendSms(params: SendParams): Promise<SendResult> {
     const { baseUrl, apiKey, senderName, route } = config()
     const body = {
-      to: [params.to],
+      to: params.to,
       message: params.text,
       sender_name: senderName,
       route,
+      type: 'text',
     }
 
     try {
@@ -78,8 +79,6 @@ export class SendchampProvider implements MessagingProvider {
       })
       const json: any = await res.json().catch(() => ({}))
 
-      // Success in practice is just { status: 'success' } — see the header
-      // comment on why we no longer require data.reference/data.id.
       if (res.ok && json?.status === 'success') {
         return { ok: true, providerMessageId: json?.data?.reference || json?.data?.id || null, raw: json }
       }
