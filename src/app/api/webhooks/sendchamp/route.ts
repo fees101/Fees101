@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
-import { escalateFailedMessage } from '@/lib/messaging/sendMessage'
+import { escalateFailedMessage, normalizePhone } from '@/lib/messaging/sendMessage'
 
 function isAuthorized(request: NextRequest): boolean {
   const expected = process.env.SENDCHAMP_WEBHOOK_SECRET || ''
@@ -48,30 +48,63 @@ export async function POST(request: NextRequest) {
 
   // providerMessageId is stored as the send response's `data.reference`
   // (sendchamp.ts) — the webhook payload's `reference` field is assumed to be
-  // the same value, per Sendchamp's docs example. Not yet verified against a
-  // real delivered SMS; watch the first few live sends to confirm the match.
+  // the same value, per Sendchamp's docs example. In practice a real live
+  // send never returns a reference (confirmed 2026-08-18 — Sendchamp's send
+  // response is account/batch-level only), so this branch currently never
+  // matches; kept in case Sendchamp starts returning one. Falls back to the
+  // most recent unresolved 'sent' row to the same phone number instead.
   const messageId: string | undefined = payload?.reference || payload?.sms_uid
   const status = mapStatus(payload?.status)
-  console.log('[sendchamp webhook] received', { messageId, rawStatus: payload?.status, mappedStatus: status })
+  const phone = payload?.phone_number ? normalizePhone(payload.phone_number) : undefined
 
-  if (!messageId || !status) {
+  const supabase = createServiceRoleClient()
+  const { data: eventRow } = await supabase
+    .from('webhook_events')
+    .insert({ source: 'sendchamp', payload })
+    .select('id')
+    .single()
+
+  if (!status) {
     return NextResponse.json({ received: true })
   }
 
-  const supabase = createServiceRoleClient()
   const update: Record<string, unknown> = { status }
   if (status === 'delivered') update.delivered_at = new Date().toISOString()
   if (status === 'failed') update.failed_reason = payload.status
 
-  const { data, error } = await supabase
-    .from('message_logs')
-    .update(update)
-    .eq('provider_message_id', messageId)
-    .select('id, school_id, channel, message_type, content, related_student_id, related_invoice_id')
+  let data: any[] | null = null
+  let error: any = null
+
+  if (messageId) {
+    ;({ data, error } = await supabase
+      .from('message_logs')
+      .update(update)
+      .eq('provider_message_id', messageId)
+      .select('id, school_id, channel, message_type, content, related_student_id, related_invoice_id'))
+  }
+
+  // No id match (expected today) — fall back to the newest still-'sent'
+  // Sendchamp SMS row to this phone number. Fragile (assumes no two
+  // in-flight Sendchamp messages to the same number at once) but the only
+  // option until Sendchamp returns a real per-message id.
+  if ((!data || !data.length) && phone) {
+    ;({ data, error } = await supabase
+      .from('message_logs')
+      .update(update)
+      .eq('provider', 'sendchamp')
+      .eq('channel', 'sms')
+      .eq('recipient_phone', phone)
+      .eq('status', 'sent')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .select('id, school_id, channel, message_type, content, related_student_id, related_invoice_id'))
+  }
 
   if (error) console.error('[sendchamp webhook] failed to update message_logs', error)
-  else if (!data?.length) console.warn('[sendchamp webhook] no message_logs row matched provider_message_id', messageId)
-  else if (status === 'failed') {
+  if (eventRow?.id) {
+    await supabase.from('webhook_events').update({ matched: !!data?.length }).eq('id', eventRow.id)
+  }
+  if (data?.length && status === 'failed') {
     await escalateFailedMessage(supabase, data[0])
   }
 
