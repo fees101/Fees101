@@ -66,9 +66,11 @@ export async function POST(request: NextRequest) {
   )
 
   // Recorded regardless of whether we can match a message_logs row — this is
-  // how we confirm Sendchamp is actually calling this URL at all.
+  // how we confirm Sendchamp is actually calling this URL at all. Uses its
+  // own sms_webhook_events table, not webhook_events — that one belongs to
+  // Monnify's payment webhook processor with an incompatible schema.
   const { data: eventRow } = await supabase
-    .from('webhook_events')
+    .from('sms_webhook_events')
     .insert({ source: 'sendchamp', payload })
     .select('id')
     .single()
@@ -116,7 +118,7 @@ export async function POST(request: NextRequest) {
 
   if (error) console.error('[sendchamp webhook] failed to update message_logs', error)
   if (eventRow?.id) {
-    await supabase.from('webhook_events').update({ matched: !!data?.length }).eq('id', eventRow.id)
+    await supabase.from('sms_webhook_events').update({ matched: !!data?.length }).eq('id', eventRow.id)
   }
 
   return NextResponse.json({ received: true })
