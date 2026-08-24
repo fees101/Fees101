@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceRoleClient()
   const { data: eventRow } = await supabase
-    .from('webhook_events')
+    .from('sms_webhook_events')
     .insert({ source: 'sendchamp', payload })
     .select('id')
     .single()
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
 
   if (error) console.error('[sendchamp webhook] failed to update message_logs', error)
   if (eventRow?.id) {
-    await supabase.from('webhook_events').update({ matched: !!data?.length }).eq('id', eventRow.id)
+    await supabase.from('sms_webhook_events').update({ matched: !!data?.length }).eq('id', eventRow.id)
   }
   if (data?.length && status === 'failed') {
     await escalateFailedMessage(supabase, data[0])
