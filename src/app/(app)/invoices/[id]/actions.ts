@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 import { sendMessageWithFallback, sendMultiChannel, EmailContent } from '@/lib/messaging/sendMessage'
 import { MessageChannel } from '@/lib/messaging/types'
@@ -10,17 +10,10 @@ import { getInvoiceByIdForSchool } from '@/lib/queries/fees'
 import { renderInvoicePdfBuffer } from '@/lib/pdf/renderInvoicePdf'
 
 async function getContext() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data: userProfile } = await supabase.from('users').select('school_id, role').eq('id', user.id).single()
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase.from('schools').select('id').limit(1).single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return null
-  return { supabase, schoolId }
+  // Gated on the 'manage-invoices' permission (owner/super_admin/is_admin bypass).
+  const ctx = await requirePermission('manage-invoices')
+  if (!ctx || !ctx.schoolId) return null
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId }
 }
 
 // Renders the invoice PDF and pairs it with the email body — kept separate

@@ -1,12 +1,49 @@
-import ComingSoonSettingsPage from '@/components/settings/ComingSoonSettingsPage'
+import { redirect } from 'next/navigation'
+import SettingsPageShell from '@/components/settings/SettingsPageShell'
+import RolesEditor from '@/components/settings/RolesEditor'
+import { getAuthContext, can } from '@/lib/auth/permissions'
+import { PERMISSIONS } from '@/lib/auth/permissionCatalog'
 
-export default function RolesPermissionsSettingsPage() {
+export const dynamic = 'force-dynamic'
+
+export default async function RolesPermissionsPage() {
+  const ctx = await getAuthContext()
+  if (!can(ctx, 'manage-team')) redirect('/settings')
+  const { supabase, schoolId, roleId: ownRoleId, role } = ctx!
+  const isOwner = role === 'school_admin' || role === 'super_admin'
+
+  const { data: roles } = await supabase
+    .from('roles')
+    .select('id, name, description, is_system, is_admin, permissions')
+    .eq('school_id', schoolId)
+    .order('is_admin', { ascending: false })
+    .order('is_system', { ascending: false })
+    .order('name')
+
+  // How many staff are on each role (for the "assigned" count + delete guard UX).
+  const { data: staff } = await supabase
+    .from('users')
+    .select('role_id')
+    .eq('school_id', schoolId)
+
+  const counts: Record<string, number> = {}
+  for (const s of staff || []) {
+    if ((s as any).role_id) counts[(s as any).role_id] = (counts[(s as any).role_id] || 0) + 1
+  }
+
+  const roleRows = (roles || []).map((r: any) => ({
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    isSystem: r.is_system,
+    isAdmin: r.is_admin,
+    permissions: (r.permissions || {}) as Record<string, boolean>,
+    assignedCount: counts[r.id] || 0,
+  }))
+
   return (
-    <ComingSoonSettingsPage
-      title="Roles & permissions"
-      subtitle="Control what each user can see and do"
-      icon="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-      description="Set up roles like bursar and proprietress with different levels of access — for example, requiring approval before a discount or refund goes through."
-    />
+    <SettingsPageShell title="Roles & permissions" subtitle="Create roles and choose exactly what each one can see and do">
+      <RolesEditor roles={roleRows} catalog={PERMISSIONS} ownRoleId={ownRoleId} isOwner={isOwner} />
+    </SettingsPageShell>
   )
 }

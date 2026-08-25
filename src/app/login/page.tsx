@@ -52,18 +52,14 @@ export default function LoginPage() {
             </p>
           )}
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
             className="bg-mint text-navy py-3 rounded-lg text-sm font-semibold hover:bg-mint/90 disabled:opacity-50 mt-2"
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
-
-        <p className="text-center text-sm text-gray-500 mt-6">
-          New school? <a href="/signup" className="text-mint font-medium hover:underline">Get started</a>
-        </p>
       </div>
     </main>
   )

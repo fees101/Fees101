@@ -1,36 +1,19 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 import { computeInvoiceForStudent, ComputedInvoice, applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 import { carryForwardFeeAdjustments } from '@/lib/fees/carryForwardAdjustments'
 import { PromotionDecision } from '@/lib/yearEnd/promotion'
 
-async function getContext() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return null
-
-  return { supabase, schoolId, userId: user.id }
+async function getContext(perm: string = 'manage-fee-structure') {
+  // Fee/session/term/cycle edits require manage-fee-structure by default;
+  // invoice generation and year-end rollover use their own dedicated
+  // permissions (owner/super_admin/is_admin bypass).
+  const ctx = await requirePermission(perm)
+  if (!ctx || !ctx.schoolId) return null
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 // ============ SESSIONS ============
@@ -950,7 +933,7 @@ async function getNextInvoiceSequence(
 
 // GENERATE bulk for a cycle
 export async function generateInvoicesForCycle(cycleId: string) {
-  const ctx = await getContext()
+  const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
@@ -1052,7 +1035,7 @@ export async function generateInvoicesForCycle(cycleId: string) {
 
 // GENERATE single (for late joiner)
 export async function generateInvoiceForStudent(studentId: string, cycleId: string) {
-  const ctx = await getContext()
+  const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
@@ -1129,7 +1112,7 @@ export async function generateInvoiceForStudent(studentId: string, cycleId: stri
 export async function regenerateInvoice(invoiceId: string): Promise<
   { error: string } | { success: true; newTotal: number; wasOverpaid: boolean }
 > {
-  const ctx = await getContext()
+  const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
@@ -1203,7 +1186,7 @@ export async function regenerateInvoice(invoiceId: string): Promise<
 export async function regenerateStaleInvoicesForCycle(cycleId: string): Promise<
   { error: string } | { success: true; regenerated: number; alreadyUpToDate: number; errors: { studentId: string; error: string }[] }
 > {
-  const ctx = await getContext()
+  const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
@@ -1313,7 +1296,7 @@ export async function regenerateStaleInvoicesForCycle(cycleId: string): Promise<
 type RolloverStep = 'started' | 'cycle_created' | 'promoted' | 'adjustments_carried' | 'invoices_generated' | 'completed'
 
 export async function getRolloverStatus() {
-  const ctx = await getContext()
+  const ctx = await getContext('run-year-end')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
@@ -1348,7 +1331,7 @@ export async function startYearEndRollover(form: {
   newTerm: NewTermInput
   confirmSessionName: string
 }) {
-  const ctx = await getContext()
+  const ctx = await getContext('run-year-end')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
@@ -1493,7 +1476,7 @@ export async function resumeYearEndRollover(runId: string, newTerm?: NewTermInpu
 // Once a run has actually created the new term, discarding would orphan it,
 // so only 'started'-with-no-to_cycle_id runs are eligible.
 export async function cancelYearEndRollover(runId: string): Promise<{ error: string } | { success: true }> {
-  const ctx = await getContext()
+  const ctx = await getContext('run-year-end')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 
@@ -1532,7 +1515,7 @@ export async function cancelYearEndRollover(runId: string): Promise<{ error: str
 }
 
 async function continueYearEndRollover(runId: string, newTerm?: NewTermInput) {
-  const ctx = await getContext()
+  const ctx = await getContext('run-year-end')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId } = ctx
 

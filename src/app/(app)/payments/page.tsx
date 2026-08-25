@@ -1,7 +1,14 @@
+import { redirect } from 'next/navigation'
 import { getAnalyticsBundle } from '@/lib/queries/analytics'
 import PaymentsDashboard from '@/components/payments/PaymentsDashboard'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 export default async function PaymentsPage() {
+  const ctx = await getAuthContext()
+  // Whole page is financial analytics — gate on see-analytics.
+  if (!can(ctx, 'see-analytics')) redirect('/dashboard')
+  const showFinancials = can(ctx, 'see-financial-totals')
+
   const bundle = await getAnalyticsBundle()
 
   // DB functions not installed yet.
@@ -40,7 +47,7 @@ export default async function PaymentsPage() {
   return (
     <main className="px-6 py-6">
       <div className="max-w-7xl mx-auto">
-        <PaymentsDashboard bundle={bundle} />
+        <PaymentsDashboard bundle={bundle} showFinancials={showFinancials} />
       </div>
     </main>
   )

@@ -2,29 +2,13 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { requirePermission } from '@/lib/auth/permissions'
 
 async function getSchoolId() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  return schoolId
+  // Academic structure — gate on manage-academic-structure
+  // (owner/super_admin/is_admin bypass inside requirePermission).
+  const ctx = await requirePermission('manage-academic-structure')
+  return ctx?.schoolId ?? null
 }
 
 function revalidateClassDependents() {

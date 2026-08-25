@@ -1,23 +1,16 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 
 const CATEGORIES = ['staff_child', 'scholarship', 'bursary', 'financial_hardship', 'fee_waiver', 'other'] as const
 export type ManualDiscountCategory = typeof CATEGORIES[number]
 
 async function getContext() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data: userProfile } = await supabase.from('users').select('school_id, role').eq('id', user.id).single()
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase.from('schools').select('id').limit(1).single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return null
-  return { supabase, schoolId, userId: user.id }
+  // Gated on the 'request-discounts' permission (owner/super_admin/is_admin bypass).
+  const ctx = await requirePermission('request-discounts')
+  if (!ctx || !ctx.schoolId) return null
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 interface RequestDiscountInput {
@@ -53,6 +46,16 @@ export async function requestDiscount(invoiceId: string, input: RequestDiscountI
   if (invoice.status === 'cancelled') return { error: 'This invoice is cancelled.' }
   if (Number(invoice.paid_amount || 0) > 0) {
     return { error: 'This invoice already has a payment against it, so discounts can no longer be applied to it.' }
+  }
+
+  const { data: existingPending } = await supabase
+    .from('discounts')
+    .select('id')
+    .eq('invoice_id', invoiceId)
+    .eq('status', 'pending')
+    .maybeSingle()
+  if (existingPending) {
+    return { error: 'A discount request is already pending on this invoice.' }
   }
 
   const { error } = await supabase.from('discounts').insert({

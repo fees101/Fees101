@@ -1,7 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
 import { getDashboardKPIs, getCollectionByClass, getRecentActivity } from '@/lib/queries/dashboard'
 import CollectionChart from '@/components/dashboard/CollectionChart'
 import RecentActivity from '@/components/dashboard/RecentActivity'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
@@ -15,18 +15,23 @@ function getGreeting(): string {
 }
 
 export default async function Dashboard() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  const { data: profile } = await supabase
-    .from('users')
-    .select('name')
-    .eq('id', user!.id)
-    .single()
+  // Single auth/profile round-trip (React cache()'d), shared with the layout
+  // above it — no separate createClient()/getUser()/profile lookup here.
+  const authCtx = await getAuthContext()
 
-  const firstName = profile?.name?.split(' ')[0] || 'there'
-  const kpis = await getDashboardKPIs()
-  const classData = await getCollectionByClass()
-  const activity = await getRecentActivity(5)
+  const [profileResult, kpis, classData, activity] = await Promise.all([
+    authCtx?.supabase.from('users').select('name').eq('id', authCtx.userId).single(),
+    getDashboardKPIs(),
+    getCollectionByClass(),
+    getRecentActivity(5),
+  ])
+
+  const firstName = profileResult?.data?.name?.split(' ')[0] || 'there'
+
+  // Whether this user may see money figures (KPI totals + collection chart).
+  const showFinancials = can(authCtx, 'see-financial-totals')
+  const canApproveDiscounts = can(authCtx, 'approve-discounts')
+  const canRequestDiscounts = can(authCtx, 'request-discounts')
 
   return (
     <main className="px-6 py-6">
@@ -41,7 +46,8 @@ export default async function Dashboard() {
           </p>
         </header>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          
+
+          {showFinancials && (
           <div className="bg-white p-6 rounded-xl border border-gray-200">
             <div className="flex items-start justify-between">
               <div>
@@ -56,7 +62,9 @@ export default async function Dashboard() {
               </div>
             </div>
           </div>
+          )}
 
+          {showFinancials && (
           <div className="bg-white p-6 rounded-xl border border-gray-200">
             <div className="flex items-start justify-between">
               <div>
@@ -75,7 +83,9 @@ export default async function Dashboard() {
               </div>
             </div>
           </div>
+          )}
 
+          {showFinancials && (
           <div className="bg-white p-6 rounded-xl border border-gray-200">
             <div className="flex items-start justify-between">
               <div>
@@ -90,8 +100,10 @@ export default async function Dashboard() {
               </div>
             </div>
           </div>
+          )}
 
-          <div className="bg-white p-6 rounded-xl border border-gray-200">
+          {canApproveDiscounts && (
+          <a href="/discounts" className="bg-white p-6 rounded-xl border border-gray-200 hover:border-mint/50 transition-colors">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-gray-500 text-sm mb-1">Pending Approvals</p>
@@ -104,15 +116,35 @@ export default async function Dashboard() {
                 </svg>
               </div>
             </div>
+          </a>
+          )}
+
+          {!canApproveDiscounts && canRequestDiscounts && (
+          <div className="bg-white p-6 rounded-xl border border-gray-200">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-gray-500 text-sm mb-1">Your Discount Requests</p>
+                <p className="text-navy text-2xl font-bold">{kpis.myPendingRequestsCount}</p>
+                <p className="text-gray-500 text-xs mt-2">Awaiting admin approval</p>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
           </div>
+          )}
 
         </div>
         
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-5 gap-6">
-          <div className="lg:col-span-3">
-            <CollectionChart data={classData} />
-          </div>
-          <div className="lg:col-span-2">
+          {showFinancials && (
+            <div className="lg:col-span-3">
+              <CollectionChart data={classData} />
+            </div>
+          )}
+          <div className={showFinancials ? 'lg:col-span-2' : 'lg:col-span-5'}>
             <RecentActivity events={activity} />
           </div>
         </div>

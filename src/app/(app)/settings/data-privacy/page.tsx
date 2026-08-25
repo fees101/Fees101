@@ -1,6 +1,16 @@
+import { redirect } from 'next/navigation'
 import ComingSoonSettingsPage from '@/components/settings/ComingSoonSettingsPage'
+import { getAuthContext } from '@/lib/auth/permissions'
 
-export default function DataPrivacySettingsPage() {
+// Exporting/deleting a WHOLE SCHOOL's data is a different risk class from the
+// rest of Settings — deliberately hardcoded to the owner (not a togglable
+// permission), so a school can't accidentally hand this to a bursar by
+// flipping on a settings-management permission.
+export default async function DataPrivacySettingsPage() {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!ctx.isOwner) redirect('/dashboard')
+
   return (
     <ComingSoonSettingsPage
       title="Data & privacy"

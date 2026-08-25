@@ -1,8 +1,8 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { tryAutoCreateStudentDVA } from '@/lib/payments/provisionDVA'
+import { requirePermission } from '@/lib/auth/permissions'
 
 interface AddStudentInput {
   firstName: string
@@ -19,27 +19,10 @@ interface AddStudentInput {
 }
 
 export async function addStudent(input: AddStudentInput) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return { error: 'No school context' }
+  // Gated on manage-students (owner/super_admin/is_admin bypass).
+  const authCtx = await requirePermission('manage-students')
+  if (!authCtx || !authCtx.schoolId) return { error: 'Not authorized' }
+  const { supabase, schoolId } = authCtx
 
   // Get the section (using first section for now)
   const { data: section } = await supabase

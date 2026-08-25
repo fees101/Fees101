@@ -1,30 +1,10 @@
-import { createClient } from '@/lib/supabase/server'
+import { getAuthContext } from '@/lib/auth/permissions'
 import { getCollectedForDateRange } from './fees'
 
 export async function getDashboardKPIs() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  if (!userProfile) throw new Error('User profile not found')
-
-  let schoolId = userProfile.school_id
-  if (!schoolId && userProfile.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId, userId } = ctx
   if (!schoolId) throw new Error('No school context')
 
   const { data: currentCycle } = await supabase
@@ -48,11 +28,22 @@ export async function getDashboardKPIs() {
     .eq('school_id', schoolId)
     .eq('billing_cycle_id', currentCycle?.id || '')
 
+  // Pending discount requests, sourced from the real discounts table (not the
+  // disconnected/unused pending_approvals queue — nothing ever inserts into
+  // that table). Two counts: how many need THIS user's review (only
+  // meaningful for approvers) vs. how many THIS user is themselves waiting on.
   const { count: pendingApprovalsCount } = await supabase
-    .from('pending_approvals')
+    .from('discounts')
     .select('id', { count: 'exact', head: true })
     .eq('school_id', schoolId)
     .eq('status', 'pending')
+
+  const { count: myPendingRequestsCount } = await supabase
+    .from('discounts')
+    .select('id', { count: 'exact', head: true })
+    .eq('school_id', schoolId)
+    .eq('status', 'pending')
+    .eq('requested_by', userId)
 
   // Expected = gross fees for the term = net total plus whatever credit
   // covered part of it (total_amount is already net of credit_applied).
@@ -81,30 +72,14 @@ export async function getDashboardKPIs() {
     totalOutstanding,
     collectionPercentage,
     pendingApprovalsCount: pendingApprovalsCount || 0,
+    myPendingRequestsCount: myPendingRequestsCount || 0,
   }
 }
 
 export async function getCollectionByClass() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) return []
 
   const { data: currentCycle } = await supabase
@@ -196,26 +171,9 @@ export async function getCollectionByClass() {
 }
 
 export async function getRecentActivity(limit: number = 7) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) return []
 
   // One event per real payment transaction, not per invoice's current

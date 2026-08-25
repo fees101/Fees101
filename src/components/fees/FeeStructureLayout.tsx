@@ -7,6 +7,7 @@ import ManageOptInsPanel from './ManageOptInsPanel'
 import EditFeeGroupPanel from './EditFeeGroupPanel'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { deleteFeeItem, bulkDeleteFeeItemByName } from '@/app/(app)/fees/structure/actions'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface ClassRow { id: string, name: string, displayOrder: number }
 interface FeeItem {
@@ -41,9 +42,13 @@ function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
-export default function FeeStructureLayout({ data, initialView, initialClassId, readOnly = false }: Props) {
+export default function FeeStructureLayout({ data, initialView, initialClassId, readOnly: readOnlyProp = false }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const canManageFeeStructure = useCan('manage-fee-structure')
+  // Read-only if the caller says so (e.g. a closed term) OR the user lacks
+  // manage-fee-structure — a see-fee-structure-only user can view but not edit.
+  const readOnly = readOnlyProp || !canManageFeeStructure
   const { cycle, classes, allFees, studentCountByClass, totalActiveStudents } = data
 
   const [view, setView] = useState<'class' | 'item'>(initialView)

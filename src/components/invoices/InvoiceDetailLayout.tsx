@@ -9,6 +9,7 @@ import { sendInvoice } from '@/app/(app)/invoices/[id]/actions'
 import { MessageChannel } from '@/lib/messaging/types'
 import RequestDiscountModal from '@/components/invoices/RequestDiscountModal'
 import Toast from '@/components/ui/Toast'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 const CHANNEL_LABELS: Record<MessageChannel, string> = {
   sms: 'SMS',
@@ -57,7 +58,9 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
   const [sending, setSending] = useState(false)
   const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [discountModalOpen, setDiscountModalOpen] = useState(false)
-  const [discountSubmitted, setDiscountSubmitted] = useState(false)
+  const pendingDiscount = invoice.pendingDiscount
+  const canSendInvoice = useCan('manage-invoices')
+  const canRequestDiscount = useCan('request-discounts')
 
   async function handleSend() {
     setSending(true)
@@ -278,20 +281,22 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-2">
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Actions</p>
 
-            <button
-              onClick={handleSend}
-              disabled={sending}
-              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 ${sendBtnClass}`}
-              title={invoice.needsResend ? 'The invoice changed since it was last sent — resend to update the parent' : 'Sends via SMS'}
-            >
-              <span className="flex items-center gap-2">
-                <ChannelIcons />
-                {sending ? 'Sending…' : sendLabel}
-              </span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            </button>
+            {canSendInvoice && (
+              <button
+                onClick={handleSend}
+                disabled={sending}
+                className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 ${sendBtnClass}`}
+                title={invoice.needsResend ? 'The invoice changed since it was last sent — resend to update the parent' : 'Sends via SMS'}
+              >
+                <span className="flex items-center gap-2">
+                  <ChannelIcons />
+                  {sending ? 'Sending…' : sendLabel}
+                </span>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            )}
             {invoice.needsResend ? (
               <p className="text-xs text-amber-700">Invoice changed since it was last sent — resend to update the parent</p>
             ) : invoice.sentAt ? (
@@ -327,8 +332,19 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
               </svg>
             </a>
 
-            {invoice.status !== 'cancelled' && (
-              invoice.paidAmount > 0 ? (
+            {canRequestDiscount && invoice.status !== 'cancelled' && (
+              pendingDiscount ? (
+                <button
+                  disabled
+                  title="A discount request is already pending on this invoice"
+                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-400 font-medium opacity-60 cursor-not-allowed"
+                >
+                  Discount pending
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </button>
+              ) : invoice.paidAmount > 0 ? (
                 <button
                   disabled
                   title="This invoice already has a payment against it — discounts can no longer be applied"
@@ -341,7 +357,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
                 </button>
               ) : (
                 <button
-                  onClick={() => { setDiscountModalOpen(true); setDiscountSubmitted(false) }}
+                  onClick={() => setDiscountModalOpen(true)}
                   className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-navy font-medium hover:bg-gray-50"
                 >
                   Request discount
@@ -351,8 +367,10 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
                 </button>
               )
             )}
-            {discountSubmitted && (
-              <p className="text-xs text-mint">Discount request submitted — awaiting admin approval</p>
+            {pendingDiscount && (
+              <p className="text-xs text-amber-600">
+                Discount requested{pendingDiscount.requestedByName ? ` by ${pendingDiscount.requestedByName}` : ''} on {formatDate(pendingDiscount.requestedAt)} — awaiting admin approval
+              </p>
             )}
           </div>
 
@@ -365,7 +383,6 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           onClose={() => setDiscountModalOpen(false)}
           onSuccess={() => {
             setDiscountModalOpen(false)
-            setDiscountSubmitted(true)
             router.refresh()
           }}
         />

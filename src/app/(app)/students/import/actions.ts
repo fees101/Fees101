@@ -1,7 +1,7 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { requirePermission } from '@/lib/auth/permissions'
 
 interface ParsedRow {
   rowNumber: number
@@ -84,27 +84,10 @@ function isValidDate(date: string): boolean {
 }
 
 export async function parseAndValidateCSV(csvText: string) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return { error: 'No school context' }
+  // Gated on manage-students (owner/super_admin/is_admin bypass).
+  const ctx = await requirePermission('manage-students')
+  if (!ctx || !ctx.schoolId) return { error: 'Not authorized' }
+  const { supabase, schoolId } = ctx
 
   // Get all classes for matching
   const { data: classes } = await supabase
@@ -236,27 +219,10 @@ export async function parseAndValidateCSV(csvText: string) {
 }
 
 export async function importStudents(rows: ParsedRow[]) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return { error: 'No school context' }
+  // Gated on manage-students (owner/super_admin/is_admin bypass).
+  const ctx = await requirePermission('manage-students')
+  if (!ctx || !ctx.schoolId) return { error: 'Not authorized' }
+  const { supabase, schoolId } = ctx
 
   const { data: section } = await supabase
     .from('sections')

@@ -1,8 +1,14 @@
+import { redirect } from 'next/navigation'
 import { getClasses, getSessions, getAllCycles } from '@/lib/queries/fees'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import AcademicStructureLayout from '@/components/settings/academic-structure/AcademicStructureLayout'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 export default async function AcademicStructurePage() {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'manage-academic-structure')) redirect('/dashboard')
+
   const [{ classes, sections }, sessions, cycles] = await Promise.all([
     getClasses(),
     getSessions(),

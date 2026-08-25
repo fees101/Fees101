@@ -1,13 +1,19 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { getFeeStructure, getAllCycles } from '@/lib/queries/fees'
 import FeeStructureLayout from '@/components/fees/FeeStructureLayout'
 import TermSelector from '@/components/fees/TermSelector'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 interface PageProps {
   searchParams: Promise<{ view?: string, class?: string, cycle?: string }>
 }
 
 export default async function FeeStructurePage({ searchParams }: PageProps) {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'see-fee-structure')) redirect('/fees')
+
   const { view, class: classParam, cycle: cycleParam } = await searchParams
 
   const [data, allCycles] = await Promise.all([

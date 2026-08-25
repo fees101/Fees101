@@ -17,9 +17,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 interface Props {
   discounts: ActiveRecurringDiscount[]
+  // When false, revoke controls are hidden. The server action enforces this too.
+  canApprove: boolean
 }
 
-export default function ActiveRecurringDiscountsList({ discounts }: Props) {
+export default function ActiveRecurringDiscountsList({ discounts, canApprove }: Props) {
   const router = useRouter()
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -85,14 +87,14 @@ export default function ActiveRecurringDiscountsList({ discounts }: Props) {
                   {pendingId === d.id ? 'Revoking...' : 'Confirm revoke'}
                 </button>
               </div>
-            ) : (
+            ) : canApprove ? (
               <button
                 onClick={() => setConfirmId(d.id)}
                 className="px-3 py-1.5 text-xs text-red-700 border border-red-200 rounded-lg hover:bg-red-50 flex-shrink-0"
               >
                 Revoke
               </button>
-            )}
+            ) : null}
           </div>
         ))}
       </div>

@@ -1,6 +1,15 @@
+import { redirect } from 'next/navigation'
 import ComingSoonSettingsPage from '@/components/settings/ComingSoonSettingsPage'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
-export default function AuditLogSettingsPage() {
+// Stub today, but gated now so this doesn't get forgotten once it's built:
+// bundled into manage-school-profile (whoever can edit the school profile can
+// see the trail), not split into its own permission key.
+export default async function AuditLogSettingsPage() {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'manage-school-profile')) redirect('/dashboard')
+
   return (
     <ComingSoonSettingsPage
       title="Audit log"

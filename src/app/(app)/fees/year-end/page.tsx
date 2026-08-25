@@ -1,8 +1,14 @@
+import { redirect } from 'next/navigation'
 import { getRolloverStatus } from '@/app/(app)/fees/cycles/actions'
 import { getPromotionPreviewAction, getClassesForOverrideAction, getDraftSessionsAction } from './actions'
 import YearEndRolloverWizard from '@/components/fees/YearEndRolloverWizard'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 export default async function YearEndPage() {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'run-year-end')) redirect('/fees')
+
   const [statusResult, previewResult, classesResult, draftSessionsResult] = await Promise.all([
     getRolloverStatus(),
     getPromotionPreviewAction(),

@@ -21,9 +21,12 @@ function formatDate(dateStr: string): string {
 
 interface Props {
   requests: PendingDiscountRequest[]
+  // When false, approve/reject controls are hidden (see-discounts without
+  // approve-discounts). The server actions enforce this regardless.
+  canApprove: boolean
 }
 
-export default function DiscountRequestsList({ requests }: Props) {
+export default function DiscountRequestsList({ requests, canApprove }: Props) {
   const router = useRouter()
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -97,20 +100,24 @@ export default function DiscountRequestsList({ requests }: Props) {
               >
                 View invoice
               </Link>
-              <button
-                onClick={() => setRejectDialog(req)}
-                disabled={pendingId === req.id}
-                className="px-3 py-1.5 text-xs text-red-700 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
-              >
-                Reject
-              </button>
-              <button
-                onClick={() => handleApprove(req.id)}
-                disabled={pendingId === req.id}
-                className="px-3 py-1.5 text-xs bg-mint text-navy font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
-              >
-                {pendingId === req.id ? 'Approving...' : 'Approve'}
-              </button>
+              {canApprove && (
+                <>
+                  <button
+                    onClick={() => setRejectDialog(req)}
+                    disabled={pendingId === req.id}
+                    className="px-3 py-1.5 text-xs text-red-700 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => handleApprove(req.id)}
+                    disabled={pendingId === req.id}
+                    className="px-3 py-1.5 text-xs bg-mint text-navy font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+                  >
+                    {pendingId === req.id ? 'Approving...' : 'Approve'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ))}

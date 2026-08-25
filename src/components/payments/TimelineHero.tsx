@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import type { TermPoint } from '@/lib/queries/analytics'
 import type { FeeChoice, FeePriceFan } from '@/lib/analytics/aggregate'
-import { Card, ChartTooltip, naira, nairaShort, MINT, NAVY, AMBER, PALETTE } from './AnalyticsCharts'
+import { Card, ChartTooltip, RateTooltip, naira, nairaShort, MASKED, MINT, NAVY, AMBER, PALETTE } from './AnalyticsCharts'
 
 export type PresetKey = 'all' | '12mo' | 'session' | 'term'
 
@@ -15,7 +15,7 @@ export type PresetKey = 'all' | '12mo' | 'session' | 'term'
 // (or use a preset) to zoom to any window — that selection drives every card
 // below. Hover any point for that term's figures.
 export function TimelineHero({
-  terms, startIndex, endIndex, brushNonce, onBrush, preset, onPreset,
+  terms, startIndex, endIndex, brushNonce, onBrush, preset, onPreset, showFinancials = true,
 }: {
   terms: TermPoint[]
   startIndex: number
@@ -24,12 +24,14 @@ export function TimelineHero({
   onBrush: (s: number, e: number) => void
   preset: PresetKey | null
   onPreset: (p: PresetKey) => void
+  showFinancials?: boolean
 }) {
   const data = terms.map(t => ({
     label: t.cycleName,
     Billed: t.billed,
     Collected: t.collected,
     Outstanding: t.outstanding,
+    Rate: t.billed > 0 ? Math.round((t.collected / t.billed) * 100) : 0,
   }))
 
   const presets: { key: PresetKey; label: string }[] = [
@@ -56,7 +58,9 @@ export function TimelineHero({
   return (
     <Card
       title="Collection over time"
-      subtitle="Drag the handles below to zoom — the whole page follows your selection"
+      subtitle={showFinancials
+        ? "Drag the handles below to zoom — the whole page follows your selection"
+        : "Collection rate over time — drag the handles below to zoom"}
       action={presetBtns}
     >
       {data.length === 0 ? (
@@ -66,12 +70,22 @@ export function TimelineHero({
           <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} />
-            <YAxis tickFormatter={nairaShort} tick={{ fontSize: 12, fill: '#64748b' }} width={60} />
-            <Tooltip content={<ChartTooltip />} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Line type="monotone" dataKey="Billed" stroke={NAVY} strokeWidth={2} dot={{ r: 2 }} />
-            <Line type="monotone" dataKey="Collected" stroke={MINT} strokeWidth={2} dot={{ r: 2 }} />
-            <Line type="monotone" dataKey="Outstanding" stroke={AMBER} strokeWidth={2} dot={{ r: 2 }} />
+            {showFinancials ? (
+              <YAxis tickFormatter={nairaShort} tick={{ fontSize: 12, fill: '#64748b' }} width={60} />
+            ) : (
+              <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 12, fill: '#64748b' }} width={45} />
+            )}
+            <Tooltip content={showFinancials ? <ChartTooltip /> : <RateTooltip />} />
+            {showFinancials && <Legend wrapperStyle={{ fontSize: 12 }} />}
+            {showFinancials ? (
+              <>
+                <Line type="monotone" dataKey="Billed" stroke={NAVY} strokeWidth={2} dot={{ r: 2 }} />
+                <Line type="monotone" dataKey="Collected" stroke={MINT} strokeWidth={2} dot={{ r: 2 }} />
+                <Line type="monotone" dataKey="Outstanding" stroke={AMBER} strokeWidth={2} dot={{ r: 2 }} />
+              </>
+            ) : (
+              <Line type="monotone" dataKey="Rate" name="Collection rate" stroke={MINT} strokeWidth={2} dot={{ r: 2 }} />
+            )}
             <Brush
               key={brushNonce}
               dataKey="label"
@@ -97,10 +111,15 @@ export function TimelineHero({
 // vs collected, plus a rate read-out. Clearer than overlaid lines for a handful
 // of discrete periods.
 export function CompareBars({
-  rows,
+  rows, showFinancials = true,
 }: {
   rows: { label: string; billed: number; collected: number; rate: number }[]
+  showFinancials?: boolean
 }) {
+  // Its percentage twin, CompareRates, is always rendered alongside it — no
+  // masked version needed here, just skip this one when totals are hidden.
+  if (!showFinancials) return null
+
   if (rows.length === 0) {
     return (
       <Card title="Comparison" subtitle="Pick periods to compare">
@@ -113,9 +132,9 @@ export function CompareBars({
       <ResponsiveContainer width="100%" height={Math.max(220, rows.length * 64)}>
         <BarChart data={rows} layout="vertical" margin={{ top: 5, right: 16, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-          <XAxis type="number" tickFormatter={nairaShort} tick={{ fontSize: 12, fill: '#64748b' }} />
+          <XAxis type="number" tickFormatter={showFinancials ? nairaShort : () => MASKED} tick={{ fontSize: 12, fill: '#64748b' }} />
           <YAxis type="category" dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} width={130} />
-          <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
+          <Tooltip content={<ChartTooltip showFinancials={showFinancials} />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           <Bar dataKey="billed" name="Billed" fill={NAVY} radius={[0, 4, 4, 0]} />
           <Bar dataKey="collected" name="Collected" fill={MINT} radius={[0, 4, 4, 0]} />
@@ -152,7 +171,7 @@ export function CompareRates({ rows }: { rows: { label: string; rate: number }[]
 // (Both draws collected solid + billed dashed in each line's colour).
 export interface OverlaySeries { label: string; collected: (number | null)[]; billed: (number | null)[] }
 export function CompareOverlay({
-  heading, context, axisLabels, series, metric, onMetric,
+  heading, context, axisLabels, series, metric, onMetric, showFinancials = true,
 }: {
   heading: string
   context: string
@@ -160,14 +179,24 @@ export function CompareOverlay({
   series: OverlaySeries[]
   metric: 'collected' | 'billed' | 'both'
   onMetric: (m: 'collected' | 'billed' | 'both') => void
+  showFinancials?: boolean
 }) {
   const both = metric === 'both'
 
-  // Build the row set with a dataKey per drawn line.
+  // Build the row set with a dataKey per drawn line. When totals are hidden,
+  // ignore the metric toggle entirely and always plot each series' collection
+  // rate % instead — billed/collected/both have no meaning without absolute
+  // figures, but rate does.
   const data = axisLabels.map((label, i) => {
     const row: Record<string, any> = { label }
     series.forEach(s => {
-      if (both) {
+      if (!showFinancials) {
+        const billed = s.billed[i]
+        const collected = s.collected[i]
+        row[s.label] = (billed != null && billed > 0 && collected != null)
+          ? Math.round((collected / billed) * 100)
+          : null
+      } else if (both) {
         row[`${s.label} · collected`] = s.collected[i] ?? null
         row[`${s.label} · billed`] = s.billed[i] ?? null
       } else {
@@ -192,17 +221,25 @@ export function CompareOverlay({
   return (
     <Card
       title={heading}
-      subtitle={both ? `billed (dashed) & collected (solid) ${context}` : `${metricWord} ${context}`}
-      action={metricToggle}
+      subtitle={!showFinancials ? `collection rate ${context}` : both ? `billed (dashed) & collected (solid) ${context}` : `${metricWord} ${context}`}
+      action={showFinancials ? metricToggle : undefined}
     >
       <ResponsiveContainer width="100%" height={340}>
         <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
           <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#64748b' }} />
-          <YAxis tickFormatter={nairaShort} tick={{ fontSize: 12, fill: '#64748b' }} width={60} />
-          <Tooltip content={<ChartTooltip />} />
+          {showFinancials ? (
+            <YAxis tickFormatter={nairaShort} tick={{ fontSize: 12, fill: '#64748b' }} width={60} />
+          ) : (
+            <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 12, fill: '#64748b' }} width={45} />
+          )}
+          <Tooltip content={showFinancials ? <ChartTooltip /> : <RateTooltip />} />
           <Legend wrapperStyle={{ fontSize: 12 }} />
-          {series.map((s, i) => {
+          {!showFinancials ? (
+            series.map((s, i) => (
+              <Line key={s.label} type="monotone" dataKey={s.label} stroke={PALETTE[i % PALETTE.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            ))
+          ) : series.map((s, i) => {
             const color = PALETTE[i % PALETTE.length]
             if (!both) {
               return <Line key={s.label} type="monotone" dataKey={s.label} stroke={color} strokeWidth={2} dot={{ r: 3 }} connectNulls />
@@ -222,12 +259,13 @@ export function CompareOverlay({
 // price climb across terms and see how it varies per class. A single-price fee
 // collapses to one "All classes" line.
 export function FeePriceChart({
-  choices, fan, selected, onSelect,
+  choices, fan, selected, onSelect, showFinancials = true,
 }: {
   choices: FeeChoice[]
   fan: FeePriceFan
   selected: string
   onSelect: (name: string) => void
+  showFinancials?: boolean
 }) {
   if (choices.length === 0) {
     return (
@@ -265,13 +303,31 @@ export function FeePriceChart({
   })
   const keys = fan.uniform ? ['All classes'] : lineKeys
 
+  // Without see-financial-totals, index each line to its own first known
+  // price (= 100%) instead of showing the raw price — trend/direction stays
+  // visible, absolute price does not.
+  const indexBases: Record<string, number | null> = {}
+  keys.forEach(k => {
+    const first = data.find(row => row[k] != null)
+    indexBases[k] = first ? first[k] : null
+  })
+  const indexedData = data.map(row => {
+    const r: Record<string, any> = { label: row.label }
+    keys.forEach(k => {
+      const v = row[k]
+      const base = indexBases[k]
+      r[k] = (v != null && base) ? Math.round((v / base) * 100) : null
+    })
+    return r
+  })
+
   function PriceTooltip({ active, payload, label }: any) {
     if (!active || !payload?.length) return null
     return (
       <div className="bg-navy text-white text-xs rounded-lg px-3 py-2 shadow-lg max-w-[240px]">
         <p className="font-semibold mb-1">{label}</p>
         {payload.filter((p: any) => p.value != null).map((p: any) => (
-          <p key={p.name} style={{ color: p.color }}>{p.name}: {naira(p.value)}</p>
+          <p key={p.name} style={{ color: p.color }}>{p.name}: {showFinancials ? naira(p.value) : `${p.value}%`}</p>
         ))}
       </div>
     )
@@ -280,19 +336,21 @@ export function FeePriceChart({
   return (
     <Card
       title="Fee price over time"
-      subtitle={fan.uniform
-        ? `${selected} — one price for all classes across terms`
-        : `${selected} — price per class across terms (varies by class)`}
+      subtitle={showFinancials
+        ? (fan.uniform
+          ? `${selected} — one price for all classes across terms`
+          : `${selected} — price per class across terms (varies by class)`)
+        : `${selected} — price index (first known price = 100%)`}
       action={selector}
     >
       {data.length === 0 ? (
         <p className="text-sm text-gray-500 py-8">No price history for this fee in the selected range.</p>
       ) : (
         <ResponsiveContainer width="100%" height={340}>
-          <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+          <LineChart data={showFinancials ? data : indexedData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
             <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#64748b' }} />
-            <YAxis tickFormatter={nairaShort} tick={{ fontSize: 12, fill: '#64748b' }} width={60} />
+            <YAxis tickFormatter={showFinancials ? nairaShort : (v: number) => `${v}%`} tick={{ fontSize: 12, fill: '#64748b' }} width={60} />
             <Tooltip content={<PriceTooltip />} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             {keys.map((k, i) => (

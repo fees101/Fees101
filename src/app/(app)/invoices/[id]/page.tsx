@@ -1,13 +1,18 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getInvoiceById } from '@/lib/queries/fees'
 import InvoiceDetailLayout from '@/components/invoices/InvoiceDetailLayout'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 interface PageProps {
   params: Promise<{ id: string }>
 }
 
 export default async function InvoiceDetailPage({ params }: PageProps) {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'see-invoices')) redirect('/dashboard')
+
   const { id } = await params
   const invoice = await getInvoiceById(id)
 

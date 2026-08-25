@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { getFeesOverview, getAllCycles } from '@/lib/queries/fees'
 import TermSelector from '@/components/fees/TermSelector'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 interface PageProps {
   searchParams: Promise<{ cycle?: string }>
@@ -20,6 +21,9 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
 
   const currentCycleId = allCycles.find(c => c.name === data.currentTermName)?.id || null
   const isClosedTerm = data.currentTermStatus === 'closed'
+
+  const ctx = await getAuthContext()
+  const showFinancials = can(ctx, 'see-financial-totals')
 
   return (
     <main className="px-6 py-6">
@@ -58,7 +62,8 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
 
         {/* KPI cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          
+
+          {showFinancials && (
           <div className="bg-white p-5 rounded-xl border border-gray-200">
             <div className="flex items-start justify-between">
               <div>
@@ -73,7 +78,9 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
               </div>
             </div>
           </div>
+          )}
 
+          {showFinancials && (
           <div className="bg-white p-5 rounded-xl border border-gray-200">
             <div className="flex items-start justify-between">
               <div>
@@ -92,7 +99,9 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
               </div>
             </div>
           </div>
+          )}
 
+          {showFinancials && (
           <div className="bg-white p-5 rounded-xl border border-gray-200">
             <div className="flex items-start justify-between">
               <div>
@@ -107,6 +116,7 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
               </div>
             </div>
           </div>
+          )}
 
           <div className="bg-white p-5 rounded-xl border border-gray-200">
             <div className="flex items-start justify-between">
@@ -134,6 +144,7 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
         {/* Navigation cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           
+          {can(ctx, 'see-invoices') && (
           <Link
             href="/invoices"
             className="bg-white p-6 rounded-xl border border-gray-200 hover:border-mint hover:shadow-sm transition-all group"
@@ -151,8 +162,10 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
             <h3 className="text-navy font-semibold text-lg mb-1">Invoices</h3>
             <p className="text-sm text-gray-500">Search and browse every invoice</p>
           </Link>
+          )}
 
-          <Link 
+          {can(ctx, 'see-fee-structure') && (
+          <Link
             href={currentCycleId ? `/fees/structure?cycle=${currentCycleId}` : '/fees/structure'}
             className="bg-white p-6 rounded-xl border border-gray-200 hover:border-mint hover:shadow-sm transition-all group"
           >
@@ -169,8 +182,10 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
             <h3 className="text-navy font-semibold text-lg mb-1">Fee structure</h3>
             <p className="text-sm text-gray-500">Set fees for each class</p>
           </Link>
+          )}
 
-          <Link 
+          {can(ctx, 'see-fee-structure') && (
+          <Link
             href="/fees/cycles"
             className="bg-white p-6 rounded-xl border border-gray-200 hover:border-mint hover:shadow-sm transition-all group"
           >
@@ -187,6 +202,7 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
             <h3 className="text-navy font-semibold text-lg mb-1">Billing cycles</h3>
             <p className="text-sm text-gray-500">Manage terms and invoice generation</p>
           </Link>
+          )}
 
         </div>
 

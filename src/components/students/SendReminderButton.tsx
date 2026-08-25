@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { sendManualReminder } from '@/app/(app)/students/[id]/actions'
 import { MessageChannel } from '@/lib/messaging/types'
 import Toast from '@/components/ui/Toast'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 const CHANNEL_LABELS: Record<MessageChannel, string> = {
   sms: 'SMS',
@@ -35,6 +36,7 @@ export default function SendReminderButton({
   const router = useRouter()
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const canSend = useCan('manage-students')
 
   async function handleSend() {
     setSending(true)
@@ -59,6 +61,8 @@ export default function SendReminderButton({
     : !sentAt
     ? 'Send invoice'
     : 'Send reminder'
+
+  if (!canSend) return null
 
   return (
     <>

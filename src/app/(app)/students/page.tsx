@@ -1,13 +1,19 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { getStudents } from '@/lib/queries/students'
 import StudentsTable from '@/components/students/StudentsTable'
 import StudentsHeader from '@/components/students/StudentsHeader'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 interface PageProps {
   searchParams: Promise<{ status?: string }>
 }
 
 export default async function StudentsPage({ searchParams }: PageProps) {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'see-students')) redirect('/dashboard')
+
   const { status } = await searchParams
   const validStatus = (status === 'withdrawn' || status === 'graduated' || status === 'all') 
     ? status 
@@ -28,7 +34,7 @@ export default async function StudentsPage({ searchParams }: PageProps) {
           activeStatusFilter={validStatus}
         />
 
-        {paymentsConfigured && studentsWithoutDvaCount > 0 && (
+        {paymentsConfigured && studentsWithoutDvaCount > 0 && can(ctx, 'manage-payment-config') && (
           <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
             <div className="flex items-start gap-3">
               <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { 
-  updateStudentDetails, 
-  updateFamilyInfo, 
-  updateFamilyNotes, 
+import {
+  updateStudentDetails,
+  updateFamilyInfo,
+  updateFamilyNotes,
   updateStudentStatus,
   getClassesList
 } from '@/app/(app)/students/[id]/actions'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface Student {
   id: string
@@ -49,6 +50,7 @@ export default function StudentSettingsTab({ student }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [classes, setClasses] = useState<{ id: string, name: string }[]>([])
+  const canManage = useCan('manage-students')
 
   useEffect(() => {
     getClassesList().then(setClasses)
@@ -64,12 +66,14 @@ export default function StudentSettingsTab({ student }: Props) {
         <div className="bg-white p-6 rounded-xl border border-gray-200">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-navy font-semibold text-lg">Student details</h2>
-            <button 
-              onClick={() => setEditingStudent(true)}
-              className="text-mint text-sm font-medium hover:underline"
-            >
-              Edit
-            </button>
+            {canManage && (
+              <button
+                onClick={() => setEditingStudent(true)}
+                className="text-mint text-sm font-medium hover:underline"
+              >
+                Edit
+              </button>
+            )}
           </div>
           
           <div className="grid grid-cols-2 gap-4 text-sm">
@@ -117,12 +121,14 @@ export default function StudentSettingsTab({ student }: Props) {
         <div className="bg-white p-6 rounded-xl border border-gray-200">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-navy font-semibold text-lg">Family information</h2>
-            <button 
-              onClick={() => setEditingFamily(true)}
-              className="text-mint text-sm font-medium hover:underline"
-            >
-              Edit
-            </button>
+            {canManage && (
+              <button
+                onClick={() => setEditingFamily(true)}
+                className="text-mint text-sm font-medium hover:underline"
+              >
+                Edit
+              </button>
+            )}
           </div>
 
           <div>
@@ -163,12 +169,14 @@ export default function StudentSettingsTab({ student }: Props) {
             ) : (
               <>
                 <p className="text-sm text-gray-400 italic">No secondary parent added</p>
-                <button 
-                  onClick={() => setEditingFamily(true)}
-                  className="text-mint text-sm font-medium hover:underline mt-2"
-                >
-                  + Add secondary parent
-                </button>
+                {canManage && (
+                  <button
+                    onClick={() => setEditingFamily(true)}
+                    className="text-mint text-sm font-medium hover:underline mt-2"
+                  >
+                    + Add secondary parent
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -178,12 +186,14 @@ export default function StudentSettingsTab({ student }: Props) {
         <div className="bg-white p-6 rounded-xl border border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-navy font-semibold text-lg">Notes</h2>
-            <button 
-              onClick={() => setEditingNotes(true)}
-              className="text-mint text-sm font-medium hover:underline"
-            >
-              Edit
-            </button>
+            {canManage && (
+              <button
+                onClick={() => setEditingNotes(true)}
+                className="text-mint text-sm font-medium hover:underline"
+              >
+                Edit
+              </button>
+            )}
           </div>
           {student.family.notes ? (
             <p className="text-sm text-gray-700 leading-relaxed">{student.family.notes}</p>
@@ -195,35 +205,37 @@ export default function StudentSettingsTab({ student }: Props) {
       </div>
 
       {/* Right column: Danger zone */}
-      <div>
-        <div className="bg-white p-6 rounded-xl border border-red-100">
-          <h3 className="text-red-700 font-semibold mb-4">Danger zone</h3>
-          
-          <div className="pb-4 mb-4 border-b border-gray-100">
-            <p className="text-sm font-medium text-navy mb-1">Mark as withdrawn</p>
-            <p className="text-xs text-gray-500 mb-3">Student will no longer appear in active lists.</p>
-            <button 
-              onClick={() => setConfirmAction('withdrawn')}
-              disabled={student.status === 'withdrawn'}
-              className="px-3 py-1.5 border border-red-300 text-red-700 text-xs font-medium rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {student.status === 'withdrawn' ? 'Already withdrawn' : 'Mark withdrawn'}
-            </button>
-          </div>
+      {canManage && (
+        <div>
+          <div className="bg-white p-6 rounded-xl border border-red-100">
+            <h3 className="text-red-700 font-semibold mb-4">Danger zone</h3>
 
-          <div>
-            <p className="text-sm font-medium text-navy mb-1">Mark as graduated</p>
-            <p className="text-xs text-gray-500 mb-3">Move to graduates archive.</p>
-            <button 
-              onClick={() => setConfirmAction('graduated')}
-              disabled={student.status === 'graduated'}
-              className="px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {student.status === 'graduated' ? 'Already graduated' : 'Mark graduated'}
-            </button>
+            <div className="pb-4 mb-4 border-b border-gray-100">
+              <p className="text-sm font-medium text-navy mb-1">Mark as withdrawn</p>
+              <p className="text-xs text-gray-500 mb-3">Student will no longer appear in active lists.</p>
+              <button
+                onClick={() => setConfirmAction('withdrawn')}
+                disabled={student.status === 'withdrawn'}
+                className="px-3 py-1.5 border border-red-300 text-red-700 text-xs font-medium rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {student.status === 'withdrawn' ? 'Already withdrawn' : 'Mark withdrawn'}
+              </button>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-navy mb-1">Mark as graduated</p>
+              <p className="text-xs text-gray-500 mb-3">Move to graduates archive.</p>
+              <button
+                onClick={() => setConfirmAction('graduated')}
+                disabled={student.status === 'graduated'}
+                className="px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {student.status === 'graduated' ? 'Already graduated' : 'Mark graduated'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Edit Student Modal */}
       {editingStudent && (

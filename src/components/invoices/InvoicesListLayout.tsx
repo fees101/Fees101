@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { AllInvoiceRow } from '@/lib/queries/fees'
 import { bulkSendInvoices } from '@/app/(app)/invoices/actions'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface Props {
   invoices: AllInvoiceRow[]
@@ -26,6 +27,8 @@ function statusBadge(inv: AllInvoiceRow) {
 
 export default function InvoicesListLayout({ invoices }: Props) {
   const router = useRouter()
+  const canSeeInvoices = useCan('see-invoices')
+  const canManageInvoices = useCan('manage-invoices')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [termFilter, setTermFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
@@ -108,12 +111,14 @@ export default function InvoicesListLayout({ invoices }: Props) {
 
   return (
     <>
+      {!canSeeInvoices ? null : (
+      <>
       <header className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-navy">Invoices</h1>
           <p className="text-gray-500 mt-2 text-sm">Every invoice across every term</p>
         </div>
-        {counts.needsSend > 0 && (
+        {canManageInvoices && counts.needsSend > 0 && (
           <div className="text-right">
             <button
               onClick={handleBulkSend}
@@ -255,6 +260,8 @@ export default function InvoicesListLayout({ invoices }: Props) {
             </table>
           </div>
         </>
+      )}
+      </>
       )}
     </>
   )

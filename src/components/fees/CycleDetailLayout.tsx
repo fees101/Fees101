@@ -6,9 +6,11 @@ import Link from 'next/link'
 import { CycleDetailData, InvoiceRow } from '@/lib/queries/fees'
 import GenerateInvoicesPanel from './GenerateInvoicesPanel'
 import { regenerateInvoice, regenerateStaleInvoicesForCycle } from '@/app/(app)/fees/cycles/actions'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface Props {
   data: CycleDetailData
+  showFinancials?: boolean
 }
 
 type Filter = 'all' | 'paid' | 'partial' | 'unpaid' | 'needs_resend' | 'out_of_date' | 'no_invoice'
@@ -38,8 +40,10 @@ function cycleStatusBadge(status: 'draft' | 'active' | 'closed') {
   return { cls: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' }
 }
 
-export default function CycleDetailLayout({ data }: Props) {
+export default function CycleDetailLayout({ data, showFinancials = true }: Props) {
   const router = useRouter()
+  const canManageFeeStructure = useCan('manage-fee-structure')
+  const canManageInvoices = useCan('manage-invoices')
   const { cycle, invoices, studentsWithoutInvoices, totalActiveStudents, totalsByStatus } = data
 
   const [filter, setFilter] = useState<Filter>('all')
@@ -146,14 +150,16 @@ export default function CycleDetailLayout({ data }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canManageFeeStructure && (
           <Link
             href={`/fees/structure?cycle=${cycle.id}`}
             className="px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50"
           >
             Edit fees
           </Link>
+          )}
           {hasInvoices && (
-            
+
               <a href={`/api/cycles/${cycle.id}/pdf`}
               download
               className="px-3 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2"
@@ -164,7 +170,7 @@ export default function CycleDetailLayout({ data }: Props) {
               Print all ({invoices.length})
             </a>
           )}
-          {!isClosed && (
+          {!isClosed && canManageInvoices && (
             <button
               onClick={() => setGeneratePanelOpen(true)}
               disabled={studentsWithoutInvoices.length === 0}
@@ -215,6 +221,7 @@ export default function CycleDetailLayout({ data }: Props) {
               Fees, opt-ins, or exemptions changed since these were generated. Regenerate to apply the current numbers — payments already made are preserved.
             </p>
           </div>
+          {canManageInvoices && (
           <button
             onClick={handleRegenerateAll}
             disabled={regeneratingAll}
@@ -222,6 +229,7 @@ export default function CycleDetailLayout({ data }: Props) {
           >
             {regeneratingAll ? 'Regenerating...' : 'Regenerate all'}
           </button>
+          )}
         </div>
       )}
 
@@ -243,7 +251,7 @@ export default function CycleDetailLayout({ data }: Props) {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className={`grid grid-cols-2 gap-4 mb-6 ${showFinancials ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
         <div className="bg-white p-4 rounded-xl border border-gray-200">
           <p className="text-xs text-gray-500 mb-1">Invoices</p>
           <p className="text-2xl font-bold text-navy">
@@ -253,23 +261,36 @@ export default function CycleDetailLayout({ data }: Props) {
             <p className="text-xs text-amber-600 mt-1">{studentsWithoutInvoices.length} students missing</p>
           )}
         </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200">
-          <p className="text-xs text-gray-500 mb-1">Expected</p>
-          <p className="text-2xl font-bold text-navy">{formatNaira(cycle.totalExpected)}</p>
-        </div>
+        {showFinancials && (
+          <div className="bg-white p-4 rounded-xl border border-gray-200">
+            <p className="text-xs text-gray-500 mb-1">Expected</p>
+            <p className="text-2xl font-bold text-navy">{formatNaira(cycle.totalExpected)}</p>
+          </div>
+        )}
         <div className="bg-white p-4 rounded-xl border border-gray-200">
           <p className="text-xs text-gray-500 mb-1">Collected</p>
-          <p className="text-2xl font-bold text-mint">{formatNaira(cycle.totalCollected)}</p>
+          <p className="text-2xl font-bold text-mint">
+            {showFinancials
+              ? formatNaira(cycle.totalCollected)
+              : `${cycle.totalExpected > 0 ? Math.round((cycle.totalCollected / cycle.totalExpected) * 100) : 0}%`}
+          </p>
           {cycle.totalExpected > 0 && (
             <p className="text-xs text-gray-500 mt-1">
-              {Math.round((cycle.totalCollected / cycle.totalExpected) * 100)}% collected
+              {showFinancials ? `${Math.round((cycle.totalCollected / cycle.totalExpected) * 100)}% collected` : 'of expected'}
+              {invoices.length > 0 && ` · ${totalsByStatus.paid}/${invoices.length} paid up`}
             </p>
           )}
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200">
           <p className="text-xs text-gray-500 mb-1">Outstanding</p>
           <p className="text-2xl font-bold text-amber-600">
-            {formatNaira(cycle.totalOutstanding)}
+            {showFinancials
+              ? formatNaira(cycle.totalOutstanding)
+              : `${cycle.totalExpected > 0 ? Math.round((cycle.totalOutstanding / cycle.totalExpected) * 100) : 0}%`}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            {!showFinancials && 'of expected, still owed'}
+            {invoices.length > 0 && `${!showFinancials ? ' · ' : ''}${totalsByStatus.partial + totalsByStatus.pending + totalsByStatus.overdue}/${invoices.length} owe`}
           </p>
         </div>
       </div>
@@ -351,7 +372,7 @@ export default function CycleDetailLayout({ data }: Props) {
           <p className="text-sm text-gray-400 mb-4">
             {studentsWithoutInvoices.length} active {studentsWithoutInvoices.length === 1 ? 'student' : 'students'} ready to be invoiced
           </p>
-          {!isClosed && (
+          {!isClosed && canManageInvoices && (
             <button
               onClick={() => setGeneratePanelOpen(true)}
               className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
@@ -422,6 +443,7 @@ export default function CycleDetailLayout({ data }: Props) {
                             <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
                               out of date
                             </span>
+                            {canManageInvoices && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -432,6 +454,7 @@ export default function CycleDetailLayout({ data }: Props) {
                             >
                               {regeneratingId === inv.id ? 'Regenerating...' : 'Regenerate'}
                             </button>
+                            )}
                           </>
                         )}
                       </div>

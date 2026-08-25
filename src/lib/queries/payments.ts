@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthContext } from '@/lib/auth/permissions'
 
 export interface PaymentSettings {
   schoolId: string
@@ -18,27 +19,8 @@ export interface PaymentSettings {
 }
 
 async function getSchoolId() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  return schoolId
+  const ctx = await getAuthContext()
+  return ctx?.schoolId ?? null
 }
 
 export async function getPaymentSettings(): Promise<PaymentSettings | null> {

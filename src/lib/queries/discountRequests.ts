@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { getAuthContext } from '@/lib/auth/permissions'
 
 export interface PendingDiscountRequest {
   id: string
@@ -17,18 +17,11 @@ export interface PendingDiscountRequest {
 }
 
 async function getSchoolContext() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: userProfile } = await supabase.from('users').select('school_id, role').eq('id', user.id).single()
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase.from('schools').select('id').limit(1).single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) return null
+  const { supabase, schoolId, role } = ctx
   if (!schoolId) return null
-  return { supabase, schoolId, role: userProfile?.role }
+  return { supabase, schoolId, role }
 }
 
 export interface ActiveRecurringDiscount {

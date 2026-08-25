@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import UserMenu from './UserMenu'
+import { usePermissions } from '@/lib/auth/PermissionsProvider'
 
 interface SidebarProps {
   userName: string
@@ -20,7 +21,8 @@ interface NavItem {
   label: string
   icon: string[]
   exact?: boolean
-  adminOnly?: boolean
+  // Permission key required to see this item. Undefined = always visible.
+  perm?: string
 }
 
 interface NavSection {
@@ -41,6 +43,7 @@ const sections: NavSection[] = [
       {
         href: '/settings/academic-structure',
         label: 'Academic structure',
+        perm: 'manage-academic-structure',
         icon: [
           'M12 14l9-5-9-5-9 5 9 5z',
           'M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z',
@@ -49,6 +52,7 @@ const sections: NavSection[] = [
       {
         href: '/students',
         label: 'Students',
+        perm: 'see-students',
         icon: ['M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z'],
       },
     ],
@@ -65,32 +69,37 @@ const sections: NavSection[] = [
       {
         href: '/fees/structure',
         label: 'Fee structure',
+        perm: 'see-fee-structure',
         icon: ['M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4'],
       },
       {
         href: '/fees/cycles',
         label: 'Billing cycles',
+        perm: 'see-fee-structure',
         icon: ['M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'],
       },
       {
         href: '/invoices',
         label: 'Invoices',
+        perm: 'see-invoices',
         icon: ['M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'],
       },
       {
         href: '/payments',
         label: 'Payments',
+        perm: 'see-analytics',
         icon: ['M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z'],
       },
       {
         href: '/discounts',
         label: 'Discounts',
+        perm: 'see-discounts',
         icon: ['M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z'],
-        adminOnly: true,
       },
       {
         href: '/reports',
         label: 'Reports',
+        perm: 'see-reports',
         icon: ['M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'],
       },
     ],
@@ -114,7 +123,8 @@ export default function Sidebar({
   userName, userEmail, userRole, schoolName, schoolLogoUrl, currentTermName, currentTermId,
 }: SidebarProps) {
   const pathname = usePathname()
-  const isAdmin = userRole === 'school_admin' || userRole === 'super_admin'
+  const { permissions, isOwner } = usePermissions()
+  const canSee = (item: NavItem) => !item.perm || isOwner || permissions.has(item.perm)
   // No pinned/persisted preference — the rail starts collapsed and expands
   // automatically on hover, closing again on mouse-leave or a click outside it.
   const [expanded, setExpanded] = useState(false)
@@ -193,7 +203,10 @@ export default function Sidebar({
             <NavLink item={topItem} />
           </div>
 
-          {sections.map(section => (
+          {sections.map(section => {
+            const items = section.items.filter(canSee)
+            if (items.length === 0) return null
+            return (
             <div key={section.title} className="space-y-1">
               {/* Reserve the label's height in BOTH states so nav items never
                   move vertically when the rail expands on hover — collapsed
@@ -203,9 +216,10 @@ export default function Sidebar({
                   ? <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{section.title}</span>
                   : <span className="mx-auto w-5 h-px bg-white/10" />}
               </div>
-              {section.items.filter(item => !item.adminOnly || isAdmin).map(item => <NavLink key={item.href} item={item} />)}
+              {items.map(item => <NavLink key={item.href} item={item} />)}
             </div>
-          ))}
+            )
+          })}
         </nav>
 
         {/* Current term — sits BELOW the nav (nav is flex-1, top-aligned) so

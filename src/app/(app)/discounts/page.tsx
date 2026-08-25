@@ -1,16 +1,17 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
 import { getPendingDiscountRequests, getActiveRecurringDiscounts } from '@/lib/queries/discountRequests'
 import DiscountRequestsList from '@/components/discounts/DiscountRequestsList'
 import ActiveRecurringDiscountsList from '@/components/discounts/ActiveRecurringDiscountsList'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 export default async function DiscountsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'see-discounts')) redirect('/dashboard')
 
-  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-  if (profile?.role !== 'school_admin' && profile?.role !== 'super_admin') redirect('/dashboard')
+  // Whether the approve/reject controls render — enforced again server-side in
+  // discounts/actions.ts.
+  const canApprove = can(ctx, 'approve-discounts')
 
   const [requests, recurring] = await Promise.all([
     getPendingDiscountRequests(),
@@ -26,7 +27,7 @@ export default async function DiscountsPage() {
             <p className="text-sm text-gray-500 mt-1">Approve or reject staff-child, scholarship, bursary and hardship discount requests</p>
           </header>
 
-          <DiscountRequestsList requests={requests} />
+          <DiscountRequestsList requests={requests} canApprove={canApprove} />
         </div>
 
         <div>
@@ -35,7 +36,7 @@ export default async function DiscountsPage() {
             <p className="text-sm text-gray-500 mt-1">Carry forward automatically to every future invoice — revoke one if it should stop (e.g. a staff member leaves)</p>
           </header>
 
-          <ActiveRecurringDiscountsList discounts={recurring} />
+          <ActiveRecurringDiscountsList discounts={recurring} canApprove={canApprove} />
         </div>
       </div>
     </main>

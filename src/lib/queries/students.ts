@@ -1,28 +1,11 @@
-import { createClient } from '@/lib/supabase/server'
+import { getAuthContext } from '@/lib/auth/permissions'
 import { computeInvoiceForStudent } from '@/lib/computeInvoice'
 import { getRecurringDiscounts } from '@/lib/discounts/compute'
 
 export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'graduated' | 'all' = 'active') {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) return {
     students: [],
     classes: [],
@@ -194,26 +177,9 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
 }
 
 export async function getStudentById(studentId: string) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) return null
 
   // Get student with class and family
@@ -426,26 +392,9 @@ export async function getStudentById(studentId: string) {
   }
 }
 export async function getStudentPaymentHistory(studentId: string) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) return null
 
   // Verify student belongs to this school; credit_balance feeds the
@@ -605,26 +554,9 @@ export interface StudentFeesData {
 }
 
 export async function getStudentFees(studentId: string): Promise<StudentFeesData | null> {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) return null
 
   // Get student with class

@@ -1,8 +1,15 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import CyclesLayout from '@/components/fees/CyclesLayout'
 import { getAllCycles, getSessions } from '@/lib/queries/fees'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 export default async function CyclesPage() {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'see-fee-structure')) redirect('/fees')
+  const showFinancials = can(ctx, 'see-financial-totals')
+
   const [cycles, sessions] = await Promise.all([
     getAllCycles(),
     getSessions(),
@@ -20,7 +27,7 @@ export default async function CyclesPage() {
           <span className="text-navy font-medium">Billing cycles</span>
         </nav>
 
-        <CyclesLayout cycles={cycles} sessions={sessions} />
+        <CyclesLayout cycles={cycles} sessions={sessions} showFinancials={showFinancials} />
 
       </div>
     </main>

@@ -1,27 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthContext } from '@/lib/auth/permissions'
 
 // Resolve the caller's school, matching the pattern used across the other
 // query modules (super_admin with no school_id falls back to the first school).
 async function resolveSchoolId(supabase: any): Promise<string | null> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  return schoolId || null
+  const ctx = await getAuthContext()
+  return ctx?.schoolId ?? null
 }
 
 const n = (v: any) => Number(v) || 0

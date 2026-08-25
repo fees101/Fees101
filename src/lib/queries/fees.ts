@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { getAuthContext } from '@/lib/auth/permissions'
 import { computeInvoiceForStudent } from '@/lib/computeInvoice'
 
 function composeAddress(street?: string | null, city?: string | null, state?: string | null): string | null {
@@ -32,26 +32,9 @@ export async function getCollectedForDateRange(supabase: any, schoolId: string, 
 }
 
 export async function getFeesOverview(cycleId?: string) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) {
     return {
       totalExpectedThisTerm: 0,
@@ -139,26 +122,9 @@ export async function getFeesOverview(cycleId?: string) {
 }
 
 export async function getClasses() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) return { classes: [], sections: [] }
 
   const { data: sections } = await supabase
@@ -229,26 +195,9 @@ export async function getClasses() {
 }
 
 export async function getFeeStructure(billingCycleId?: string) {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) return null
 
   let cycle
@@ -371,6 +320,7 @@ export interface CycleRow {
   sessionName: string | null
   invoiceCount: number
   studentsInvoiced: number
+  studentsWithOutstanding: number
   totalActiveStudents: number
   totalExpected: number
   totalCollected: number
@@ -379,26 +329,9 @@ export interface CycleRow {
 }
 
 async function getSchoolContext() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
+  const ctx = await getAuthContext()
+  if (!ctx) throw new Error('Not authenticated')
+  const { supabase, schoolId } = ctx
   if (!schoolId) return null
 
   return { supabase, schoolId }
@@ -463,15 +396,17 @@ export async function getAllCycles(): Promise<CycleRow[]> {
     .select('billing_cycle_id, total_amount, paid_amount, credit_applied')
     .in('billing_cycle_id', cycleIds)
 
-  const invoiceStats: Record<string, { count: number, expected: number, outstanding: number }> = {}
+  const invoiceStats: Record<string, { count: number, expected: number, outstanding: number, studentsWithOutstanding: number }> = {}
   invoices?.forEach(inv => {
-    const stat = invoiceStats[inv.billing_cycle_id] ||= { count: 0, expected: 0, outstanding: 0 }
+    const stat = invoiceStats[inv.billing_cycle_id] ||= { count: 0, expected: 0, outstanding: 0, studentsWithOutstanding: 0 }
     stat.count++
     // total_amount is already net of credit_applied (computeInvoiceForStudent
     // sets total = amountDue - creditApplied) — add it back so "expected"
     // reflects the gross fee actually due, not the post-credit remainder.
     stat.expected += Number(inv.total_amount || 0) + Number(inv.credit_applied || 0)
-    stat.outstanding += Math.max(0, Number(inv.total_amount || 0) - Number(inv.paid_amount || 0))
+    const outstanding = Math.max(0, Number(inv.total_amount || 0) - Number(inv.paid_amount || 0))
+    stat.outstanding += outstanding
+    if (outstanding > 0) stat.studentsWithOutstanding++
   })
 
   // Collected is attributed by payment date, not invoice allocation — fetch
@@ -508,7 +443,7 @@ export async function getAllCycles(): Promise<CycleRow[]> {
   })
 
   return cycles.map(c => {
-    const stats = invoiceStats[c.id] || { count: 0, expected: 0, outstanding: 0 }
+    const stats = invoiceStats[c.id] || { count: 0, expected: 0, outstanding: 0, studentsWithOutstanding: 0 }
     return {
       id: c.id,
       name: c.name,
@@ -522,6 +457,7 @@ export async function getAllCycles(): Promise<CycleRow[]> {
       sessionName: c.sessions?.name || null,
       invoiceCount: stats.count,
       studentsInvoiced: stats.count,
+      studentsWithOutstanding: stats.studentsWithOutstanding,
       totalActiveStudents: totalActiveStudents || 0,
       totalExpected: stats.expected,
       totalCollected: collectedByCycle[c.id] || 0,
@@ -751,6 +687,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     sessionName: cycleData.sessions?.name || null,
     invoiceCount: invoices.length,
     studentsInvoiced: invoices.length,
+    studentsWithOutstanding: totalsByStatus.partial + totalsByStatus.pending + totalsByStatus.overdue,
     totalActiveStudents: totalActiveStudents || 0,
     totalExpected,
     totalCollected,
@@ -803,6 +740,11 @@ export interface InvoiceDetail {
   needsResend: boolean
   generatedAt: string
   fullyPaidAt: string | null
+  // The single most-recent pending discount request against this invoice, if
+  // any — persisted from the `discounts` table so the "awaiting approval"
+  // state survives navigation/refresh and other staff can see it's already
+  // in flight (prevents duplicate requests on the same invoice).
+  pendingDiscount: { id: string, requestedByName: string | null, requestedAt: string } | null
   payments?: Array<{
     id: string
     amount: number
@@ -908,6 +850,15 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
     // already, so it's included above with termName: null (credit).
   }
 
+  const { data: pendingDiscountRow } = await supabase
+    .from('discounts')
+    .select('id, requested_at, users!discounts_requested_by_fkey(name)')
+    .eq('invoice_id', invoiceId)
+    .eq('status', 'pending')
+    .order('requested_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   const total = Number(invoice.total_amount)
   const paid = Number(invoice.paid_amount || 0)
 
@@ -945,6 +896,11 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
     needsResend: invoice.needs_resend,
     generatedAt: invoice.generated_at,
     fullyPaidAt: invoice.fully_paid_at,
+    pendingDiscount: pendingDiscountRow ? {
+      id: pendingDiscountRow.id,
+      requestedByName: pendingDiscountRow.users?.name || null,
+      requestedAt: pendingDiscountRow.requested_at,
+    } : null,
     payments: (payments || []).map((p: any) => {
       const siblings = p.provider_transaction_id ? siblingsByTransaction[p.provider_transaction_id] : undefined
       return {
@@ -1068,6 +1024,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       needsResend: invoice.needs_resend,
       generatedAt: invoice.generated_at,
       fullyPaidAt: invoice.fully_paid_at,
+      pendingDiscount: null,
     }
   })
 }

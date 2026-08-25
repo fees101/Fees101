@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import StudentActivityTimeline from '@/components/students/StudentActivityTimeline'
 import StudentSettingsTab from '@/components/students/StudentSettingsTab'
@@ -8,6 +8,7 @@ import HeaderVirtualAccount from '@/components/students/HeaderVirtualAccount'
 import SendReminderButton from '@/components/students/SendReminderButton'
 import ApplyDiscountButton from '@/components/students/ApplyDiscountButton'
 import { getStudentById, getStudentPaymentHistory, getStudentFees } from '@/lib/queries/students'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -28,6 +29,10 @@ function getInitials(firstName: string, lastName: string): string {
 }
 
 export default async function StudentDetailPage({ params, searchParams }: PageProps) {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'see-students')) redirect('/dashboard')
+
   const { id } = await params
   const { tab } = await searchParams
   const activeTab = tab === 'settings' ? 'settings' : tab === 'payments' ? 'payments' : tab === 'fees' ? 'fees' : 'overview'

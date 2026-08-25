@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createStudentDVA } from '@/app/(app)/students/[id]/actions'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface Props {
   studentId: string
@@ -20,6 +21,7 @@ export default function HeaderVirtualAccount({ studentId, providerConfigured, ha
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const canCreate = useCan('manage-students')
 
   async function handleCreate() {
     if (creating || hasAccount) return
@@ -74,6 +76,16 @@ export default function HeaderVirtualAccount({ studentId, providerConfigured, ha
         <p className="text-xs text-gray-500 mb-1">Virtual account</p>
         <p className="text-lg font-semibold text-gray-400">Not available</p>
         <p className="text-xs text-gray-500 mt-1">Online payments not set up for this school yet.</p>
+      </div>
+    )
+  }
+
+  if (!canCreate) {
+    return (
+      <div>
+        <p className="text-xs text-gray-500 mb-1">Virtual account</p>
+        <p className="text-lg font-semibold text-gray-400">Not set up yet</p>
+        <p className="text-xs text-gray-500 mt-1">No virtual account yet — ask an admin to set one up.</p>
       </div>
     )
   }

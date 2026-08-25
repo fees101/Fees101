@@ -28,6 +28,32 @@ export async function middleware(request: NextRequest) {
   // Refresh session if expired
   const { data: { user } } = await supabase.auth.getUser()
 
+  // Public signup is disabled — schools are onboarded by Fees101, and staff are
+  // added from within a school (Settings → Users). Send any /signup hit to login.
+  if (request.nextUrl.pathname.startsWith('/signup')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
+  // Deactivated staff are bounced out immediately: a live is_active check on the
+  // signed-in user (single indexed PK lookup). has_permission() also ANDs
+  // is_active server-side, so even a stale session has zero permissions.
+  if (user) {
+    const { data: profile } = await supabase
+      .from('users')
+      .select('is_active')
+      .eq('id', user.id)
+      .single()
+    if (profile && profile.is_active === false) {
+      await supabase.auth.signOut()
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      url.searchParams.set('error', 'account_deactivated')
+      return NextResponse.redirect(url)
+    }
+  }
+
   // Protected routes: anything under /dashboard, /students, /fees, /invoices, /settings
   const protectedPaths = ['/dashboard', '/students', '/fees', '/invoices', '/settings']
   const isProtectedRoute = protectedPaths.some(path => 

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import RequestDiscountModal from '@/components/invoices/RequestDiscountModal'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { revokeDiscount } from '@/app/(app)/students/[id]/actions'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 export interface RevocableDiscount {
   id: string
@@ -35,6 +36,12 @@ export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAd
   const [requestOpen, setRequestOpen] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<RevocableDiscount | null>(null)
+  const canRequest = useCan('request-discounts')
+  const canApprove = useCan('approve-discounts')
+
+  // Neither permission means nothing on this button is ever actionable,
+  // regardless of the invoice/discount state below.
+  if (!canRequest && !canApprove) return null
 
   if (!currentInvoiceId) {
     return (
@@ -52,6 +59,9 @@ export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAd
   }
 
   const hasDiscounts = discounts.length > 0
+  // Business logic (canAddDiscount) AND permission (canRequest) both have to
+  // allow it before the "add a new discount" path is offered anywhere below.
+  const canOfferAdd = canAddDiscount && canRequest
 
   async function handleRevoke() {
     if (!revokeTarget) return
@@ -65,12 +75,14 @@ export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAd
   // notice a missed discount and get it applied after the invoice was sent
   // but before they've paid anything. Fully revoking an existing discount
   // needs a firmer bar (sent OR paid) — see revokeDiscount server action.
-  if (!hasDiscounts && !canAddDiscount) {
+  // With no discounts to fall back on viewing/revoking, this is also the
+  // catch-all for a canApprove-only user who lacks request-discounts.
+  if (!hasDiscounts && !canOfferAdd) {
     return (
       <button
         disabled
         className="px-4 py-2 border border-mint text-mint rounded-lg text-sm font-medium flex items-center gap-2 opacity-50 cursor-not-allowed"
-        title="This invoice already has a payment against it — discounts can no longer be applied"
+        title={!canAddDiscount ? 'This invoice already has a payment against it — discounts can no longer be applied' : 'You do not have permission to request discounts'}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -112,21 +124,23 @@ export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAd
                           <p className="text-xs text-gray-400 mt-0.5">Recurring — carries forward each term</p>
                         )}
                       </div>
-                      <button
-                        onClick={() => setRevokeTarget(d)}
-                        disabled={!canRevokeThis}
-                        title={canRevokeThis ? undefined : 'This invoice has already been sent or paid against, so this discount can no longer be removed'}
-                        className="shrink-0 px-2 py-1 text-xs font-medium text-red-600 border border-red-200 rounded-md hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                      >
-                        Revoke
-                      </button>
+                      {canApprove && (
+                        <button
+                          onClick={() => setRevokeTarget(d)}
+                          disabled={!canRevokeThis}
+                          title={canRevokeThis ? undefined : 'This invoice has already been sent or paid against, so this discount can no longer be removed'}
+                          className="shrink-0 px-2 py-1 text-xs font-medium text-red-600 border border-red-200 rounded-md hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                        >
+                          Revoke
+                        </button>
+                      )}
                     </li>
                   )
                 })}
               </ul>
             </div>
             <div className="p-4 border-t border-gray-100 flex items-center justify-between">
-              {canAddDiscount ? (
+              {canOfferAdd ? (
                 <button
                   onClick={() => { setManageOpen(false); setRequestOpen(true) }}
                   className="px-3 py-2 text-sm font-medium text-mint hover:bg-mint-light rounded-lg"
@@ -135,7 +149,9 @@ export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAd
                 </button>
               ) : (
                 <p className="text-xs text-gray-400 max-w-[220px]">
-                  Already has a payment — no new discounts can be applied
+                  {!canAddDiscount
+                    ? 'Already has a payment — no new discounts can be applied'
+                    : 'You do not have permission to request new discounts'}
                 </p>
               )}
               <button

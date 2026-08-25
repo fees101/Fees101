@@ -22,6 +22,8 @@ interface Props {
   sessions: ScopeSession[]
   cycles: ScopeCycle[]
   downloads: DownloadRow[]
+  // When false, the money-bearing reports are hidden (user lacks see-financial-totals).
+  showFinancials: boolean
 }
 
 type ScopeKind = 'cycle' | 'dates' | 'status'
@@ -35,6 +37,8 @@ interface ReportDef {
   scope: ScopeKind
   accent: Accent
   icon: string
+  // True for reports whose columns are financial — hidden without see-financial-totals.
+  financial?: boolean
 }
 
 // Heroicons (outline) single-path glyphs.
@@ -56,11 +60,11 @@ const ACCENT: Record<Accent, string> = {
 }
 
 const REPORTS: ReportDef[] = [
-  { type: 'debtors',       title: 'Debtors / outstanding', grain: 'per student who owes', description: 'Everyone with a balance — parent, phone, billed, paid, outstanding.', scope: 'cycle',  accent: 'red',    icon: ICONS.chart },
-  { type: 'collections',   title: 'Collections',           grain: 'per payment',          description: 'Every payment received — date, student, amount, method, sender.',      scope: 'dates',  accent: 'mint',   icon: ICONS.cash },
-  { type: 'class-summary', title: 'Per-class summary',     grain: 'per class',            description: 'Billed, collected, outstanding and collection rate by class.',          scope: 'cycle',  accent: 'amber',  icon: ICONS.chart },
-  { type: 'invoices',      title: 'Invoices',              grain: 'per invoice',          description: 'Raw billing ledger — subtotal, discount, total, paid, outstanding.',    scope: 'cycle',  accent: 'navy',   icon: ICONS.doc },
-  { type: 'discounts',     title: 'Discounts',             grain: 'per discount',         description: 'Every discount — category, value, status, recurring, reason.',          scope: 'cycle',  accent: 'violet', icon: ICONS.tag },
+  { type: 'debtors',       title: 'Debtors / outstanding', grain: 'per student who owes', description: 'Everyone with a balance — parent, phone, billed, paid, outstanding.', scope: 'cycle',  accent: 'red',    icon: ICONS.chart, financial: true },
+  { type: 'collections',   title: 'Collections',           grain: 'per payment',          description: 'Every payment received — date, student, amount, method, sender.',      scope: 'dates',  accent: 'mint',   icon: ICONS.cash, financial: true },
+  { type: 'class-summary', title: 'Per-class summary',     grain: 'per class',            description: 'Billed, collected, outstanding and collection rate by class.',          scope: 'cycle',  accent: 'amber',  icon: ICONS.chart, financial: true },
+  { type: 'invoices',      title: 'Invoices',              grain: 'per invoice',          description: 'Raw billing ledger — subtotal, discount, total, paid, outstanding.',    scope: 'cycle',  accent: 'navy',   icon: ICONS.doc, financial: true },
+  { type: 'discounts',     title: 'Discounts',             grain: 'per discount',         description: 'Every discount — category, value, status, recurring, reason.',          scope: 'cycle',  accent: 'violet', icon: ICONS.tag, financial: true },
   { type: 'students',      title: 'Student directory',     grain: 'per student',          description: 'Full student list with class, contact, virtual account, credit.',       scope: 'status', accent: 'gray',   icon: ICONS.users },
 ]
 
@@ -81,8 +85,13 @@ function formatWhen(iso: string): string {
   return d.toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-export default function ReportsLayout({ sessions, cycles, downloads }: Props) {
+export default function ReportsLayout({ sessions, cycles, downloads, showFinancials }: Props) {
   const [historyFilter, setHistoryFilter] = useState('all')
+
+  const visibleReports = useMemo(
+    () => showFinancials ? REPORTS : REPORTS.filter(r => !r.financial),
+    [showFinancials],
+  )
 
   const visibleDownloads = useMemo(
     () => historyFilter === 'all' ? downloads : downloads.filter(d => d.reportType === historyFilter),
@@ -98,7 +107,7 @@ export default function ReportsLayout({ sessions, cycles, downloads }: Props) {
       </p>
 
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {REPORTS.map(r => (
+        {visibleReports.map(r => (
           <ReportCard key={r.type} def={r} sessions={sessions} cycles={cycles} />
         ))}
       </div>
@@ -115,7 +124,7 @@ export default function ReportsLayout({ sessions, cycles, downloads }: Props) {
               className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm text-navy focus:border-mint focus:outline-none"
             >
               <option value="all">All reports</option>
-              {REPORTS.map(r => <option key={r.type} value={r.type}>{r.title}</option>)}
+              {visibleReports.map(r => <option key={r.type} value={r.type}>{r.title}</option>)}
             </select>
           </label>
         </div>

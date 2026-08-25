@@ -1,10 +1,15 @@
 import { headers } from 'next/headers'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import PaymentSettingsForm from '@/components/settings/PaymentSettingsForm'
 import { getPaymentSettings } from '@/lib/queries/payments'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 export default async function PaymentsSettingsPage() {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'manage-payment-config')) redirect('/dashboard')
+
   const settings = await getPaymentSettings()
   if (!settings) notFound()
 

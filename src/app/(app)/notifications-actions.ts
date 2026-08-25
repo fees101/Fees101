@@ -1,17 +1,17 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { getAuthContext } from '@/lib/auth/permissions'
 
 export async function dismissAdminNotification(notificationId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+  const ctx = await getAuthContext()
+  if (!ctx || !ctx.schoolId) return { error: 'Not authenticated' }
 
-  const { error } = await supabase
+  const { error } = await ctx.supabase
     .from('admin_notifications')
     .update({ read_at: new Date().toISOString() })
     .eq('id', notificationId)
+    .eq('school_id', ctx.schoolId)
 
   if (error) return { error: error.message }
 

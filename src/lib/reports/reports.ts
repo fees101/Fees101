@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthContext } from '@/lib/auth/permissions'
 import { toCSV, type CsvValue } from './csv'
 
 // ---------------------------------------------------------------------------
@@ -34,16 +35,9 @@ const name = (s: any) => `${s?.first_name ?? ''} ${s?.last_name ?? ''}`.trim()
 const money = (v: any) => Math.round(n(v))
 
 async function resolveContext(supabase: any): Promise<{ schoolId: string | null; userId: string | null }> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { schoolId: null, userId: null }
-  const { data: profile } = await supabase
-    .from('users').select('school_id, role').eq('id', user.id).single()
-  let schoolId = profile?.school_id
-  if (!schoolId && profile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase.from('schools').select('id').limit(1).single()
-    schoolId = firstSchool?.id
-  }
-  return { schoolId: schoolId || null, userId: user.id }
+  const ctx = await getAuthContext()
+  if (!ctx) return { schoolId: null, userId: null }
+  return { schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 async function resolveSchoolId(supabase: any): Promise<string | null> {
@@ -369,8 +363,14 @@ async function scopeLabel(supabase: any, type: string, p: ReportParams): Promise
 // Public entry point used by the export route. Returns the CSV string plus a
 // dated filename, and records the download for the audit history. `today` is
 // passed in (route handlers can read the clock; keeps the builder testable).
+//
+// `includeFinancials` controls the one non-financial report (the student
+// directory): when false, its money column (credit balance) is dropped so a
+// user with see-reports but not see-financial-totals can still pull the
+// directory. The route blocks the wholly-financial report types outright.
 export async function buildReport(
   type: string, params: ReportParams, today: string,
+  opts: { includeFinancials?: boolean } = {},
 ): Promise<{ filename: string; csv: string }> {
   const builder = BUILDERS[type as ReportType]
   if (!builder) throw new Error(`Unknown report type: ${type}`)
@@ -379,7 +379,18 @@ export async function buildReport(
   const { schoolId, userId } = await resolveContext(supabase)
   if (!schoolId) throw new Error('No school in scope')
 
-  const { name, headers, rows } = await builder(supabase, schoolId, params)
+  let { name, headers, rows } = await builder(supabase, schoolId, params)
+
+  // Drop the credit-balance money column from the directory for users without
+  // see-financial-totals. It is always the last column of the students report.
+  if (type === 'students' && opts.includeFinancials === false) {
+    const idx = headers.indexOf('Credit balance')
+    if (idx !== -1) {
+      headers = headers.filter((_, i) => i !== idx)
+      rows = rows.map(r => r.filter((_, i) => i !== idx))
+    }
+  }
+
   const filename = `${name}-${today}.csv`
 
   // Log the download — best effort; never let an audit failure block the export.

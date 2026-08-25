@@ -7443,3 +7443,46 @@ CREATE TABLE IF NOT EXISTS public.report_downloads (
     filename text,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: roles; Type: TABLE; Schema: public; Owner: -
+-- Custom, per-school configurable permission roles (see db/roles_permissions.sql
+-- for the runnable migration incl. seed, back-fill, has_permission(), and RLS).
+--
+
+CREATE TABLE IF NOT EXISTS public.roles (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    school_id uuid NOT NULL,
+    name text NOT NULL,
+    description text,
+    is_system boolean DEFAULT false NOT NULL,
+    is_admin boolean DEFAULT false NOT NULL,
+    permissions jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+-- Link staff to a custom role (users.role text is kept as the base type).
+ALTER TABLE public.users
+    ADD COLUMN IF NOT EXISTS role_id uuid;
+
+--
+-- Name: has_permission(text); Type: FUNCTION; Schema: public; Owner: -
+-- Live per-request permission check. Owner/super_admin/is_admin bypass; ANDs
+-- is_active. See db/roles_permissions.sql for the authoritative definition.
+--
+
+CREATE OR REPLACE FUNCTION public.has_permission(perm text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select exists (
+    select 1 from users u
+    left join roles r on r.id = u.role_id
+    where u.id = auth.uid() and u.is_active = true
+      and ( u.role in ('super_admin','school_admin')
+            or r.is_admin = true
+            or coalesce((r.permissions ->> perm)::boolean, false) = true )
+  );
+$$;

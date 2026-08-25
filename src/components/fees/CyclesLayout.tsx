@@ -8,10 +8,12 @@ import CreateTermPanel from './CreateTermPanel'
 import TermSelector from './TermSelector'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { activateTerm, deleteTermDraft, closeTerm, reopenTermAsDraft, previewCloseTerm } from '@/app/(app)/fees/cycles/actions'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface Props {
   cycles: CycleRow[]
   sessions: SessionRow[]
+  showFinancials?: boolean
 }
 
 function formatNaira(amount: number): string {
@@ -38,9 +40,11 @@ function suggestNextSessionName(sessionName: string): string {
   return 'a new session'
 }
 
-export default function CyclesLayout({ cycles, sessions }: Props) {
+export default function CyclesLayout({ cycles, sessions, showFinancials = true }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const canRunYearEnd = useCan('run-year-end')
+  const canManageFeeStructure = useCan('manage-fee-structure')
 
   const [panelMode, setPanelMode] = useState<'create' | 'edit' | null>(null)
   const [editingCycle, setEditingCycle] = useState<CycleRow | null>(null)
@@ -313,18 +317,22 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
           {cycles.length > 0 && (
             <TermSelector cycles={cycles} currentCycleId={selectedCycle?.id || null} paramName="cycle" />
           )}
-          <Link
-            href="/fees/year-end"
-            className="px-4 py-2 bg-white border border-gray-200 text-navy text-sm font-semibold rounded-lg hover:bg-gray-50 whitespace-nowrap"
-          >
-            Year-end rollover
-          </Link>
-          <button
-            onClick={openCreate}
-            className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 whitespace-nowrap"
-          >
-            + New term
-          </button>
+          {canRunYearEnd && (
+            <Link
+              href="/fees/year-end"
+              className="px-4 py-2 bg-white border border-gray-200 text-navy text-sm font-semibold rounded-lg hover:bg-gray-50 whitespace-nowrap"
+            >
+              Year-end rollover
+            </Link>
+          )}
+          {canManageFeeStructure && (
+            <button
+              onClick={openCreate}
+              className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 whitespace-nowrap"
+            >
+              + New term
+            </button>
+          )}
         </div>
       </header>
 
@@ -347,12 +355,14 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
               {lastClosedCycle.sessionName && <> for <strong>{suggestNextSessionName(lastClosedCycle.sessionName)}</strong></>}.
             </p>
           </div>
-          <button
-            onClick={openCreateNewSession}
-            className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 whitespace-nowrap"
-          >
-            Start new session ✨
-          </button>
+          {canManageFeeStructure && (
+            <button
+              onClick={openCreateNewSession}
+              className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 whitespace-nowrap"
+            >
+              Start new session ✨
+            </button>
+          )}
         </div>
       )}
 
@@ -373,13 +383,19 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
                 </div>
                 <div className="bg-white p-5 rounded-xl border border-gray-200">
                   <p className="text-xs text-gray-500 mb-1">Collected</p>
-                  <p className="text-2xl font-bold text-mint">{formatNaira(selectedCycle.totalCollected)}</p>
-                  <p className="text-xs text-gray-500 mt-1">{collectedPct}% of expected</p>
+                  <p className="text-2xl font-bold text-mint">{showFinancials ? formatNaira(selectedCycle.totalCollected) : `${collectedPct}%`}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {showFinancials ? `${collectedPct}% of expected` : 'of expected'}
+                    {selectedCycle.invoiceCount > 0 && ` · ${selectedCycle.invoiceCount - selectedCycle.studentsWithOutstanding}/${selectedCycle.invoiceCount} students paid up`}
+                  </p>
                 </div>
                 <div className="bg-white p-5 rounded-xl border border-gray-200">
                   <p className="text-xs text-gray-500 mb-1">Outstanding</p>
-                  <p className="text-2xl font-bold text-amber-600">{formatNaira(outstandingAmount)}</p>
-                  <p className="text-xs text-gray-500 mt-1">{outstandingPct}% of expected</p>
+                  <p className="text-2xl font-bold text-amber-600">{showFinancials ? formatNaira(outstandingAmount) : `${outstandingPct}%`}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {showFinancials ? `${outstandingPct}% of expected` : 'of expected, still owed'}
+                    {selectedCycle.invoiceCount > 0 && ` · ${selectedCycle.studentsWithOutstanding}/${selectedCycle.invoiceCount} students`}
+                  </p>
                 </div>
                 <div className="bg-white p-5 rounded-xl border border-gray-200">
                   {selectedCycle.status === 'closed' ? (
@@ -468,12 +484,14 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
           {cyclesBySession.sortedGroups.length === 0 && cyclesBySession.ungrouped.length === 0 && (
             <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
               <p className="text-gray-500 mb-3">No terms yet.</p>
-              <button
-                onClick={openCreate}
-                className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
-              >
-                + Create first term
-              </button>
+              {canManageFeeStructure && (
+                <button
+                  onClick={openCreate}
+                  className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
+                >
+                  + Create first term
+                </button>
+              )}
             </div>
           )}
 
@@ -495,6 +513,7 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
                     onClose={handleClose}
                     onReopenAsDraft={handleReopenAsDraft}
                     closePreviewLoadingId={closePreviewLoadingId}
+                    showFinancials={showFinancials}
                   />
                 ))}
 
@@ -511,6 +530,7 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
                     onClose={handleClose}
                     onReopenAsDraft={handleReopenAsDraft}
                     closePreviewLoadingId={closePreviewLoadingId}
+                    showFinancials={showFinancials}
                   />
                 )}
               </div>
@@ -570,7 +590,9 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Total outstanding</span>
                       <span className="font-semibold text-navy">
-                        ₦{closePreview.totalOutstanding.toLocaleString('en-NG')}
+                        {showFinancials
+                          ? `₦${closePreview.totalOutstanding.toLocaleString('en-NG')}`
+                          : `${closePreview.cycle.totalExpected > 0 ? Math.round((closePreview.totalOutstanding / closePreview.cycle.totalExpected) * 100) : 0}% of expected`}
                       </span>
                     </div>
                   </div>
@@ -639,12 +661,14 @@ export default function CyclesLayout({ cycles, sessions }: Props) {
                   <span className="text-gray-600">Students with outstanding balance</span>
                   <span className="font-semibold text-navy">{carryForwardSummary.studentsWithCarryForward}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Total carry-forward</span>
-                  <span className="font-semibold text-navy">
-                    ₦{carryForwardSummary.totalCarryForward.toLocaleString('en-NG')}
-                  </span>
-                </div>
+                {showFinancials && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Total carry-forward</span>
+                    <span className="font-semibold text-navy">
+                      ₦{carryForwardSummary.totalCarryForward.toLocaleString('en-NG')}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm pt-2 border-t border-gray-200">
                   <span className="text-gray-600">Invoices auto-updated</span>
                   <span className="font-semibold text-mint">{carryForwardSummary.invoicesUpdated}</span>
@@ -691,12 +715,14 @@ interface AccordionProps {
   onClose: (c: CycleRow) => void
   onReopenAsDraft: (c: CycleRow) => void
   closePreviewLoadingId: string | null
+  showFinancials: boolean
 }
 
 function SessionAccordion({
-  sessionName, cycles, expanded, onToggle, onEdit, onActivate, onDeleteDraft, onClose, onReopenAsDraft, closePreviewLoadingId,
+  sessionName, cycles, expanded, onToggle, onEdit, onActivate, onDeleteDraft, onClose, onReopenAsDraft, closePreviewLoadingId, showFinancials,
 }: AccordionProps) {
   const router = useRouter()
+  const canManageFeeStructure = useCan('manage-fee-structure')
   const sorted = [...cycles].sort((a, b) => a.startDate.localeCompare(b.startDate))
   const hasActive = cycles.some(c => c.status === 'active')
 
@@ -763,12 +789,16 @@ function SessionAccordion({
                       {cycle.invoiceCount} / {cycle.totalActiveStudents}
                     </td>
                     <td className="py-3 px-4 text-right text-xs text-gray-700">
-                      {formatNaira(cycle.totalCollected)}
+                      {showFinancials ? formatNaira(cycle.totalCollected) : `${cycle.totalExpected > 0 ? Math.round((cycle.totalCollected / cycle.totalExpected) * 100) : 0}%`}
                       {cycle.totalExpected > 0 && (
-                        <div className="text-gray-400 mt-0.5">of {formatNaira(cycle.totalExpected)}</div>
+                        <div className="text-gray-400 mt-0.5">{showFinancials ? `of ${formatNaira(cycle.totalExpected)}` : 'of expected'}</div>
+                      )}
+                      {cycle.studentsWithOutstanding > 0 && (
+                        <div className="text-amber-600 mt-0.5">{cycle.studentsWithOutstanding}/{cycle.invoiceCount} owe</div>
                       )}
                     </td>
                     <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      {canManageFeeStructure ? (
                       <div className="inline-flex items-center gap-2">
                         {cycle.status === 'draft' && (
                           <>
@@ -831,6 +861,9 @@ function SessionAccordion({
                           </>
                         )}
                       </div>
+                      ) : (
+                        <span className="text-xs text-gray-400">View only</span>
+                      )}
                     </td>
                   </tr>
                 )

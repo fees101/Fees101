@@ -1,23 +1,16 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
+import { requirePermission } from '@/lib/auth/permissions'
 
+// Approving/rejecting/revoking discounts requires the approve-discounts
+// permission (owner/super_admin/is_admin bypass inside requirePermission).
 async function getContext() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data: userProfile } = await supabase.from('users').select('school_id, role').eq('id', user.id).single()
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase.from('schools').select('id').limit(1).single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return null
-  if (userProfile?.role !== 'school_admin' && userProfile?.role !== 'super_admin') return null
-  return { supabase, schoolId, userId: user.id }
+  const ctx = await requirePermission('approve-discounts')
+  if (!ctx || !ctx.schoolId) return null
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 // Approving a discount immediately recomputes and persists the target

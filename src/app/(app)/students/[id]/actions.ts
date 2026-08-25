@@ -1,7 +1,7 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { requirePermission, getAuthContext } from '@/lib/auth/permissions'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 import { provisionStudentDVA } from '@/lib/payments/provisionDVA'
 import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
@@ -144,32 +144,16 @@ export async function updateStudentStatus(studentId: string, status: 'withdrawn'
 }
 
 export async function getClassesList() {
-  const supabase = await createClient()
-  
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return []
+  // Just populating a dropdown — any authenticated staff member of the school
+  // can see it, no specific permission required. Uses the shared, per-request
+  // memoized getAuthContext() instead of a raw, unmemoized auth.getUser() call.
+  const ctx = await getAuthContext()
+  if (!ctx || !ctx.schoolId) return []
 
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return []
-
-  const { data: classes } = await supabase
+  const { data: classes } = await ctx.supabase
     .from('classes')
     .select('id, name')
-    .eq('school_id', schoolId)
+    .eq('school_id', ctx.schoolId)
     .eq('is_active', true)
     .order('display_order')
 
@@ -177,30 +161,13 @@ export async function getClassesList() {
 }
 // ============ STUDENT FEE ADJUSTMENTS ============
 
-async function getStudentFeeContext() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return null
-
-  return { supabase, schoolId, userId: user.id, role: userProfile?.role as string | undefined }
+async function getStudentFeeContext(perm: string = 'manage-students') {
+  // Student edits/fee adjustments require manage-students by default; callers
+  // pass a stricter permission where the action warrants it (e.g. revoking a
+  // discount needs approve-discounts). Owner/super_admin/is_admin bypass.
+  const ctx = await requirePermission(perm)
+  if (!ctx || !ctx.schoolId) return null
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId, role: ctx.role }
 }
 
 type FeeContext = NonNullable<Awaited<ReturnType<typeof getStudentFeeContext>>>
@@ -374,16 +341,11 @@ type RevokeDiscountResult =
 // no payment received against it. Past that point we never touch the
 // invoice's history, we just stop it recurring into future ones.
 export async function revokeDiscount(discountId: string): Promise<RevokeDiscountResult> {
-  const ctx = await getStudentFeeContext()
-  if (!ctx) return { error: 'Not authenticated' }
+  // Revoking a discount changes what a family owes — same bar as approving one
+  // on the /discounts page. Gated on approve-discounts (owner/admin bypass).
+  const ctx = await getStudentFeeContext('approve-discounts')
+  if (!ctx) return { error: 'Only staff with discount-approval permission can revoke discounts.' }
   const { supabase, schoolId, userId } = ctx
-
-  // Revoking a discount changes what a family owes, so it's an admin action —
-  // same bar as adding/approving one on the /discounts page. Without this,
-  // any staff member could quietly lift an approved discount off an invoice.
-  if (ctx.role !== 'school_admin' && ctx.role !== 'super_admin') {
-    return { error: 'Only an admin can revoke discounts.' }
-  }
 
   const { data: discount } = await supabase
     .from('discounts')

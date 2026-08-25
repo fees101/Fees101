@@ -16,6 +16,9 @@ function formatNaira(a: number): string {
   return '₦' + Math.round(a).toLocaleString('en-NG')
 }
 
+// Masked stand-in for a currency figure when the viewer lacks see-financial-totals.
+const MASKED = '••••'
+
 const CATEGORY_LABELS: Record<string, string> = {
   sibling_discount: 'Sibling', bursary: 'Bursary', staff_child: 'Staff child',
   financial_hardship: 'Hardship', scholarship: 'Scholarship', fee_waiver: 'Fee waiver', other: 'Other',
@@ -69,7 +72,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function FeeTable({ rows }: { rows: { name: string; studentsBilled: number; billed: number; collected: number; outstanding: number; rate: number }[] }) {
+function FeeTable({ rows, showFinancials }: { rows: { name: string; studentsBilled: number; billed: number; collected: number; outstanding: number; rate: number }[]; showFinancials: boolean }) {
+  const amt = (v: number) => showFinancials ? formatNaira(v) : MASKED
   return (
     <table className="w-full text-sm">
       <thead>
@@ -87,9 +91,9 @@ function FeeTable({ rows }: { rows: { name: string; studentsBilled: number; bill
           <tr key={r.name} className="hover:bg-gray-50/50">
             <td className="px-6 py-3 font-medium text-navy">{r.name}</td>
             <td className="px-6 py-3 text-right tabular-nums text-gray-600">{r.studentsBilled}</td>
-            <td className="px-6 py-3 text-right tabular-nums text-gray-600">{formatNaira(r.billed)}</td>
-            <td className="px-6 py-3 text-right tabular-nums text-mint font-medium">{formatNaira(r.collected)}</td>
-            <td className="px-6 py-3 text-right tabular-nums text-amber-600">{formatNaira(r.outstanding)}</td>
+            <td className="px-6 py-3 text-right tabular-nums text-gray-600">{amt(r.billed)}</td>
+            <td className="px-6 py-3 text-right tabular-nums text-mint font-medium">{amt(r.collected)}</td>
+            <td className="px-6 py-3 text-right tabular-nums text-amber-600">{amt(r.outstanding)}</td>
             <td className="px-6 py-3"><RateBar rate={r.rate} /></td>
           </tr>
         ))}
@@ -98,9 +102,10 @@ function FeeTable({ rows }: { rows: { name: string; studentsBilled: number; bill
   )
 }
 
-export default function PaymentsDashboard({ bundle }: { bundle: AnalyticsBundle }) {
+export default function PaymentsDashboard({ bundle, showFinancials }: { bundle: AnalyticsBundle; showFinancials: boolean }) {
   const { termSeries: terms, feeSeries, discountSeries, classSeries, feeClassSeries } = bundle
   const len = terms.length
+  const amt = (v: number) => showFinancials ? formatNaira(v) : MASKED
 
   // ---- Static structure derived once --------------------------------------
   const { sessions, ordinalOf, sessionCycleIds } = useMemo(() => {
@@ -333,49 +338,51 @@ export default function PaymentsDashboard({ bundle }: { bundle: AnalyticsBundle 
             onBrush={(s, e) => { if (s === lo && e === hi) return; setRange([s, e]); setPreset(null) }}
             preset={preset}
             onPreset={k => { setRange(computePreset(k)); setPreset(k); setBrushNonce(n => n + 1) }}
+            showFinancials={showFinancials}
           />
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Tile label="Billed" value={formatNaira(summary.billed)} sub={`${summary.invoiceCount} invoices`}
-              delta={<Delta current={summary.billed} previous={prev?.billed} label={baseline?.label} />} />
-            <Tile label="Collected" value={formatNaira(summary.collected)} tone="mint" sub={`${summary.collectionRate}% of billed`}
-              delta={<Delta current={summary.collected} previous={prev?.collected} label={baseline?.label} />} />
-            <Tile label="Outstanding" value={formatNaira(summary.outstanding)} tone="amber" sub="Still owed"
-              delta={<Delta current={summary.outstanding} previous={prev?.outstanding} label={baseline?.label} invert />} />
-            <Tile label="Discounts given" value={formatNaira(summary.discountTotal)} sub={`of ${formatNaira(summary.grossPotential)} potential`}
-              delta={<Delta current={summary.discountTotal} previous={prev?.discountTotal} label={baseline?.label} invert />} />
+            <Tile label="Billed" value={showFinancials ? amt(summary.billed) : `${summary.invoiceCount}`} sub={showFinancials ? `${summary.invoiceCount} invoices` : 'invoices billed'}
+              delta={showFinancials ? <Delta current={summary.billed} previous={prev?.billed} label={baseline?.label} /> : undefined} />
+            <Tile label="Collected" value={showFinancials ? amt(summary.collected) : `${summary.collectionRate}%`} tone="mint" sub={showFinancials ? `${summary.collectionRate}% of billed` : 'of billed'}
+              delta={showFinancials ? <Delta current={summary.collected} previous={prev?.collected} label={baseline?.label} /> : undefined} />
+            <Tile label="Outstanding" value={showFinancials ? amt(summary.outstanding) : `${100 - summary.collectionRate}%`} tone="amber" sub={showFinancials ? 'Still owed' : 'of billed, still owed'}
+              delta={showFinancials ? <Delta current={summary.outstanding} previous={prev?.outstanding} label={baseline?.label} invert /> : undefined} />
+            <Tile label="Discounts given" value={showFinancials ? amt(summary.discountTotal) : `${summary.grossPotential > 0 ? Math.round((summary.discountTotal / summary.grossPotential) * 100) : 0}%`} sub={showFinancials ? `of ${amt(summary.grossPotential)} potential` : 'of gross potential'}
+              delta={showFinancials ? <Delta current={summary.discountTotal} previous={prev?.discountTotal} label={baseline?.label} invert /> : undefined} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <PotentialBreakdown
               grossPotential={summary.grossPotential} discountTotal={summary.discountTotal}
-              billed={summary.billed} outstanding={summary.outstanding} collected={summary.collected} />
-            <RevenueMix fees={byFee} />
+              billed={summary.billed} outstanding={summary.outstanding} collected={summary.collected}
+              showFinancials={showFinancials} />
+            <RevenueMix fees={byFee} showFinancials={showFinancials} />
           </div>
 
           <SectionLabel>By fee</SectionLabel>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <FeeCollectionBars fees={byFee} />
-            <OptInUptake fees={optIns} />
+            <FeeCollectionBars fees={byFee} showFinancials={showFinancials} />
+            <OptInUptake fees={optIns} showFinancials={showFinancials} />
           </div>
 
-          <FeeTrendChart fees={trends} />
+          <FeeTrendChart fees={trends} showFinancials={showFinancials} />
 
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="font-bold text-navy">Revenue by optional fee (opt-ins)</h2>
               <p className="text-xs text-gray-500 mt-0.5">collected is estimated by how far each invoice is paid</p>
             </div>
-            {optIns.length === 0 ? <p className="px-6 py-8 text-sm text-gray-500">No optional fees in this selection.</p> : <FeeTable rows={optIns} />}
+            {optIns.length === 0 ? <p className="px-6 py-8 text-sm text-gray-500">No optional fees in this selection.</p> : <FeeTable rows={optIns} showFinancials={showFinancials} />}
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100"><h2 className="font-bold text-navy">Revenue by required fee</h2></div>
-            {required.length === 0 ? <p className="px-6 py-8 text-sm text-gray-500">No required fees in this selection.</p> : <FeeTable rows={required} />}
+            {required.length === 0 ? <p className="px-6 py-8 text-sm text-gray-500">No required fees in this selection.</p> : <FeeTable rows={required} showFinancials={showFinancials} />}
           </div>
 
-          <FeePriceChart choices={priceChoices} fan={priceFan} selected={activeFee} onSelect={setFeePick} />
+          <FeePriceChart choices={priceChoices} fan={priceFan} selected={activeFee} onSelect={setFeePick} showFinancials={showFinancials} />
 
           <SectionLabel>By class</SectionLabel>
 
@@ -400,9 +407,9 @@ export default function PaymentsDashboard({ bundle }: { bundle: AnalyticsBundle 
                     <tr key={r.className} className="hover:bg-gray-50/50">
                       <td className="px-6 py-3 font-medium text-navy">{r.className}</td>
                       <td className="px-6 py-3 text-right tabular-nums text-gray-600">{r.studentsBilled}</td>
-                      <td className="px-6 py-3 text-right tabular-nums text-gray-600">{formatNaira(r.billed)}</td>
-                      <td className="px-6 py-3 text-right tabular-nums text-mint font-medium">{formatNaira(r.collected)}</td>
-                      <td className="px-6 py-3 text-right tabular-nums text-amber-600">{formatNaira(r.outstanding)}</td>
+                      <td className="px-6 py-3 text-right tabular-nums text-gray-600">{amt(r.billed)}</td>
+                      <td className="px-6 py-3 text-right tabular-nums text-mint font-medium">{amt(r.collected)}</td>
+                      <td className="px-6 py-3 text-right tabular-nums text-amber-600">{amt(r.outstanding)}</td>
                       <td className="px-6 py-3"><RateBar rate={r.rate} /></td>
                     </tr>
                   ))}
@@ -414,7 +421,7 @@ export default function PaymentsDashboard({ bundle }: { bundle: AnalyticsBundle 
           <SectionLabel>Discounts</SectionLabel>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <DiscountBar rows={discounts} />
+            <DiscountBar rows={discounts} showFinancials={showFinancials} />
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100"><h2 className="font-bold text-navy">Discount detail</h2></div>
               {discounts.length === 0 ? (
@@ -435,7 +442,7 @@ export default function PaymentsDashboard({ bundle }: { bundle: AnalyticsBundle 
                         <td className="px-6 py-3 font-medium text-navy">{CATEGORY_LABELS[r.category] || r.category}</td>
                         <td className="px-6 py-3 text-right tabular-nums text-gray-600">{r.studentCount}</td>
                         <td className="px-6 py-3 text-right tabular-nums text-gray-600">{r.discountCount}</td>
-                        <td className="px-6 py-3 text-right tabular-nums text-navy font-medium">{formatNaira(r.estAmount)}</td>
+                        <td className="px-6 py-3 text-right tabular-nums text-navy font-medium">{amt(r.estAmount)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -464,11 +471,12 @@ export default function PaymentsDashboard({ bundle }: { bundle: AnalyticsBundle 
               series={overlaySeries}
               metric={overlayMetric}
               onMetric={setOverlayMetric}
+              showFinancials={showFinancials}
             />
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <CompareBars rows={compareRows} />
+          <div className={showFinancials ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : ''}>
+            <CompareBars rows={compareRows} showFinancials={showFinancials} />
             <CompareRates rows={compareRows} />
           </div>
 
@@ -506,7 +514,7 @@ export default function PaymentsDashboard({ bundle }: { bundle: AnalyticsBundle 
                       return (
                         <td className="px-6 py-3">
                           <div className="flex items-baseline justify-end gap-2">
-                            <span className={`tabular-nums ${colorClass}`}>{formatNaira(val)}</span>
+                            <span className={`tabular-nums ${colorClass}`}>{amt(val)}</span>
                             <span className="w-11 shrink-0 text-left text-xs">{chip}</span>
                           </div>
                         </td>
@@ -518,7 +526,7 @@ export default function PaymentsDashboard({ bundle }: { bundle: AnalyticsBundle 
                         {cell(r.billed, 'text-gray-600', d(r.billed, base.billed))}
                         {cell(r.collected, 'text-mint font-medium', d(r.collected, base.collected))}
                         {cell(r.outstanding, 'text-amber-600', d(r.outstanding, base.outstanding), true)}
-                        <td className="px-6 py-3 text-right tabular-nums text-gray-600">{formatNaira(r.discountTotal)}</td>
+                        <td className="px-6 py-3 text-right tabular-nums text-gray-600">{amt(r.discountTotal)}</td>
                         <td className="px-6 py-3 text-right tabular-nums text-navy font-medium">{r.rate}%</td>
                       </tr>
                     )

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { buildReport } from '@/lib/reports/reports'
+import { getAuthContext, can } from '@/lib/auth/permissions'
+import { FINANCIAL_REPORT_TYPES } from '@/lib/auth/permissionCatalog'
 
 // Streams a report as a downloadable CSV. All scope selection happens via query
 // params; the builder module runs the queries scoped to the caller's school.
@@ -9,6 +11,17 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams
   const type = sp.get('type') || ''
+
+  // This is a raw route handler — not covered by page guards or middleware —
+  // so it must enforce permissions itself.
+  const ctx = await getAuthContext()
+  if (!can(ctx, 'see-reports')) {
+    return NextResponse.json({ error: 'Not authorized to download reports.' }, { status: 403 })
+  }
+  const canFinancials = can(ctx, 'see-financial-totals')
+  if (FINANCIAL_REPORT_TYPES.has(type) && !canFinancials) {
+    return NextResponse.json({ error: 'Not authorized to see financial figures.' }, { status: 403 })
+  }
 
   try {
     const today = new Date().toISOString().slice(0, 10)
@@ -22,6 +35,7 @@ export async function GET(req: NextRequest) {
         status: sp.get('status') || undefined,
       },
       today,
+      { includeFinancials: canFinancials },
     )
 
     return new NextResponse(csv, {

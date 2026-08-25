@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 import { encryptCredential } from '@/lib/payments/encryption'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
@@ -10,29 +10,10 @@ import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 const SUPPORTED_PROVIDERS = ['monnify']
 
 async function getContext() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('school_id, role')
-    .eq('id', user.id)
-    .single()
-
-  let schoolId = userProfile?.school_id
-  if (!schoolId && userProfile?.role === 'super_admin') {
-    const { data: firstSchool } = await supabase
-      .from('schools')
-      .select('id')
-      .limit(1)
-      .single()
-    schoolId = firstSchool?.id
-  }
-  if (!schoolId) return null
-
-  return { supabase, schoolId }
+  // Gated on the 'manage-payment-config' permission (owner/super_admin/is_admin bypass).
+  const ctx = await requirePermission('manage-payment-config')
+  if (!ctx || !ctx.schoolId) return null
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId }
 }
 
 export async function savePaymentProvider(form: {

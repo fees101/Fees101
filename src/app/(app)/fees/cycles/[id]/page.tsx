@@ -1,13 +1,19 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import CycleDetailLayout from '@/components/fees/CycleDetailLayout'
 import { getCycleDetailById } from '@/lib/queries/fees'
+import { getAuthContext, can } from '@/lib/auth/permissions'
 
 interface PageProps {
   params: Promise<{ id: string }>
 }
 
 export default async function CycleDetailPage({ params }: PageProps) {
+  const ctx = await getAuthContext()
+  if (!ctx) redirect('/login')
+  if (!can(ctx, 'see-fee-structure')) redirect('/fees')
+  const showFinancials = can(ctx, 'see-financial-totals')
+
   const { id } = await params
   const data = await getCycleDetailById(id)
 
@@ -29,7 +35,7 @@ export default async function CycleDetailPage({ params }: PageProps) {
           <span className="text-navy font-medium">{data.cycle?.name || 'Term'}</span>
         </nav>
 
-        <CycleDetailLayout data={data} />
+        <CycleDetailLayout data={data} showFinancials={showFinancials} />
 
       </div>
     </main>
