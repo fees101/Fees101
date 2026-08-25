@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { addStaff, updateStaffRole, setStaffActive, resendInvite, resetStaffPassword } from '@/app/(app)/settings/users/actions'
+import { addStaff, updateStaffRole, setStaffActive, resendInvite, resetStaffPassword, updateStaffEmail } from '@/app/(app)/settings/users/actions'
 
 interface StaffRow {
   id: string
@@ -57,6 +57,12 @@ export default function UsersManager({ staff, roles }: Props) {
   const [roleChangeReason, setRoleChangeReason] = useState('')
   const [roleChangeBusy, setRoleChangeBusy] = useState(false)
 
+  // Email-change confirmation state
+  const [emailChange, setEmailChange] = useState<{ userId: string; userName: string; fromEmail: string } | null>(null)
+  const [emailChangeNewEmail, setEmailChangeNewEmail] = useState('')
+  const [emailChangeReason, setEmailChangeReason] = useState('')
+  const [emailChangeBusy, setEmailChangeBusy] = useState(false)
+
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -87,6 +93,24 @@ export default function UsersManager({ staff, roles }: Props) {
     if (result.error) return setError(result.error)
     setNotice(`${roleChange.userName}'s role changed to ${roleChange.toRoleName}.`)
     setRoleChange(null)
+    router.refresh()
+  }
+
+  function openEmailChange(u: StaffRow) {
+    setError(null); setNotice(null)
+    setEmailChangeNewEmail(''); setEmailChangeReason('')
+    setEmailChange({ userId: u.id, userName: u.name, fromEmail: u.email })
+  }
+
+  async function confirmEmailChange(e: React.FormEvent) {
+    e.preventDefault()
+    if (!emailChange) return
+    setEmailChangeBusy(true)
+    const result = await updateStaffEmail(emailChange.userId, emailChangeNewEmail, emailChangeReason)
+    setEmailChangeBusy(false)
+    if (result.error) return setError(result.error)
+    setNotice(`${emailChange.userName}'s login email changed to ${emailChangeNewEmail}.`)
+    setEmailChange(null)
     router.refresh()
   }
 
@@ -191,6 +215,15 @@ export default function UsersManager({ staff, roles }: Props) {
                         className="px-3 py-1.5 text-xs text-navy border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
                       >
                         Reset password
+                      </button>
+                    )}
+                    {!u.isSelf && u.baseRole !== 'school_admin' && u.baseRole !== 'super_admin' && (
+                      <button
+                        onClick={() => openEmailChange(u)}
+                        disabled={busyId === u.id}
+                        className="px-3 py-1.5 text-xs text-navy border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        Change email
                       </button>
                     )}
                     {!u.isSelf && (
@@ -323,6 +356,64 @@ export default function UsersManager({ staff, roles }: Props) {
                   className="px-4 py-2 bg-navy text-white text-sm font-semibold rounded-lg hover:bg-navy/90 disabled:opacity-50"
                 >
                   {roleChangeBusy ? 'Changing…' : 'Confirm change'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {emailChange && (
+        <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <form onSubmit={confirmEmailChange}>
+              <div className="p-6 space-y-4">
+                <h3 className="text-base font-semibold text-navy">Change {emailChange.userName}&apos;s login email?</h3>
+                <p className="text-sm text-gray-600 -mt-2">
+                  Currently <span className="font-medium text-navy">{emailChange.fromEmail}</span>. This takes effect
+                  immediately — no confirmation link, since you&apos;re making this change on their behalf. Both the old
+                  and new address get notified.
+                </p>
+
+                <label className="block text-sm text-gray-700 font-medium">
+                  New email
+                  <input
+                    type="email"
+                    value={emailChangeNewEmail}
+                    onChange={e => setEmailChangeNewEmail(e.target.value)}
+                    required
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-mint focus:outline-none font-normal"
+                  />
+                </label>
+                <label className="block text-sm text-gray-700 font-medium">
+                  Reason for this change
+                  <textarea
+                    value={emailChangeReason}
+                    onChange={e => setEmailChangeReason(e.target.value)}
+                    required
+                    rows={3}
+                    placeholder="e.g. Staff member's old email was deactivated by their employer"
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-mint focus:outline-none font-normal"
+                  />
+                </label>
+
+                {error && <p className="text-sm text-red-600">{error}</p>}
+              </div>
+              <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setEmailChange(null); setError(null) }}
+                  disabled={emailChangeBusy}
+                  className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={emailChangeBusy || !emailChangeNewEmail.trim() || !emailChangeReason.trim()}
+                  className="px-4 py-2 bg-navy text-white text-sm font-semibold rounded-lg hover:bg-navy/90 disabled:opacity-50"
+                >
+                  {emailChangeBusy ? 'Changing…' : 'Confirm change'}
                 </button>
               </div>
             </form>

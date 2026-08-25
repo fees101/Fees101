@@ -37,7 +37,7 @@ Legend: `[ ]` not started · `[~]` partial/in progress · `[x]` done
 - [x] Invoice PDFs (invoice + cycle batch)
 - [x] Payments via Monnify DVA (virtual accounts) — single + bulk provisioning, webhook processing *(sandbox)*
 - [x] Discounts — staff / sibling / scholarship-bursary, request→approve workflow, recurring carry-forward, revoke
-- [x] Messaging — Termii SMS + Amazon SES email, multi-channel fallback, delivery logging *(mock/sandbox)*
+- [x] Messaging — Sendchamp/Termii SMS + Brevo email (REST API), multi-channel fallback, delivery logging *(mock/sandbox)*
 - [x] Automatic reminders (advance / due / overdue) + manual reminder send
 - [x] Payment receipts (SMS + email with PDF)
 - [x] Dashboard — collection KPIs, collection-by-class chart, recent activity
@@ -138,6 +138,8 @@ No owner-facing product surface exists yet. Schools are created directly in the 
 
 - [ ] **Move Monnify to LIVE** — swap sandbox → production credentials so we can test real payments end-to-end
 - [~] **SMS provider switch: Termii → Sendchamp** — Sendchamp Sender ID approved; new adapter (`src/lib/messaging/sendchamp.ts`) built and wired in via `SMS_PROVIDER` env var (default `sendchamp`, set to `termii` to roll back). Termii's adapter (`termii.ts`) and its webhook route are left in place untouched, not deleted, as the rollback path. Webhook receiver added at `api/webhooks/sendchamp` — verifies via a shared-secret query param (`SENDCHAMP_WEBHOOK_SECRET`) since Sendchamp's docs don't document an HMAC signature scheme like Termii's. Needed before switching a school over: set `SENDCHAMP_API_KEY`, `SENDCHAMP_SENDER_ID`, `SENDCHAMP_MODE=mock|live`, `SENDCHAMP_WEBHOOK_SECRET` in `.env.local`; test in mock mode, then one real live send, then register the webhook URL in Sendchamp's dashboard before flipping any school's traffic over. Not yet tested end-to-end — do that before removing Termii from the default path for good.
+- [~] **Email: Amazon SES → Brevo REST API** — SES retired (never went live), Brevo is now the only email provider, sending via their REST API (`src/lib/messaging/brevo.ts`, `BREVO_API_KEY`) instead of the SMTP relay/nodemailer, so sends return a real `messageId` for delivery tracking. Webhook receiver added at `api/webhooks/brevo` — same shared-secret-query-param pattern as Sendchamp (`BREVO_WEBHOOK_SECRET`), since Brevo doesn't sign payloads either. **Before/after going live on `main`, confirm all three provider dashboards point at the correct deployed webhook URL**: Termii (`api/webhooks/termii`, HMAC-signed), Sendchamp (`api/webhooks/sendchamp?secret=...`), Brevo (`api/webhooks/brevo?secret=...`) — easy for one to get missed or left pointing at a stale/dev URL during a redeploy or domain change. Not yet tested end-to-end with a real live send.
+- [ ] **Admin dashboard for message delivery status** — no UI yet reads `message_logs`/delivery status (only the dev-only `/simulator` page touches that table). Once Brevo's webhook is live, worth a page so an admin can check "did this parent's invoice email actually deliver?" without querying the DB by hand.
 - [ ] **WhatsApp channel** — rebuild messaging channel (evaluating SendChamp)
 
 ---
@@ -194,6 +196,8 @@ Visible "coming soon" text currently in the UI.
 - [ ] **Automatic late fees** — penalty added when an invoice goes overdue (deferred until requested)
 - [ ] **Standalone Payments operations page** — feed, unapplied credits, manual entry, "reconcile now" (overlaps with reporting/analytics above)
 - [ ] **Collection-by-class operations page** — drill-down stats (separate from Settings academic structure)
+- [ ] **Per-school custom email templates** — Brevo (unlike SES) supports designer/saved templates per sender, so a school could eventually customize wording/branding of their own invoice/receipt/reminder emails beyond just the logo. Deferred until a school actually asks for it.
+- [ ] **Per-message channel selection UI** — a "Messages" tab where staff pick a message type (invoice/receipt/reminder) for a student and explicitly choose SMS, email, or both, instead of relying on the default policy. Useful if a parent complains they're not receiving one channel. The channel-override plumbing (`channelOverride` on `sendInvoice`, `sendManualReminder`) already exists per-invoice; this would surface it as its own dedicated page/tab rather than a one-off resend button.
 
 ---
 

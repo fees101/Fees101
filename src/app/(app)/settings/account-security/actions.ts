@@ -24,5 +24,8 @@ export async function changePassword(form: {
   const { error: updateError } = await supabase.auth.updateUser({ password: form.newPassword })
   if (updateError) return { error: updateError.message }
 
+  // Supabase's own "Password changed" notification email (Authentication →
+  // Emails) fires automatically on this updateUser() call — no custom send
+  // needed here.
   return { success: true }
 }

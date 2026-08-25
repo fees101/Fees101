@@ -1,7 +1,7 @@
 // The send engine: provider-agnostic business logic. SMS goes through
 // whichever adapter SMS_PROVIDER selects (default Sendchamp, now that our
 // Sender ID is approved there; set SMS_PROVIDER=termii to fall back), email
-// through the Amazon SES adapter (ses.ts). Every attempt is recorded in
+// through the Brevo API adapter (brevo.ts). Every attempt is recorded in
 // message_logs (append-only audit + delivery tracking).
 //
 // Two distinct multi-channel behaviors, because they answer different
@@ -22,7 +22,7 @@
 
 import { termii } from './termii'
 import { sendchamp } from './sendchamp'
-import { ses } from './ses'
+import { brevo } from './brevo'
 import { MessageChannel, SendResult, EmailAttachment } from './types'
 import { notifyAdminOfMessageFailure } from './adminNotify'
 
@@ -86,7 +86,7 @@ async function insertLog(
       channel: params.channel,
       message_type: ctx.messageType,
       content: params.content,
-      provider: params.channel === 'email' ? 'ses' : smsProviderName,
+      provider: params.channel === 'email' ? 'brevo' : smsProviderName,
       provider_message_id: params.result.providerMessageId || null,
       status: params.result.ok ? 'sent' : 'failed',
       failed_reason: params.result.ok ? null : (params.result.error || null),
@@ -129,7 +129,7 @@ export async function sendEmail(
   content: EmailContent,
   opts?: SendOpts
 ): Promise<LoggedSendResult> {
-  const result = await ses.send({
+  const result = await brevo.send({
     to, subject: content.subject, html: content.html, text: content.text,
     attachments: content.attachments,
   })

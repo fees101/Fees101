@@ -6,7 +6,7 @@
 
 import { applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { sendMultiChannel } from '@/lib/messaging/sendMessage'
-import { composePartialPaymentSMS, composeFullPaymentSMS, composePartialPaymentEmail, composeFullPaymentEmail } from '@/lib/messaging/composeInvoice'
+import { composePartialPaymentSMS, composeFullPaymentSMS, composeFullPaymentEmail } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 import { getInvoiceByIdForSchool } from '@/lib/queries/fees'
 import { renderInvoicePdfBuffer } from '@/lib/pdf/renderInvoicePdf'
@@ -70,6 +70,7 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
   let notifyInfo: {
     phone?: string
     email?: string
+    parentName?: string
     studentName: string
     schoolName: string
     schoolFullName: string
@@ -79,17 +80,19 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
     const [{ data: student }, { data: school }] = await Promise.all([
       supabase
         .from('students')
-        .select('first_name, last_name, provider_dva_account_number, families(primary_parent_phone, primary_parent_email)')
+        .select('first_name, last_name, provider_dva_account_number, families(primary_parent_name, primary_parent_phone, primary_parent_email)')
         .eq('id', studentId)
         .single(),
       supabase.from('schools').select('name, settings').eq('id', schoolId).single(),
     ])
     const phone = (student?.families as any)?.primary_parent_phone
     const email = (student?.families as any)?.primary_parent_email
+    const parentName = (student?.families as any)?.primary_parent_name
     if ((phone || email) && student?.provider_dva_account_number) {
       notifyInfo = {
         phone,
         email,
+        parentName,
         studentName: `${student.first_name} ${student.last_name}`.trim(),
         schoolName: getSchoolSmsName(school),
         schoolFullName: school?.name || '',
@@ -133,38 +136,35 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
       const smsText = isFull
         ? composeFullPaymentSMS({
             studentName: notifyInfo.studentName,
+            parentName: notifyInfo.parentName,
             schoolName: notifyInfo.schoolName,
             termName,
             amountPaid: applyAmount,
           })
         : composePartialPaymentSMS({
             studentName: notifyInfo.studentName,
+            parentName: notifyInfo.parentName,
             schoolName: notifyInfo.schoolName,
             amountPaid: applyAmount,
             balance: newOutstanding,
             accountNumber: notifyInfo.accountNumber,
           })
 
-      // Email carries the receipt as a PDF (the invoice's own PDF, now
-      // reflecting this payment) — an SMS can't attach anything, so it's
-      // only built when there's an address to send it to.
+      // Email carries the receipt as a PDF — reserved for full payment only.
+      // A partial payment still gets an SMS, but skips the email/PDF entirely
+      // to conserve the free-tier daily email quota as student volume grows;
+      // the parent gets the full PDF receipt once the balance clears.
       let emailContent
-      if (notifyInfo.email) {
-        const email = isFull
-          ? composeFullPaymentEmail({
-              studentName: notifyInfo.studentName,
-              schoolName: notifyInfo.schoolFullName,
-              termName,
-              amountPaid: applyAmount,
-            })
-          : composePartialPaymentEmail({
-              studentName: notifyInfo.studentName,
-              schoolName: notifyInfo.schoolFullName,
-              amountPaid: applyAmount,
-              balance: newOutstanding,
-              accountNumber: notifyInfo.accountNumber,
-            })
+      if (notifyInfo.email && isFull) {
         const invoiceDetail = await getInvoiceByIdForSchool(supabase, schoolId, invoice.id)
+        const email = composeFullPaymentEmail({
+          studentName: notifyInfo.studentName,
+          parentName: notifyInfo.parentName,
+          schoolName: notifyInfo.schoolFullName,
+          termName,
+          amountPaid: applyAmount,
+          logoUrl: invoiceDetail?.schoolLogoUrl,
+        })
         const pdfBuffer = invoiceDetail
           ? await renderInvoicePdfBuffer(invoiceDetail, invoiceDetail.schoolLogoUrl)
           : null

@@ -25,8 +25,8 @@ async function buildInvoiceEmailContent(
   schoolId: string,
   params: InvoiceMessageParams
 ): Promise<EmailContent> {
-  const email = composeInvoiceEmail(params)
   const invoiceDetail = await getInvoiceByIdForSchool(supabase, schoolId, invoiceId)
+  const email = composeInvoiceEmail({ ...params, logoUrl: invoiceDetail?.schoolLogoUrl })
   const pdfBuffer = invoiceDetail
     ? await renderInvoicePdfBuffer(invoiceDetail, invoiceDetail.schoolLogoUrl)
     : null
@@ -60,6 +60,7 @@ export async function sendInvoice(invoiceId: string, channelOverride?: MessageCh
 
   const student: any = inv.students
   const family: any = student?.families
+  const parentName: string | undefined = family?.primary_parent_name
   const parentPhone: string | undefined = family?.primary_parent_phone
   const parentEmail: string | undefined = family?.primary_parent_email
   if (!parentPhone && !parentEmail) return { error: 'No parent phone number or email on file for this student.' }
@@ -77,6 +78,7 @@ export async function sendInvoice(invoiceId: string, channelOverride?: MessageCh
 
   const messageParams = {
     studentName: `${student.first_name} ${student.last_name}`.trim(),
+    parentName,
     termName: (inv.billing_cycles as any)?.name || '',
     amountDue: outstanding,
     accountNumber: student.provider_dva_account_number,

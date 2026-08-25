@@ -2,8 +2,8 @@
 // these interfaces and never talks to Termii/SES directly — so switching
 // provider, or tweaking a provider's quirks, is confined to one adapter file.
 //
-// Two channels: 'sms' via Termii (see termii.ts), 'email' via Amazon SES (see
-// ses.ts) — used both as a fallback when SMS delivery fails, and as the
+// Two channels: 'sms' via Termii (see termii.ts), 'email' via Brevo's REST
+// API (see brevo.ts) — used both as a fallback when SMS delivery fails, and as the
 // direct sender for PDF-attached invoice/receipt emails (an SMS can't carry
 // an attachment). WhatsApp was removed (2026-07-28) — it will be rebuilt
 // against SendChamp once that account exists.
@@ -22,7 +22,7 @@ export interface SendResult {
   ok: boolean
   // Provider's message id (for delivery-status correlation later).
   providerMessageId?: string
-  // True when this was a simulated send (TERMII_MODE/SES_MODE=mock) — no real
+  // True when this was a simulated send (TERMII_MODE/EMAIL_MODE=mock) — no real
   // message, no charge.
   mock?: boolean
   error?: string

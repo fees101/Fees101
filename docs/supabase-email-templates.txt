@@ -1,0 +1,196 @@
+Supabase Auth email templates — paste into the Supabase dashboard
+(Authentication → Emails → Templates), one per template.
+
+All four use the app's own navy (#0D1B36) header band + a mint (#5AD8A6)
+accent stripe/buttons, matching every other email Fees101 sends — navy is
+the app's "ink" color (body text, dark surfaces), mint is the actual brand
+accent (the "101" in the logo, buttons, highlights). Kept generic on
+purpose (no per-school logo) — per the decision to keep Supabase's native
+send for these.
+
+Password changed / Email address changed are separate "notification emails"
+(Authentication → Emails, own Enable toggle) that fire automatically
+whenever the corresponding auth.users field changes — self-service or
+admin-triggered (e.g. via admin.auth.admin.updateUserById) — no app code
+needed to send them.
+
+=====================================================================
+TEMPLATE: Invite user
+=====================================================================
+Subject:
+You've been added to {{ .Data.school_name }} on Fees101
+
+Body (HTML):
+-----------------------------------------------------------------
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/></head>
+<body style="margin:0; padding:0; background-color:#f3f4f6; font-family: Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6; padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+
+<tr><td style="background-color:#0D1B36; padding:24px 32px;">
+<p style="margin:0; color:#ffffff; font-size:18px; font-weight:bold;">{{ .Data.school_name }}</p>
+<p style="margin:4px 0 0; color:#9CA8C0; font-size:12px;">Team invitation</p>
+</td></tr>
+
+<tr><td style="height:4px; line-height:4px; font-size:0; background-color:#5AD8A6;">&nbsp;</td></tr>
+
+<tr><td style="padding:32px; color:#0D1B36; font-size:14px; line-height:1.7;">
+<p style="margin:0 0 12px;">Hello {{ .Data.name }},</p>
+<p style="margin:0 0 12px;">{{ .Data.inviter_name }} added you to <strong>{{ .Data.school_name }}</strong>'s account on Fees101 as <strong>{{ .Data.role_name }}</strong>.</p>
+<p style="margin:0 0 12px;">To activate your login, set your password:</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
+<tr><td style="border-radius:6px; background-color:#5AD8A6;">
+<a href="{{ .ConfirmationURL }}" style="display:inline-block; padding:12px 28px; color:#0D1B36; font-size:14px; font-weight:bold; text-decoration:none; border-radius:6px;">Set your password</a>
+</td></tr></table>
+<p style="margin:12px 0 0; color:#6b7280; font-size:12px;">Or paste this link into your browser:<br/>
+<a href="{{ .ConfirmationURL }}" style="color:#1D4ED8; word-break:break-all;">{{ .ConfirmationURL }}</a></p>
+<p style="margin:20px 0 0;">Once your password is set, you can sign in and start helping manage fees, students and invoices.</p>
+</td></tr>
+
+<tr><td style="padding:20px 32px; background-color:#f9fafb; border-top:1px solid #e5e7eb;">
+<p style="margin:0; color:#6b7280; font-size:12px; line-height:1.6;">
+You're receiving this because someone at <strong>{{ .Data.school_name }}</strong> added you to their Fees101 account.<br/>
+If you weren't expecting this, you can safely ignore this email — the link won't do anything until you use it.
+</p>
+<p style="margin:16px 0 0; color:#9CA8C0; font-size:11px;">Powered by Fees<span style="color:#5AD8A6; font-weight:bold;">101</span></p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>
+-----------------------------------------------------------------
+
+=====================================================================
+TEMPLATE: Reset password
+=====================================================================
+Subject:
+Reset your Fees101 password
+
+Body (HTML):
+-----------------------------------------------------------------
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/></head>
+<body style="margin:0; padding:0; background-color:#f3f4f6; font-family: Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6; padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+
+<tr><td style="background-color:#0D1B36; padding:24px 32px;">
+<p style="margin:0; color:#ffffff; font-size:18px; font-weight:bold;">Fees101</p>
+<p style="margin:4px 0 0; color:#9CA8C0; font-size:12px;">Password reset</p>
+</td></tr>
+
+<tr><td style="height:4px; line-height:4px; font-size:0; background-color:#5AD8A6;">&nbsp;</td></tr>
+
+<tr><td style="padding:32px; color:#0D1B36; font-size:14px; line-height:1.7;">
+<p style="margin:0 0 12px;">Hello,</p>
+<p style="margin:0 0 12px;">We received a request to reset the password for the Fees101 account registered to <strong>{{ .Email }}</strong>.</p>
+<p style="margin:0 0 12px;">Choose a new password:</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
+<tr><td style="border-radius:6px; background-color:#5AD8A6;">
+<a href="{{ .ConfirmationURL }}" style="display:inline-block; padding:12px 28px; color:#0D1B36; font-size:14px; font-weight:bold; text-decoration:none; border-radius:6px;">Reset your password</a>
+</td></tr></table>
+<p style="margin:12px 0 0; color:#6b7280; font-size:12px;">Or paste this link into your browser:<br/>
+<a href="{{ .ConfirmationURL }}" style="color:#1D4ED8; word-break:break-all;">{{ .ConfirmationURL }}</a></p>
+<p style="margin:20px 0 0; color:#6b7280; font-size:13px;">This link will expire shortly for your security. If you didn't request this, you can safely ignore this email — your password won't change unless you click the link above and set a new one.</p>
+</td></tr>
+
+<tr><td style="padding:20px 32px; background-color:#f9fafb; border-top:1px solid #e5e7eb;">
+<p style="margin:0; color:#6b7280; font-size:12px; line-height:1.6;">
+If you didn't request a password reset, please contact your school's Fees101 administrator.
+</p>
+<p style="margin:16px 0 0; color:#9CA8C0; font-size:11px;">Powered by Fees<span style="color:#5AD8A6; font-weight:bold;">101</span></p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>
+-----------------------------------------------------------------
+
+=====================================================================
+TEMPLATE: Password changed (Authentication → Emails → notification, own Enable toggle)
+=====================================================================
+Subject:
+Your Fees101 password was changed
+
+Body (HTML):
+-----------------------------------------------------------------
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/></head>
+<body style="margin:0; padding:0; background-color:#f3f4f6; font-family: Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6; padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+
+<tr><td style="background-color:#0D1B36; padding:24px 32px;">
+<p style="margin:0; color:#ffffff; font-size:18px; font-weight:bold;">Fees101</p>
+<p style="margin:4px 0 0; color:#9CA8C0; font-size:12px;">Security notice</p>
+</td></tr>
+
+<tr><td style="height:4px; line-height:4px; font-size:0; background-color:#5AD8A6;">&nbsp;</td></tr>
+
+<tr><td style="padding:32px; color:#0D1B36; font-size:14px; line-height:1.7;">
+<p style="margin:0 0 12px;">Hello,</p>
+<p style="margin:0 0 12px;">The password for the Fees101 account registered to <strong>{{ .Email }}</strong> was just changed.</p>
+<p style="margin:0 0 12px;"><span style="display:inline-block; background-color:#E8F8F1; color:#0D1B36; padding:4px 12px; border-radius:6px; font-size:13px; font-weight:bold;">If you made this change, no action is needed.</span></p>
+<p style="margin:20px 0 0; color:#b91c1c; font-size:13px;">If you didn't make this change, contact your school's Fees101 administrator immediately — your account may be compromised.</p>
+</td></tr>
+
+<tr><td style="padding:20px 32px; background-color:#f9fafb; border-top:1px solid #e5e7eb;">
+<p style="margin:0; color:#6b7280; font-size:12px; line-height:1.6;">
+This is an automatic security notification sent whenever your Fees101 password changes.
+</p>
+<p style="margin:16px 0 0; color:#9CA8C0; font-size:11px;">Powered by Fees<span style="color:#5AD8A6; font-weight:bold;">101</span></p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>
+-----------------------------------------------------------------
+
+=====================================================================
+TEMPLATE: Email address changed (Authentication → Emails → notification, own Enable toggle)
+=====================================================================
+Subject:
+Your Fees101 login email was changed
+
+Body (HTML):
+-----------------------------------------------------------------
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/></head>
+<body style="margin:0; padding:0; background-color:#f3f4f6; font-family: Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6; padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+
+<tr><td style="background-color:#0D1B36; padding:24px 32px;">
+<p style="margin:0; color:#ffffff; font-size:18px; font-weight:bold;">Fees101</p>
+<p style="margin:4px 0 0; color:#9CA8C0; font-size:12px;">Security notice</p>
+</td></tr>
+
+<tr><td style="height:4px; line-height:4px; font-size:0; background-color:#5AD8A6;">&nbsp;</td></tr>
+
+<tr><td style="padding:32px; color:#0D1B36; font-size:14px; line-height:1.7;">
+<p style="margin:0 0 12px;">Hello,</p>
+<p style="margin:0 0 12px;">The login email for your Fees101 account was just changed from <strong>{{ .OldEmail }}</strong> to <strong>{{ .Email }}</strong>.</p>
+<p style="margin:0 0 12px;"><span style="display:inline-block; background-color:#E8F8F1; color:#0D1B36; padding:4px 12px; border-radius:6px; font-size:13px; font-weight:bold;">If you or your school administrator made this change, no action is needed.</span></p>
+<p style="margin:20px 0 0; color:#b91c1c; font-size:13px;">If you didn't expect this, contact your school's Fees101 administrator immediately.</p>
+</td></tr>
+
+<tr><td style="padding:20px 32px; background-color:#f9fafb; border-top:1px solid #e5e7eb;">
+<p style="margin:0; color:#6b7280; font-size:12px; line-height:1.6;">
+This is an automatic security notification sent whenever the login email on a Fees101 account changes.
+</p>
+<p style="margin:16px 0 0; color:#9CA8C0; font-size:11px;">Powered by Fees<span style="color:#5AD8A6; font-weight:bold;">101</span></p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>
+-----------------------------------------------------------------
