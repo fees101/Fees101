@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/permissions'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 interface ParsedRow {
   rowNumber: number
@@ -222,7 +223,7 @@ export async function importStudents(rows: ParsedRow[]) {
   // Gated on manage-students (owner/super_admin/is_admin bypass).
   const ctx = await requirePermission('manage-students')
   if (!ctx || !ctx.schoolId) return { error: 'Not authorized' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: section } = await supabase
     .from('sections')
@@ -327,6 +328,15 @@ export async function importStudents(rows: ParsedRow[]) {
     .select('name')
     .eq('id', schoolId)
     .single()
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.imported',
+    targetType: 'student',
+    summary: `Imported ${imported} students (${failed} failed)`,
+    metadata: { count: imported, failures: failed },
+  })
 
   revalidatePath('/students')
 

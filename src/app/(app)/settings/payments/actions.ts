@@ -4,6 +4,7 @@ import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 import { encryptCredential } from '@/lib/payments/encryption'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Only Monnify is wired into getProvider() today; guard against anything else
 // so we never save a provider the engine can't actually use.
@@ -13,7 +14,7 @@ async function getContext() {
   // Gated on the 'manage-payment-config' permission (owner/super_admin/is_admin bypass).
   const ctx = await requirePermission('manage-payment-config')
   if (!ctx || !ctx.schoolId) return null
-  return { supabase: ctx.supabase, schoolId: ctx.schoolId }
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 export async function savePaymentProvider(form: {
@@ -25,7 +26,7 @@ export async function savePaymentProvider(form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   if (!SUPPORTED_PROVIDERS.includes(form.provider)) {
     return { error: 'Unsupported payment provider' }
@@ -65,6 +66,16 @@ export async function savePaymentProvider(form: {
     .eq('id', schoolId)
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'payment_config.updated',
+    targetType: 'school',
+    targetId: schoolId,
+    summary: `Configured the "${form.provider}" payment provider`,
+    metadata: { provider: form.provider },
+  })
 
   revalidatePath('/settings/payments')
   return { success: true }

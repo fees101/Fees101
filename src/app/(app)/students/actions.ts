@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { tryAutoCreateStudentDVA } from '@/lib/payments/provisionDVA'
 import { requirePermission } from '@/lib/auth/permissions'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 interface AddStudentInput {
   firstName: string
@@ -22,7 +23,7 @@ export async function addStudent(input: AddStudentInput) {
   // Gated on manage-students (owner/super_admin/is_admin bypass).
   const authCtx = await requirePermission('manage-students')
   if (!authCtx || !authCtx.schoolId) return { error: 'Not authorized' }
-  const { supabase, schoolId } = authCtx
+  const { supabase, schoolId, userId } = authCtx
 
   // Get the section (using first section for now)
   const { data: section } = await supabase
@@ -110,6 +111,15 @@ export async function addStudent(input: AddStudentInput) {
     newStudent.id,
     `${input.firstName} ${input.lastName}`.trim()
   )
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.added',
+    targetType: 'student',
+    targetId: newStudent.id,
+    summary: `Added student ${`${input.firstName} ${input.lastName}`.trim()}`,
+  })
 
   revalidatePath('/students')
   return { success: true }

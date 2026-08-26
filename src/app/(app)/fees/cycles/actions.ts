@@ -6,6 +6,7 @@ import { computeInvoiceForStudent, ComputedInvoice, applyCreditBalanceDelta } fr
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 import { carryForwardFeeAdjustments } from '@/lib/fees/carryForwardAdjustments'
 import { PromotionDecision } from '@/lib/yearEnd/promotion'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 async function getContext(perm: string = 'manage-fee-structure') {
   // Fee/session/term/cycle edits require manage-fee-structure by default;
@@ -26,7 +27,7 @@ export async function createSession(form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const name = form.name.trim()
   if (!name) return { error: 'Session name is required' }
@@ -70,6 +71,16 @@ export async function createSession(form: {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'session.created',
+    targetType: 'session',
+    targetId: data.id,
+    summary: `Created session ${name}`,
+    metadata: { name, startDate: form.startDate, endDate: form.endDate, status },
+  })
+
   revalidatePath('/fees/cycles')
   revalidatePath('/settings/academic-structure')
   return { success: true, sessionId: data.id }
@@ -79,14 +90,14 @@ export async function createSession(form: {
 export async function setActiveSession(id: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   // A closed session belongs to a finished academic year — reopening it would
   // reverse a deliberate, record-keeping-significant close. Only draft (being
   // prepared) or already-active sessions may be made current.
   const { data: target } = await supabase
     .from('sessions')
-    .select('id, status')
+    .select('id, status, name')
     .eq('id', id)
     .eq('school_id', schoolId)
     .single()
@@ -110,6 +121,15 @@ export async function setActiveSession(id: string) {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'session.activated',
+    targetType: 'session',
+    targetId: id,
+    summary: `Activated session ${target.name}`,
+  })
+
   revalidatePath('/fees/cycles')
   revalidatePath('/settings/academic-structure')
   return { success: true }
@@ -118,7 +138,14 @@ export async function setActiveSession(id: string) {
 export async function closeSession(id: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: session } = await supabase
+    .from('sessions')
+    .select('id, name')
+    .eq('id', id)
+    .eq('school_id', schoolId)
+    .maybeSingle()
 
   const { error } = await supabase
     .from('sessions')
@@ -127,6 +154,15 @@ export async function closeSession(id: string) {
     .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'session.closed',
+    targetType: 'session',
+    targetId: id,
+    summary: `Closed session ${session?.name || id}`,
+  })
 
   revalidatePath('/fees/cycles')
   revalidatePath('/settings/academic-structure')
@@ -165,7 +201,7 @@ export async function createTerm(form: {
 }): Promise<CreateTermResult> {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const name = form.name.trim()
   if (!name) return { error: 'Term name is required' }
@@ -213,7 +249,7 @@ export async function createTerm(form: {
     // Route through the same close+carry-forward path activateTerm uses —
     // a bare status flip here would silently drop outstanding balances.
     if (currentActive) {
-      closeSummary = await closeTermAndCarryForward(supabase, schoolId, currentActive.id)
+      closeSummary = await closeTermAndCarryForward(supabase, schoolId, currentActive.id, userId)
       closedTermName = currentActive.name
     }
   }
@@ -262,6 +298,16 @@ export async function createTerm(form: {
     unmatchedAdjustments = result.unmatched.length > 0 ? result.unmatched : undefined
   }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'term.created',
+    targetType: 'term',
+    targetId: newCycle?.id,
+    summary: `Created term ${name}`,
+    metadata: { name, startDate: form.startDate, endDate: form.endDate, dueDate: form.dueDate, sessionId, activatedImmediately: !!form.activateImmediately },
+  })
+
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
   revalidatePath('/fees/structure')
@@ -289,7 +335,7 @@ export async function updateTerm(id: string, form: {
 }): Promise<UpdateTermResult> {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: cycle } = await supabase
     .from('billing_cycles')
@@ -338,6 +384,16 @@ export async function updateTerm(id: string, form: {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'term.updated',
+    targetType: 'term',
+    targetId: id,
+    summary: `Updated term ${name}`,
+    metadata: { name, startDate: form.startDate, endDate: form.endDate, dueDate: form.dueDate },
+  })
+
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
   return { success: true }
@@ -359,11 +415,12 @@ interface CloseCarryForwardSummary {
 export async function closeTermAndCarryForward(
   supabase: any,
   schoolId: string,
-  cycleId: string
+  cycleId: string,
+  actorId?: string | null
 ): Promise<CloseCarryForwardSummary> {
   const { data: closedCycle } = await supabase
     .from('billing_cycles')
-    .select('start_date')
+    .select('start_date, name')
     .eq('id', cycleId)
     .single()
 
@@ -466,6 +523,18 @@ export async function closeTermAndCarryForward(
     }
   }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: actorId || null,
+    action: 'term.closed_carried_forward',
+    targetType: 'term',
+    targetId: cycleId,
+    summary: studentsWithOutstanding.length > 0
+      ? `Closed term ${closedCycle?.name || cycleId} and carried forward outstanding balances for ${studentsWithOutstanding.length} student(s) (₦${totalOutstanding.toLocaleString()})`
+      : `Closed term ${closedCycle?.name || cycleId} with no outstanding balances to carry forward`,
+    metadata: { studentsWithOutstanding: studentsWithOutstanding.length, totalOutstanding, invoicesUpdated, invoicesNeedingResend },
+  })
+
   return {
     studentsWithOutstanding: studentsWithOutstanding.length,
     totalOutstanding,
@@ -477,14 +546,14 @@ export async function closeTermAndCarryForward(
 export async function activateTerm(id: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   // Find the term being activated so we can keep its parent session in sync —
   // otherwise a draft term under an old, never-closed session can go active
   // while that session stays draft/stale, desyncing session and term status.
   const { data: target } = await supabase
     .from('billing_cycles')
-    .select('id, session_id')
+    .select('id, session_id, name')
     .eq('id', id)
     .eq('school_id', schoolId)
     .single()
@@ -535,7 +604,7 @@ export async function activateTerm(id: string) {
 
   let closeSummary: CloseCarryForwardSummary | null = null
   if (currentActive) {
-    closeSummary = await closeTermAndCarryForward(supabase, schoolId, currentActive.id)
+    closeSummary = await closeTermAndCarryForward(supabase, schoolId, currentActive.id, userId)
   }
 
   // Activate the new term
@@ -546,6 +615,16 @@ export async function activateTerm(id: string) {
     .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'term.activated',
+    targetType: 'term',
+    targetId: id,
+    summary: `Activated term ${target.name}`,
+    metadata: { previouslyActiveTerm: currentActive?.name || null },
+  })
 
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
@@ -654,11 +733,11 @@ type CloseTermResult =
 export async function closeTerm(id: string): Promise<CloseTermResult> {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: cycle } = await supabase
     .from('billing_cycles')
-    .select('id, status')
+    .select('id, status, name')
     .eq('id', id)
     .eq('school_id', schoolId)
     .single()
@@ -666,7 +745,17 @@ export async function closeTerm(id: string): Promise<CloseTermResult> {
   if (!cycle) return { error: 'Term not found' }
   if (cycle.status === 'closed') return { error: 'Term is already closed' }
 
-  const summary = await closeTermAndCarryForward(supabase, schoolId, id)
+  const summary = await closeTermAndCarryForward(supabase, schoolId, id, userId)
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'term.closed',
+    targetType: 'term',
+    targetId: id,
+    summary: `Closed term ${cycle.name}`,
+    metadata: summary,
+  })
 
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
@@ -677,17 +766,17 @@ export async function closeTerm(id: string): Promise<CloseTermResult> {
 export async function reopenTermAsDraft(id: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: cycle } = await supabase
     .from('billing_cycles')
-    .select('id, status')
+    .select('id, status, name')
     .eq('id', id)
     .eq('school_id', schoolId)
     .single()
 
   if (!cycle) return { error: 'Term not found' }
-  
+
   // Only active terms can be moved back to draft. Closed terms are permanent.
   if (cycle.status === 'closed') {
     return { error: 'Closed terms cannot be reopened. Contact support if you need to recover a closed term.' }
@@ -717,6 +806,15 @@ export async function reopenTermAsDraft(id: string) {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'term.reopened_draft',
+    targetType: 'term',
+    targetId: id,
+    summary: `Reopened term ${cycle.name} as draft`,
+  })
+
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
   return { success: true }
@@ -725,7 +823,7 @@ export async function reopenTermAsDraft(id: string) {
 export async function deleteTermDraft(id: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: cycle } = await supabase
     .from('billing_cycles')
@@ -797,6 +895,15 @@ export async function deleteTermDraft(id: string) {
     .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'term.draft_deleted',
+    targetType: 'term',
+    targetId: id,
+    summary: `Deleted draft term ${cycle.name}`,
+  })
 
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
@@ -935,7 +1042,7 @@ async function getNextInvoiceSequence(
 export async function generateInvoicesForCycle(cycleId: string) {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: cycle } = await supabase
     .from('billing_cycles')
@@ -1021,6 +1128,16 @@ export async function generateInvoicesForCycle(cycleId: string) {
     .update({ invoices_generated_at: new Date().toISOString() })
     .eq('id', cycleId)
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.generated_bulk',
+    targetType: 'billing_cycle',
+    targetId: cycleId,
+    summary: `Generated ${generated} invoice(s) for term ${cycle.name}${errors.length > 0 ? ` (${errors.length} failed)` : ''}`,
+    metadata: { count: generated, failures: errors.length, alreadyHad: alreadyInvoicedIds.size, errors },
+  })
+
   revalidatePath(`/fees/cycles/${cycleId}`)
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
@@ -1037,7 +1154,7 @@ export async function generateInvoicesForCycle(cycleId: string) {
 export async function generateInvoiceForStudent(studentId: string, cycleId: string) {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: cycle } = await supabase
     .from('billing_cycles')
@@ -1103,6 +1220,22 @@ export async function generateInvoiceForStudent(studentId: string, cycleId: stri
     await applyCreditBalanceDelta(supabase, schoolId, studentId, -computed.creditApplied)
   }
 
+  const { data: student } = await supabase
+    .from('students')
+    .select('first_name, last_name')
+    .eq('id', studentId)
+    .maybeSingle()
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.generated',
+    targetType: 'invoice',
+    targetId: data.id,
+    summary: `Generated invoice ${invoiceNumber} for ${student ? `${student.first_name} ${student.last_name}` : studentId} (₦${computed.total.toLocaleString()})`,
+    metadata: { studentId, cycleId: targetCycleId, total: computed.total },
+  })
+
   revalidatePath(`/students/${studentId}`)
   revalidatePath(`/fees/cycles/${targetCycleId}`)
   return { success: true, invoiceId: data.id }
@@ -1114,11 +1247,11 @@ export async function regenerateInvoice(invoiceId: string): Promise<
 > {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: existing } = await supabase
     .from('invoices')
-    .select('id, student_id, billing_cycle_id, paid_amount, sent_at, credit_applied, billing_cycles(status)')
+    .select('id, student_id, billing_cycle_id, paid_amount, sent_at, credit_applied, invoice_number, billing_cycles(status)')
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
     .single()
@@ -1177,6 +1310,16 @@ export async function regenerateInvoice(invoiceId: string): Promise<
     await applyCreditBalanceDelta(supabase, schoolId, existing.student_id, -computed.creditApplied)
   }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.regenerated',
+    targetType: 'invoice',
+    targetId: invoiceId,
+    summary: `Regenerated invoice ${existing.invoice_number || invoiceId} (new total ₦${computed.total.toLocaleString()})`,
+    metadata: { studentId: existing.student_id, cycleId: existing.billing_cycle_id, newTotal: computed.total, previousPaid: paid },
+  })
+
   revalidatePath(`/students/${existing.student_id}`)
   revalidatePath(`/fees/cycles/${existing.billing_cycle_id}`)
   return { success: true, newTotal: computed.total, wasOverpaid: paid > computed.total }
@@ -1188,11 +1331,11 @@ export async function regenerateStaleInvoicesForCycle(cycleId: string): Promise<
 > {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: cycle } = await supabase
     .from('billing_cycles')
-    .select('id, status')
+    .select('id, status, name')
     .eq('id', cycleId)
     .eq('school_id', schoolId)
     .single()
@@ -1277,6 +1420,16 @@ export async function regenerateStaleInvoicesForCycle(cycleId: string): Promise<
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.regenerated_bulk',
+    targetType: 'billing_cycle',
+    targetId: cycleId,
+    summary: `Regenerated ${regenerated} stale invoice(s) for term ${cycle.name}${errors.length > 0 ? ` (${errors.length} failed)` : ''}`,
+    metadata: { count: regenerated, failures: errors.length, alreadyUpToDate, errors },
+  })
+
   return { success: true, regenerated, alreadyUpToDate, errors }
 }
 
@@ -1333,7 +1486,7 @@ export async function startYearEndRollover(form: {
 }) {
   const ctx = await getContext('run-year-end')
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   let expectedSessionName = form.newTerm.newSessionName?.trim()
   if (!expectedSessionName && form.newTerm.adoptCycleId) {
@@ -1462,10 +1615,42 @@ export async function startYearEndRollover(form: {
     return { error: promoRowsError.message }
   }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'year_end.started',
+    targetType: 'session',
+    targetId: run.id,
+    summary: `Started year-end rollover from term ${currentActive.name}`,
+    metadata: { runId: run.id, fromCycleId: currentActive.id, decisionCount: form.decisions.length },
+  })
+
   return continueYearEndRollover(run.id, form.newTerm)
 }
 
 export async function resumeYearEndRollover(runId: string, newTerm?: NewTermInput) {
+  const ctx = await getContext('run-year-end')
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: run } = await supabase
+    .from('rollover_runs')
+    .select('id, from_cycle_id, billing_cycles!from_cycle_id(name)')
+    .eq('id', runId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'year_end.resumed',
+    targetType: 'session',
+    targetId: runId,
+    // @ts-expect-error — joined
+    summary: `Resumed year-end rollover${run?.billing_cycles?.name ? ` from term ${run.billing_cycles.name}` : ''}`,
+    metadata: { runId },
+  })
+
   return continueYearEndRollover(runId, newTerm)
 }
 
@@ -1478,7 +1663,7 @@ export async function resumeYearEndRollover(runId: string, newTerm?: NewTermInpu
 export async function cancelYearEndRollover(runId: string): Promise<{ error: string } | { success: true }> {
   const ctx = await getContext('run-year-end')
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: run } = await supabase
     .from('rollover_runs')
@@ -1509,6 +1694,15 @@ export async function cancelYearEndRollover(runId: string): Promise<{ error: str
 
   const { error } = await supabase.from('rollover_runs').delete().eq('id', runId)
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'year_end.cancelled',
+    targetType: 'session',
+    targetId: runId,
+    summary: `Cancelled year-end rollover run ${runId}`,
+  })
 
   revalidatePath('/fees/year-end')
   return { success: true }

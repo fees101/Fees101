@@ -7,6 +7,7 @@ import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { createClient } from '@supabase/supabase-js'
 import { sendEmail } from '@/lib/messaging/sendMessage'
 import { composeEmailChangedToNewAddress, composeEmailChangedToOldAddress } from '@/lib/messaging/composeInvite'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Team management: add staff (Supabase-emailed set-password invite), reassign
 // roles, and activate/deactivate logins. All gated on manage-team. New auth
@@ -119,6 +120,17 @@ export async function addStaff(input: AddStaffInput) {
     body: `${actor?.name || 'Someone'} invited ${name} (${email}) with the "${role.name}" role.`,
   })
 
+  await logAuditEvent(ctx.supabase, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    actorName: actor?.name,
+    action: 'staff.added',
+    targetType: 'user',
+    targetId: newUserId,
+    summary: `Added ${name} (${email}) with the "${role.name}" role`,
+    metadata: { name, email, roleId: input.roleId, roleName: role.name },
+  })
+
   revalidatePath('/settings/users')
   return { success: true }
 }
@@ -192,6 +204,17 @@ export async function updateStaffRole(userId: string, roleId: string, reason: st
     body: `${actor?.name || 'Someone'} changed ${staff?.name || 'this user'}'s role from ${fromRoleName} to ${role.name}. Reason: ${trimmedReason}`,
   })
 
+  await logAuditEvent(ctx.supabase, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    actorName: actor?.name,
+    action: 'staff.role_changed',
+    targetType: 'user',
+    targetId: userId,
+    summary: `Changed ${staff?.name || 'a team member'}'s role from ${fromRoleName} to ${role.name}`,
+    metadata: { fromRoleName, toRoleId: roleId, toRoleName: role.name, reason: trimmedReason },
+  })
+
   revalidatePath('/settings/users')
   return { success: true }
 }
@@ -211,7 +234,7 @@ export async function setStaffActive(userId: string, active: boolean) {
   // while staying active themselves.
   const { data: targetUser } = await ctx.supabase
     .from('users')
-    .select('role')
+    .select('name, role')
     .eq('id', userId)
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
@@ -244,6 +267,16 @@ export async function setStaffActive(userId: string, active: boolean) {
     .eq('school_id', ctx.schoolId)
   if (error) return { error: error.message }
 
+  await logAuditEvent(ctx.supabase, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    action: active ? 'staff.activated' : 'staff.deactivated',
+    targetType: 'user',
+    targetId: userId,
+    summary: `${active ? 'Activated' : 'Deactivated'} ${targetUser?.name || 'a team member'}`,
+    metadata: { active },
+  })
+
   revalidatePath('/settings/users')
   return { success: true }
 }
@@ -254,7 +287,7 @@ export async function resetStaffPassword(userId: string) {
 
   const { data: staff } = await ctx.supabase
     .from('users')
-    .select('email')
+    .select('email, name')
     .eq('id', userId)
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
@@ -274,6 +307,15 @@ export async function resetStaffPassword(userId: string) {
     redirectTo: `${origin}/auth/callback?next=/set-password`,
   })
   if (resetError) return { error: resetError.message || 'Could not send a reset link.' }
+
+  await logAuditEvent(ctx.supabase, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    action: 'staff.password_reset_sent',
+    targetType: 'user',
+    targetId: userId,
+    summary: `Sent a password reset link to ${staff.name || staff.email}`,
+  })
 
   return { success: true }
 }
@@ -368,6 +410,17 @@ export async function updateStaffEmail(userId: string, newEmail: string, reason:
     body: `${actorName} changed ${targetUser.name || 'this user'}'s login email from ${oldEmail} to ${email}. Reason: ${trimmedReason}`,
   })
 
+  await logAuditEvent(ctx.supabase, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    actorName,
+    action: 'staff.email_changed',
+    targetType: 'user',
+    targetId: userId,
+    summary: `Changed ${targetUser.name || 'a team member'}'s login email from ${oldEmail} to ${email}`,
+    metadata: { oldEmail, newEmail: email, reason: trimmedReason },
+  })
+
   revalidatePath('/settings/users')
   return { success: true }
 }
@@ -402,6 +455,16 @@ export async function resendInvite(userId: string) {
   if (inviteError) {
     return { error: inviteError.message || 'Could not send a new invite.' }
   }
+
+  await logAuditEvent(ctx.supabase, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    actorName: actor?.name,
+    action: 'staff.invite_resent',
+    targetType: 'user',
+    targetId: userId,
+    summary: `Resent the invite to ${staff.name || staff.email}`,
+  })
 
   revalidatePath('/settings/users')
   return { success: true }

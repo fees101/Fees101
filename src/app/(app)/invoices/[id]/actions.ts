@@ -8,12 +8,13 @@ import { composeInvoiceSMS, composeInvoiceEmail, InvoiceMessageParams } from '@/
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 import { getInvoiceByIdForSchool } from '@/lib/queries/fees'
 import { renderInvoicePdfBuffer } from '@/lib/pdf/renderInvoicePdf'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 async function getContext() {
   // Gated on the 'manage-invoices' permission (owner/super_admin/is_admin bypass).
   const ctx = await requirePermission('manage-invoices')
   if (!ctx || !ctx.schoolId) return null
-  return { supabase: ctx.supabase, schoolId: ctx.schoolId }
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 // Renders the invoice PDF and pairs it with the email body — kept separate
@@ -41,7 +42,7 @@ async function buildInvoiceEmailContent(
 export async function sendInvoice(invoiceId: string, channelOverride?: MessageChannel) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: inv } = await supabase
     .from('invoices')
@@ -118,9 +119,21 @@ export async function sendInvoice(invoiceId: string, channelOverride?: MessageCh
     .eq('school_id', schoolId)
 
   revalidatePath(`/invoices/${invoiceId}`)
+
+  const channelsUsed = result.attempts.filter((a) => a.ok).map((a) => a.channel)
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.sent',
+    targetType: 'invoice',
+    targetId: invoiceId,
+    summary: `Sent the invoice for ${messageParams.studentName} via ${channelsUsed.join(', ') || 'no channel'}`,
+    metadata: { studentId: student.id, channelsUsed, outstanding, channelOverride },
+  })
+
   return {
     success: true,
-    channelsUsed: result.attempts.filter((a) => a.ok).map((a) => a.channel),
+    channelsUsed,
     to: [parentPhone, parentEmail].filter(Boolean).join(' / '),
     preview: smsText,
   }

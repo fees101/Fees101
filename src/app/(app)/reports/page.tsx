@@ -7,7 +7,9 @@ export const dynamic = 'force-dynamic'
 
 export default async function ReportsPage() {
   const ctx = await getAuthContext()
-  if (!can(ctx, 'see-reports')) redirect('/dashboard')
+  const showReports = can(ctx, 'see-reports')
+  const showAuditLog = can(ctx, 'see-audit-log')
+  if (!showReports && !showAuditLog) redirect('/dashboard')
   const showFinancials = can(ctx, 'see-financial-totals')
 
   const [{ sessions, cycles }, downloads] = await Promise.all([
@@ -18,7 +20,14 @@ export default async function ReportsPage() {
   return (
     <main className="px-6 py-6">
       <div className="max-w-5xl mx-auto">
-        <ReportsLayout sessions={sessions} cycles={cycles} downloads={downloads} showFinancials={showFinancials} />
+        <ReportsLayout
+          sessions={sessions}
+          cycles={cycles}
+          downloads={downloads}
+          showFinancials={showFinancials}
+          showReports={showReports}
+          showAuditLog={showAuditLog}
+        />
       </div>
     </main>
   )

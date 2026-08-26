@@ -10,6 +10,7 @@ import { composeReminderSMS, composeOverdueSMS } from '@/lib/messaging/composeIn
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 export async function updateStudentDetails(studentId: string, formData: {
   firstName: string
@@ -21,7 +22,7 @@ export async function updateStudentDetails(studentId: string, formData: {
 }) {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   // Get current student to check admission number conflicts
   const { data: currentStudent } = await supabase
@@ -63,6 +64,15 @@ export async function updateStudentDetails(studentId: string, formData: {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.updated',
+    targetType: 'student',
+    targetId: studentId,
+    summary: `Updated ${`${formData.firstName} ${formData.lastName}`.trim()}'s details`,
+  })
+
   revalidatePath(`/students/${studentId}`)
   revalidatePath('/students')
 
@@ -79,7 +89,7 @@ export async function updateFamilyInfo(familyId: string, studentId: string, form
 }) {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { error } = await supabase
     .from('families')
@@ -96,6 +106,15 @@ export async function updateFamilyInfo(familyId: string, studentId: string, form
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'family.updated',
+    targetType: 'family',
+    targetId: familyId,
+    summary: `Updated family info for ${formData.primaryParentName || familyId}`,
+  })
+
   revalidatePath(`/students/${studentId}`)
   revalidatePath('/students')
 
@@ -105,7 +124,7 @@ export async function updateFamilyInfo(familyId: string, studentId: string, form
 export async function updateFamilyNotes(familyId: string, studentId: string, notes: string) {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { error } = await supabase
     .from('families')
@@ -115,6 +134,15 @@ export async function updateFamilyNotes(familyId: string, studentId: string, not
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'family.notes_updated',
+    targetType: 'family',
+    targetId: familyId,
+    summary: `Updated notes for family ${familyId}`,
+  })
+
   revalidatePath(`/students/${studentId}`)
 
   return { success: true }
@@ -123,7 +151,14 @@ export async function updateFamilyNotes(familyId: string, studentId: string, not
 export async function updateStudentStatus(studentId: string, status: 'withdrawn' | 'graduated') {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: currentStudent } = await supabase
+    .from('students')
+    .select('first_name, last_name, status')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .single()
 
   const { error } = await supabase
     .from('students')
@@ -136,6 +171,17 @@ export async function updateStudentStatus(studentId: string, status: 'withdrawn'
     .eq('school_id', schoolId)
 
   if (error) return { error: error.message }
+
+  const studentName = currentStudent ? `${currentStudent.first_name} ${currentStudent.last_name}`.trim() : studentId
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.status_changed',
+    targetType: 'student',
+    targetId: studentId,
+    summary: `Changed ${studentName}'s status from ${currentStudent?.status || 'unknown'} to ${status}`,
+    metadata: { oldStatus: currentStudent?.status || null, newStatus: status },
+  })
 
   revalidatePath(`/students/${studentId}`)
   revalidatePath('/students')
@@ -177,7 +223,7 @@ type FeeContext = NonNullable<Awaited<ReturnType<typeof getStudentFeeContext>>>
 async function getCycleForFeeItemOrError(supabase: FeeContext['supabase'], schoolId: string, feeItemId: string) {
   const { data: feeItem } = await supabase
     .from('fee_items')
-    .select('billing_cycle_id')
+    .select('name, billing_cycle_id')
     .eq('id', feeItemId)
     .eq('school_id', schoolId)
     .single()
@@ -191,7 +237,7 @@ async function getCycleForFeeItemOrError(supabase: FeeContext['supabase'], schoo
     .single()
   if (!cycle) return { error: 'Term not found' }
   if (cycle.status === 'closed') return { error: 'This term is closed. Fee data is read-only.' }
-  return { cycle }
+  return { cycle, feeItemName: feeItem.name as string }
 }
 
 async function assertStudentInSchool(supabase: FeeContext['supabase'], schoolId: string, studentId: string) {
@@ -251,6 +297,17 @@ export async function toggleStudentOptIn(studentId: string, feeItemId: string) {
     if (error) return { error: error.message }
   }
 
+  const newState = existing ? 'opted_out' : 'opted_in'
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.opt_in_toggled',
+    targetType: 'student',
+    targetId: studentId,
+    summary: `${existing ? 'Removed opt-in for' : 'Opted student in to'} ${cycleResult.feeItemName}`,
+    metadata: { feeItemId, feeItemName: cycleResult.feeItemName, newState },
+  })
+
   revalidatePath(`/students/${studentId}`)
   return { success: true }
 }
@@ -303,6 +360,16 @@ export async function setStudentExemption(studentId: string, feeItemId: string, 
     if (error) return { error: error.message }
   }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.exemption_set',
+    targetType: 'student',
+    targetId: studentId,
+    summary: `Set an exemption on ${cycleResult.feeItemName}`,
+    metadata: { feeItemId, feeItemName: cycleResult.feeItemName, notes: notes?.trim() || null },
+  })
+
   revalidatePath(`/students/${studentId}`)
   return { success: true }
 }
@@ -310,7 +377,7 @@ export async function setStudentExemption(studentId: string, feeItemId: string, 
 export async function removeStudentExemption(studentId: string, feeItemId: string) {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const cycleResult = await getCycleForFeeItemOrError(supabase, schoolId, feeItemId)
   if ('error' in cycleResult) return { error: cycleResult.error }
@@ -324,6 +391,16 @@ export async function removeStudentExemption(studentId: string, feeItemId: strin
     .eq('adjustment_type', 'exempt')
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.exemption_removed',
+    targetType: 'student',
+    targetId: studentId,
+    summary: `Removed the exemption on ${cycleResult.feeItemName}`,
+    metadata: { feeItemId, feeItemName: cycleResult.feeItemName },
+  })
 
   revalidatePath(`/students/${studentId}`)
   return { success: true }
@@ -385,6 +462,17 @@ export async function revokeDiscount(discountId: string): Promise<RevokeDiscount
       .update({ is_recurring: false, updated_at: now })
       .eq('id', discountId)
     if (error) return { error: error.message }
+
+    await logAuditEvent(supabase, {
+      schoolId,
+      actorId: userId,
+      action: 'discount.recurring_revoked',
+      targetType: 'discount',
+      targetId: discountId,
+      summary: `Stopped a ${discount.category || ''} discount from carrying forward for student ${discount.student_id}`,
+      metadata: { invoiceId: invoice.id, studentId: discount.student_id, category: discount.category, fullyRemoved: false },
+    })
+
     revalidatePath(`/students/${discount.student_id}`)
     return { success: true, fullyRemoved: false }
   }
@@ -438,6 +526,16 @@ export async function revokeDiscount(discountId: string): Promise<RevokeDiscount
     await applyCreditBalanceDelta(supabase, schoolId, discount.student_id, -computed.creditApplied)
   }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'discount.recurring_revoked',
+    targetType: 'discount',
+    targetId: discountId,
+    summary: `Revoked a ${discount.category || ''} discount and removed it from invoice ${invoice.id}`,
+    metadata: { invoiceId: invoice.id, studentId: discount.student_id, category: discount.category, fullyRemoved: true },
+  })
+
   revalidatePath(`/students/${discount.student_id}`)
   revalidatePath(`/invoices/${invoice.id}`)
   return { success: true, fullyRemoved: true }
@@ -452,7 +550,7 @@ type CreateDVAResult =
 export async function createStudentDVA(studentId: string): Promise<CreateDVAResult> {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: student } = await supabase
     .from('students')
@@ -480,6 +578,17 @@ export async function createStudentDVA(studentId: string): Promise<CreateDVAResu
   const fullName = `${student.first_name} ${student.last_name}`.trim()
   try {
     const dva = await provisionStudentDVA(supabase, schoolId, provider, studentId, fullName)
+
+    await logAuditEvent(supabase, {
+      schoolId,
+      actorId: userId,
+      action: 'student.dva_created',
+      targetType: 'student',
+      targetId: studentId,
+      summary: `Created a payment account for ${fullName}`,
+      metadata: { accountNumber: dva.accountNumber, bankName: dva.bankName },
+    })
+
     revalidatePath(`/students/${studentId}`)
     return { success: true, accountNumber: dva.accountNumber, bankName: dva.bankName }
   } catch (err: any) {
@@ -499,7 +608,7 @@ type BulkDVAResult =
 export async function createDVAsForAllStudents(batchSize = 25): Promise<BulkDVAResult> {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const provider = await getPaymentProviderForSchool(schoolId, supabase)
   if (!provider) return { error: 'This school has no payment provider configured yet.' }
@@ -536,6 +645,15 @@ export async function createDVAsForAllStudents(batchSize = 25): Promise<BulkDVAR
     .eq('status', 'active')
     .is('provider_dva_reference', null)
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.dva_bulk_created',
+    targetType: 'student',
+    summary: `Created ${created} payment accounts (${failures.length} failed)`,
+    metadata: { count: created, failures: failures.length },
+  })
+
   revalidatePath('/settings/payments')
   revalidatePath('/students')
   return { success: true, created, failed: failures.length, remaining: remaining ?? 0, failures }
@@ -553,7 +671,7 @@ export async function sendManualReminder(
 ): Promise<SendManualReminderResult> {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: student } = await supabase
     .from('students')
@@ -611,6 +729,16 @@ export async function sendManualReminder(
   )
 
   if (!result.ok) return { error: 'Failed to send on every available channel — check the notification banner for details.' }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.reminder_sent',
+    targetType: 'student',
+    targetId: studentId,
+    summary: `Sent a manual reminder to ${messageParams.studentName || studentId}'s parent`,
+    metadata: { invoiceId: invoice.id, channelUsed: result.channelUsed, to: phone },
+  })
 
   revalidatePath(`/students/${studentId}`)
   return { success: true, channelUsed: result.channelUsed, to: phone }

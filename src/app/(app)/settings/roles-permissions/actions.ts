@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/permissions'
 import { PERMISSION_KEYS } from '@/lib/auth/permissionCatalog'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Role CRUD + the toggle matrix. All gated on manage-team. After any change we
 // revalidate the whole app layout so affected users re-read their permissions on
@@ -42,6 +43,15 @@ export async function createRole(name: string, description?: string) {
   })
   if (error) return { error: error.message }
 
+  await logAuditEvent(ctx.supabase, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    action: 'role.created',
+    targetType: 'role',
+    summary: `Created role "${trimmed}"`,
+    metadata: { name: trimmed, description: description?.trim() || null },
+  })
+
   revalidatePath('/', 'layout')
   return { success: true }
 }
@@ -53,6 +63,14 @@ export async function renameRole(roleId: string, name: string, description?: str
 
   const trimmed = name.trim()
   if (!trimmed) return { error: 'A role name is required' }
+
+  const { data: current } = await ctx.supabase
+    .from('roles')
+    .select('name, description')
+    .eq('id', roleId)
+    .eq('school_id', ctx.schoolId)
+    .maybeSingle()
+  if (!current) return { error: 'Role not found' }
 
   const { data: existing } = await ctx.supabase
     .from('roles')
@@ -70,6 +88,16 @@ export async function renameRole(roleId: string, name: string, description?: str
     .eq('school_id', ctx.schoolId)
   if (error) return { error: error.message }
 
+  await logAuditEvent(ctx.supabase, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    action: 'role.renamed',
+    targetType: 'role',
+    targetId: roleId,
+    summary: `Renamed role "${current.name}" to "${trimmed}"`,
+    metadata: { fromName: current.name, toName: trimmed, fromDescription: current.description, toDescription: description?.trim() || null },
+  })
+
   revalidatePath('/', 'layout')
   return { success: true }
 }
@@ -81,7 +109,7 @@ export async function deleteRole(roleId: string) {
 
   const { data: role } = await ctx.supabase
     .from('roles')
-    .select('id, is_system')
+    .select('id, name, is_system')
     .eq('id', roleId)
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
@@ -104,6 +132,15 @@ export async function deleteRole(roleId: string) {
     .eq('id', roleId)
     .eq('school_id', ctx.schoolId)
   if (error) return { error: error.message }
+
+  await logAuditEvent(ctx.supabase, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    action: 'role.deleted',
+    targetType: 'role',
+    targetId: roleId,
+    summary: `Deleted role "${role.name}"`,
+  })
 
   revalidatePath('/', 'layout')
   return { success: true }
@@ -164,6 +201,17 @@ export async function saveRolePermissions(roleId: string, permissions: Record<st
       type: 'role_permissions_changed',
       title: `Permissions changed for "${role.name}"`,
       body: `${actor?.name || 'Someone'} changed "${role.name}"'s permissions — ${parts.join('; ')}.`,
+    })
+
+    await logAuditEvent(ctx.supabase, {
+      schoolId: ctx.schoolId,
+      actorId: ctx.userId,
+      actorName: actor?.name,
+      action: 'role.permissions_changed',
+      targetType: 'role',
+      targetId: roleId,
+      summary: `Changed "${role.name}"'s permissions — ${parts.join('; ')}`,
+      metadata: { roleName: role.name, before, after: clean, turnedOn, turnedOff },
     })
   }
 

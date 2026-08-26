@@ -1,14 +1,17 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/permissions'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
-async function getSchoolId() {
-  // Academic structure — gate on manage-academic-structure
-  // (owner/super_admin/is_admin bypass inside requirePermission).
+// Academic structure — gate on manage-academic-structure (owner/super_admin/
+// is_admin bypass inside requirePermission). Returns supabase + userId
+// alongside schoolId so call sites can reuse the same client and log audit
+// events without a second permission lookup.
+async function getContext() {
   const ctx = await requirePermission('manage-academic-structure')
-  return ctx?.schoolId ?? null
+  if (!ctx || !ctx.schoolId) return null
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 function revalidateClassDependents() {
@@ -25,9 +28,9 @@ export async function addClass(formData: {
   displayOrder: number
   nextClassId?: string | null
 }) {
-  const supabase = await createClient()
-  const schoolId = await getSchoolId()
-  if (!schoolId) return { error: 'Not authenticated' }
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
 
   // Section must belong to this school — otherwise a class could be attached
   // to another school's section.
@@ -51,7 +54,7 @@ export async function addClass(formData: {
     return { error: `A class named "${formData.name}" already exists` }
   }
 
-  const { error } = await supabase
+  const { data: newClass, error } = await supabase
     .from('classes')
     .insert({
       school_id: schoolId,
@@ -61,8 +64,20 @@ export async function addClass(formData: {
       is_active: true,
       next_class_id: formData.nextClassId || null,
     })
+    .select('id')
+    .single()
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'class.added',
+    targetType: 'class',
+    targetId: newClass?.id,
+    summary: `Added class "${formData.name.trim()}"`,
+    metadata: { name: formData.name.trim(), sectionId: formData.sectionId, displayOrder: formData.displayOrder },
+  })
 
   revalidateClassDependents()
 
@@ -76,9 +91,17 @@ export async function updateClass(classId: string, formData: {
   isActive: boolean
   nextClassId?: string | null
 }) {
-  const supabase = await createClient()
-  const schoolId = await getSchoolId()
-  if (!schoolId) return { error: 'Not authenticated' }
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: current } = await supabase
+    .from('classes')
+    .select('name, section_id, display_order, is_active, next_class_id')
+    .eq('id', classId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+  if (!current) return { error: 'Class not found' }
 
   const { data: section } = await supabase
     .from('sections')
@@ -119,19 +142,38 @@ export async function updateClass(classId: string, formData: {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'class.updated',
+    targetType: 'class',
+    targetId: classId,
+    summary: `Updated class "${current.name}"`,
+    metadata: {
+      before: current,
+      after: {
+        name: formData.name.trim(),
+        sectionId: formData.sectionId,
+        displayOrder: formData.displayOrder,
+        isActive: formData.isActive,
+        nextClassId: formData.nextClassId || null,
+      },
+    },
+  })
+
   revalidateClassDependents()
 
   return { success: true }
 }
 
 export async function toggleClassActive(classId: string, isActive: boolean) {
-  const supabase = await createClient()
-  const schoolId = await getSchoolId()
-  if (!schoolId) return { error: 'Not authenticated' }
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
 
   const { data: cls } = await supabase
     .from('classes')
-    .select('id')
+    .select('id, name')
     .eq('id', classId)
     .eq('school_id', schoolId)
     .maybeSingle()
@@ -161,14 +203,24 @@ export async function toggleClassActive(classId: string, isActive: boolean) {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'class.active_toggled',
+    targetType: 'class',
+    targetId: classId,
+    summary: `${isActive ? 'Activated' : 'Deactivated'} class "${cls.name}"`,
+    metadata: { name: cls.name, isActive },
+  })
+
   revalidateClassDependents()
 
   return { success: true }
 }
 export async function addSection(name: string) {
-  const supabase = await createClient()
-  const schoolId = await getSchoolId()
-  if (!schoolId) return { error: 'Not authenticated' }
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
 
   if (!name.trim()) {
     return { error: 'Section name is required' }
@@ -209,19 +261,37 @@ export async function addSection(name: string) {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'section.added',
+    targetType: 'section',
+    targetId: newSection?.id,
+    summary: `Added section "${name.trim()}"`,
+    metadata: { name: name.trim(), displayOrder: nextOrder },
+  })
+
   revalidatePath('/settings/academic-structure')
 
   return { success: true, section: newSection }
 }
 
 export async function updateSection(sectionId: string, name: string) {
-  const supabase = await createClient()
-  const schoolId = await getSchoolId()
-  if (!schoolId) return { error: 'Not authenticated' }
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
 
   if (!name.trim()) {
     return { error: 'Section name is required' }
   }
+
+  const { data: current } = await supabase
+    .from('sections')
+    .select('name')
+    .eq('id', sectionId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+  if (!current) return { error: 'Section not found' }
 
   // Check for duplicate (excluding this section)
   const { data: existing } = await supabase
@@ -244,15 +314,33 @@ export async function updateSection(sectionId: string, name: string) {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'section.updated',
+    targetType: 'section',
+    targetId: sectionId,
+    summary: `Renamed section "${current.name}" to "${name.trim()}"`,
+    metadata: { fromName: current.name, toName: name.trim() },
+  })
+
   revalidatePath('/settings/academic-structure')
 
   return { success: true }
 }
 
 export async function deleteSection(sectionId: string) {
-  const supabase = await createClient()
-  const schoolId = await getSchoolId()
-  if (!schoolId) return { error: 'Not authenticated' }
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: section } = await supabase
+    .from('sections')
+    .select('name')
+    .eq('id', sectionId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+  if (!section) return { error: 'Section not found' }
 
   // Check if any classes use this section
   const { count } = await supabase
@@ -262,8 +350,8 @@ export async function deleteSection(sectionId: string) {
     .eq('school_id', schoolId)
 
   if (count && count > 0) {
-    return { 
-      error: `Cannot delete this section — it has ${count} ${count === 1 ? 'class' : 'classes'}. Move them to another section first.` 
+    return {
+      error: `Cannot delete this section — it has ${count} ${count === 1 ? 'class' : 'classes'}. Move them to another section first.`
     }
   }
 
@@ -275,7 +363,17 @@ export async function deleteSection(sectionId: string) {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'section.deleted',
+    targetType: 'section',
+    targetId: sectionId,
+    summary: `Deleted section "${section.name}"`,
+    metadata: { name: section.name },
+  })
+
   revalidatePath('/settings/academic-structure')
-  
+
   return { success: true }
 }

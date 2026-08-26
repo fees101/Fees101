@@ -24,6 +24,10 @@ interface Props {
   downloads: DownloadRow[]
   // When false, the money-bearing reports are hidden (user lacks see-financial-totals).
   showFinancials: boolean
+  // Independent gates: a user can have one without the other (e.g. an
+  // auditor role with see-audit-log but not see-reports).
+  showReports: boolean
+  showAuditLog: boolean
 }
 
 type ScopeKind = 'cycle' | 'dates' | 'status'
@@ -48,6 +52,7 @@ const ICONS = {
   doc: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
   tag: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z',
   users: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z',
+  log: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
 }
 
 const ACCENT: Record<Accent, string> = {
@@ -66,6 +71,7 @@ const REPORTS: ReportDef[] = [
   { type: 'invoices',      title: 'Invoices',              grain: 'per invoice',          description: 'Raw billing ledger — subtotal, discount, total, paid, outstanding.',    scope: 'cycle',  accent: 'navy',   icon: ICONS.doc, financial: true },
   { type: 'discounts',     title: 'Discounts',             grain: 'per discount',         description: 'Every discount — category, value, status, recurring, reason.',          scope: 'cycle',  accent: 'violet', icon: ICONS.tag, financial: true },
   { type: 'students',      title: 'Student directory',     grain: 'per student',          description: 'Full student list with class, contact, virtual account, credit.',       scope: 'status', accent: 'gray',   icon: ICONS.users },
+  { type: 'audit-log',     title: 'Audit log',             grain: 'per event',            description: 'Every action logged in this account — who did what and when.',          scope: 'dates',  accent: 'navy',   icon: ICONS.log },
 ]
 
 const REPORT_TITLES: Record<string, string> = Object.fromEntries(REPORTS.map(r => [r.type, r.title]))
@@ -85,13 +91,16 @@ function formatWhen(iso: string): string {
   return d.toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-export default function ReportsLayout({ sessions, cycles, downloads, showFinancials }: Props) {
+export default function ReportsLayout({ sessions, cycles, downloads, showFinancials, showReports, showAuditLog }: Props) {
   const [historyFilter, setHistoryFilter] = useState('all')
 
-  const visibleReports = useMemo(
-    () => showFinancials ? REPORTS : REPORTS.filter(r => !r.financial),
-    [showFinancials],
-  )
+  const visibleReports = useMemo(() => {
+    let list = REPORTS.filter(r => r.type !== 'audit-log')
+    if (!showReports) list = []
+    if (!showFinancials) list = list.filter(r => !r.financial)
+    if (showAuditLog) list = [...list, REPORTS.find(r => r.type === 'audit-log')!]
+    return list
+  }, [showFinancials, showReports, showAuditLog])
 
   const visibleDownloads = useMemo(
     () => historyFilter === 'all' ? downloads : downloads.filter(d => d.reportType === historyFilter),

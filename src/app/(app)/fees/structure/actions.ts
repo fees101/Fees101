@@ -2,6 +2,7 @@
 
 import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 async function getContext() {
   // Gated on the 'manage-fee-structure' permission (owner/super_admin/is_admin bypass).
@@ -18,7 +19,7 @@ type Ctx = NonNullable<Awaited<ReturnType<typeof getContext>>>
 async function getCycleOrError(supabase: Ctx['supabase'], schoolId: string, cycleId: string) {
   const { data: cycle } = await supabase
     .from('billing_cycles')
-    .select('id, status')
+    .select('id, status, name')
     .eq('id', cycleId)
     .eq('school_id', schoolId)
     .single()
@@ -53,7 +54,7 @@ export async function addFeeItem(cycleId: string, form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
   const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
   if ('error' in cycleResult) return { error: cycleResult.error }
   const { cycle } = cycleResult
@@ -61,19 +62,24 @@ export async function addFeeItem(cycleId: string, form: {
   if (!form.name.trim()) return { error: 'Name is required' }
   if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
   const isDiscountable = form.isDiscountable ?? true
+  const name = form.name.trim()
+
+  let scopeSummary = 'school-wide'
+  let insertedIds: string[] = []
 
   if (form.scope === 'all-school') {
-    const { error } = await supabase.from('fee_items').insert({
+    const { data: inserted, error } = await supabase.from('fee_items').insert({
       school_id: schoolId,
       billing_cycle_id: cycle.id,
       class_id: null,
-      name: form.name.trim(),
+      name,
       amount: form.amount,
       is_mandatory: form.isRequired,
       is_optional_extra: !form.isRequired,
       is_discountable: isDiscountable,
-    })
+    }).select('id')
     if (error) return { error: error.message }
+    insertedIds = (inserted || []).map(r => r.id)
   } else {
     if (form.classIds.length === 0) return { error: 'Select at least one class' }
 
@@ -81,16 +87,30 @@ export async function addFeeItem(cycleId: string, form: {
       school_id: schoolId,
       billing_cycle_id: cycle.id,
       class_id: classId,
-      name: form.name.trim(),
+      name,
       amount: form.amount,
       is_mandatory: form.isRequired,
       is_optional_extra: !form.isRequired,
       is_discountable: isDiscountable,
     }))
 
-    const { error } = await supabase.from('fee_items').insert(rows)
+    const { data: inserted, error } = await supabase.from('fee_items').insert(rows).select('id')
     if (error) return { error: error.message }
+    insertedIds = (inserted || []).map(r => r.id)
+
+    const { data: classRows } = await supabase.from('classes').select('name').in('id', form.classIds)
+    scopeSummary = (classRows || []).map((c: { name: string }) => c.name).join(', ') || `${form.classIds.length} class(es)`
   }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'fee_item.added',
+    targetType: 'fee_item',
+    targetId: insertedIds[0],
+    summary: `Added fee item ${name} (₦${form.amount.toLocaleString()}) to ${scopeSummary}`,
+    metadata: { name, amount: form.amount, isRequired: form.isRequired, scope: form.scope, classIds: form.classIds, cycleId: cycle.id, insertedIds },
+  })
 
   revalidatePath('/fees/structure')
   revalidatePath('/fees')
@@ -105,7 +125,7 @@ export async function addPerClassFeeItem(cycleId: string, form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
   const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
   if ('error' in cycleResult) return { error: cycleResult.error }
   const { cycle } = cycleResult
@@ -113,12 +133,13 @@ export async function addPerClassFeeItem(cycleId: string, form: {
   if (!form.name.trim()) return { error: 'Name is required' }
   if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
   if (form.classIds.length === 0) return { error: 'Select at least one class' }
+  const name = form.name.trim()
 
   const rows = form.classIds.map(classId => ({
     school_id: schoolId,
     billing_cycle_id: cycle.id,
     class_id: classId,
-    name: form.name.trim(),
+    name,
     amount: form.amount,
     is_mandatory: true,
     is_optional_extra: false,
@@ -127,6 +148,18 @@ export async function addPerClassFeeItem(cycleId: string, form: {
 
   const { error } = await supabase.from('fee_items').insert(rows)
   if (error) return { error: error.message }
+
+  const { data: classRows } = await supabase.from('classes').select('name').in('id', form.classIds)
+  const scopeSummary = (classRows || []).map((c: { name: string }) => c.name).join(', ') || `${form.classIds.length} class(es)`
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'fee_item.added',
+    targetType: 'fee_item',
+    summary: `Added per-class fee item ${name} (₦${form.amount.toLocaleString()}) to ${scopeSummary}`,
+    metadata: { name, amount: form.amount, classIds: form.classIds, cycleId: cycle.id },
+  })
 
   revalidatePath('/fees/structure')
   revalidatePath('/fees')
@@ -140,26 +173,37 @@ export async function addOptionalFeeItem(cycleId: string, form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
   const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
   if ('error' in cycleResult) return { error: cycleResult.error }
   const { cycle } = cycleResult
 
   if (!form.name.trim()) return { error: 'Name is required' }
   if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
+  const name = form.name.trim()
 
-  const { error } = await supabase.from('fee_items').insert({
+  const { data, error } = await supabase.from('fee_items').insert({
     school_id: schoolId,
     billing_cycle_id: cycle.id,
     class_id: null,
-    name: form.name.trim(),
+    name,
     amount: form.amount,
     is_mandatory: false,
     is_optional_extra: true,
     is_discountable: form.isDiscountable ?? true,
-  })
+  }).select('id').single()
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'fee_item.added',
+    targetType: 'fee_item',
+    targetId: data?.id,
+    summary: `Added optional fee item ${name} (₦${form.amount.toLocaleString()}), school-wide`,
+    metadata: { name, amount: form.amount, cycleId: cycle.id },
+  })
 
   revalidatePath('/fees/structure')
   revalidatePath('/fees')
@@ -173,11 +217,11 @@ export async function updateFeeItem(id: string, form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: feeItem } = await supabase
     .from('fee_items')
-    .select('id, billing_cycles(status)')
+    .select('id, name, amount, billing_cycles(status)')
     .eq('id', id)
     .eq('school_id', schoolId)
     .single()
@@ -188,16 +232,28 @@ export async function updateFeeItem(id: string, form: {
     return { error: 'This term is closed. Fee data is read-only.' }
   }
 
+  const name = form.name.trim()
+
   const { error } = await supabase
     .from('fee_items')
     .update({
-      name: form.name.trim(),
+      name,
       amount: form.amount,
       ...(form.isDiscountable !== undefined ? { is_discountable: form.isDiscountable } : {}),
     })
     .eq('id', id)
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'fee_item.updated',
+    targetType: 'fee_item',
+    targetId: id,
+    summary: `Updated fee item ${feeItem.name} to ${name} (₦${form.amount.toLocaleString()})`,
+    metadata: { previousName: feeItem.name, previousAmount: feeItem.amount, newName: name, newAmount: form.amount },
+  })
 
   revalidatePath('/fees/structure')
   return { success: true }
@@ -206,11 +262,11 @@ export async function updateFeeItem(id: string, form: {
 export async function deleteFeeItem(id: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { data: feeItem } = await supabase
     .from('fee_items')
-    .select('id, billing_cycles(status)')
+    .select('id, name, billing_cycles(status)')
     .eq('id', id)
     .eq('school_id', schoolId)
     .single()
@@ -234,6 +290,15 @@ export async function deleteFeeItem(id: string) {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'fee_item.deleted',
+    targetType: 'fee_item',
+    targetId: id,
+    summary: `Deleted fee item ${feeItem.name}`,
+  })
+
   revalidatePath('/fees/structure')
   revalidatePath('/fees')
   return { success: true }
@@ -242,7 +307,7 @@ export async function deleteFeeItem(id: string) {
 export async function bulkDeleteFeeItemByName(cycleId: string, name: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
   const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
   if ('error' in cycleResult) return { error: cycleResult.error }
   const { cycle } = cycleResult
@@ -277,6 +342,15 @@ export async function bulkDeleteFeeItemByName(cycleId: string, name: string) {
     .in('id', feeItemIds)
 
   if (deleteError) return { error: deleteError.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'fee_item.bulk_deleted',
+    targetType: 'fee_item',
+    summary: `Deleted all ${feeItemIds.length} fee item(s) named ${name} from term ${cycle.name}`,
+    metadata: { name, count: feeItemIds.length, cycleId: cycle.id, feeItemIds },
+  })
 
   revalidatePath('/fees/structure')
   revalidatePath('/fees')
@@ -340,6 +414,13 @@ export async function bulkUpdateOptIns(feeItemId: string, studentIds: string[]) 
   const cycleResult = await getCycleForFeeItemOrError(supabase, schoolId, feeItemId)
   if ('error' in cycleResult) return { error: cycleResult.error }
 
+  const { data: feeItem } = await supabase
+    .from('fee_items')
+    .select('name')
+    .eq('id', feeItemId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+
   const { data: currentOptIns } = await supabase
     .from('student_fee_adjustments')
     .select('id, student_id')
@@ -371,6 +452,16 @@ export async function bulkUpdateOptIns(feeItemId: string, studentIds: string[]) 
     await supabase.from('student_fee_adjustments').insert(rows)
   }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.opt_in_bulk_updated',
+    targetType: 'fee_item',
+    targetId: feeItemId,
+    summary: `Updated opt-ins for ${feeItem?.name || 'fee item'}: ${toAdd.length} added, ${toRemove.length} removed`,
+    metadata: { feeItemId, added: toAdd.length, removed: toRemove.length },
+  })
+
   revalidatePath('/fees/structure')
   return { success: true, added: toAdd.length, removed: toRemove.length }
 }
@@ -388,7 +479,7 @@ export async function editFeeGroup(cycleId: string, form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
   const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
   if ('error' in cycleResult) return { error: cycleResult.error }
   const { cycle } = cycleResult
@@ -445,6 +536,15 @@ export async function editFeeGroup(cycleId: string, form: {
       .in('id', existingRows.map(r => r.id))
 
     if (error) return { error: error.message }
+
+    await logAuditEvent(supabase, {
+      schoolId,
+      actorId: userId,
+      action: 'fee_group.updated',
+      targetType: 'fee_group',
+      summary: `Updated fee group ${form.currentName}${newName !== form.currentName ? ` to ${newName}` : ''} (₦${form.uniformAmount.toLocaleString()}, school-wide)`,
+      metadata: { cycleId: cycle.id, currentName: form.currentName, newName, amount: form.uniformAmount, isSchoolWide: true, isOptional: form.isOptional },
+    })
 
     revalidatePath('/fees/structure')
     revalidatePath('/fees')
@@ -569,6 +669,15 @@ export async function editFeeGroup(cycleId: string, form: {
     if (addErr) return { error: addErr.message }
     added = rows.length
   }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'fee_group.updated',
+    targetType: 'fee_group',
+    summary: `Updated fee group ${form.currentName}${newName !== form.currentName ? ` to ${newName}` : ''} across ${form.selectedClassIds.length} class(es) (${added} added, ${updated} updated, ${removed} removed)`,
+    metadata: { cycleId: cycle.id, currentName: form.currentName, newName, isSchoolWide: false, isOptional: form.isOptional, added, updated, removed, selectedClassIds: form.selectedClassIds },
+  })
 
   revalidatePath('/fees/structure')
   revalidatePath('/fees')
@@ -716,7 +825,7 @@ export async function bulkUpdateOptInsForGroup(feeItemIds: string[], studentIds:
   // Get fee items with their class_id
   const { data: feeItems } = await supabase
     .from('fee_items')
-    .select('id, class_id, billing_cycle_id')
+    .select('id, name, class_id, billing_cycle_id')
     .in('id', feeItemIds)
     .eq('school_id', schoolId)
 
@@ -736,6 +845,9 @@ export async function bulkUpdateOptInsForGroup(feeItemIds: string[], studentIds:
   allStudents?.forEach(s => {
     studentClassMap[s.id] = s.class_id || null
   })
+
+  let totalAdded = 0
+  let totalRemoved = 0
 
   // For each fee item, sync its opt-ins
   for (const feeItem of feeItems) {
@@ -778,7 +890,19 @@ export async function bulkUpdateOptInsForGroup(feeItemIds: string[], studentIds:
       }))
       await supabase.from('student_fee_adjustments').insert(rows)
     }
+
+    totalAdded += toAdd.length
+    totalRemoved += toRemove.length
   }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.opt_in_bulk_updated',
+    targetType: 'fee_group',
+    summary: `Updated opt-ins for fee group ${feeItems[0]?.name || 'group'}: ${totalAdded} added, ${totalRemoved} removed across ${feeItems.length} fee item(s)`,
+    metadata: { feeItemIds, groupName: feeItems[0]?.name, added: totalAdded, removed: totalRemoved },
+  })
 
   revalidatePath('/fees/structure')
   return { success: true }

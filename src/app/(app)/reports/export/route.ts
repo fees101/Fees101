@@ -13,13 +13,20 @@ export async function GET(req: NextRequest) {
   const type = sp.get('type') || ''
 
   // This is a raw route handler — not covered by page guards or middleware —
-  // so it must enforce permissions itself.
+  // so it must enforce permissions itself. The audit log is gated on its own
+  // permission, separate from the rest of the Reports page.
   const ctx = await getAuthContext()
-  if (!can(ctx, 'see-reports')) {
-    return NextResponse.json({ error: 'Not authorized to download reports.' }, { status: 403 })
+  if (type === 'audit-log') {
+    if (!can(ctx, 'see-audit-log')) {
+      return NextResponse.json({ error: 'Not authorized to download the audit log.' }, { status: 403 })
+    }
+  } else {
+    if (!can(ctx, 'see-reports')) {
+      return NextResponse.json({ error: 'Not authorized to download reports.' }, { status: 403 })
+    }
   }
   const canFinancials = can(ctx, 'see-financial-totals')
-  if (FINANCIAL_REPORT_TYPES.has(type) && !canFinancials) {
+  if (type !== 'audit-log' && FINANCIAL_REPORT_TYPES.has(type) && !canFinancials) {
     return NextResponse.json({ error: 'Not authorized to see financial figures.' }, { status: 403 })
   }
 

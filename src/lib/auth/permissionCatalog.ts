@@ -37,6 +37,8 @@ export const PERMISSIONS: PermissionDef[] = [
     description: 'View fee items/groups, sessions, terms and billing cycles (without being able to edit them).' },
   { key: 'see-invoices', group: 'SEE', label: 'See invoices',
     description: 'View the invoice list and invoice detail pages (without being able to generate or send them).' },
+  { key: 'see-audit-log', group: 'SEE', label: 'See audit log',
+    description: 'View and export the audit log — the history of staff, role, student, fee, payment and settings changes made in this account.' },
 
   // --- DO (actions) ---
   { key: 'manage-students', group: 'DO', label: 'Add, edit & import students',

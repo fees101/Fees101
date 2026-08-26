@@ -3,12 +3,13 @@
 import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 import type { SiblingTier } from '@/lib/queries/discounts'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 async function getContext() {
   // Gated on the 'manage-discount-config' permission (owner/super_admin/is_admin bypass).
   const ctx = await requirePermission('manage-discount-config')
   if (!ctx || !ctx.schoolId) return null
-  return { supabase: ctx.supabase, schoolId: ctx.schoolId }
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 export async function saveDiscountSettings(form: {
@@ -17,7 +18,7 @@ export async function saveDiscountSettings(form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   if (form.siblingTiers.some(t =>
     !Number.isFinite(t.value) || t.value < 0 || (t.isPercentage && t.value > 100)
@@ -34,12 +35,15 @@ export async function saveDiscountSettings(form: {
     .eq('id', schoolId)
     .single()
 
+  const before = (existing?.settings || {}).discounts || null
+  const after = {
+    siblingTiers: form.siblingTiers,
+    staffDiscountDefaultPct: form.staffDiscountDefaultPct,
+  }
+
   const nextSettings = {
     ...(existing?.settings || {}),
-    discounts: {
-      siblingTiers: form.siblingTiers,
-      staffDiscountDefaultPct: form.staffDiscountDefaultPct,
-    },
+    discounts: after,
   }
 
   const { error } = await supabase
@@ -48,6 +52,16 @@ export async function saveDiscountSettings(form: {
     .eq('id', schoolId)
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'discount_config.updated',
+    targetType: 'school',
+    targetId: schoolId,
+    summary: 'Updated discount settings',
+    metadata: { before, after },
+  })
 
   revalidatePath('/settings/discounts')
   return { success: true }

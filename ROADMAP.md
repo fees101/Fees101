@@ -111,11 +111,17 @@ The kind of useful information schools actually want to see and take away. **Dis
 ## ⚡ Scale & reliability
 
 For schools of 500–1,000+ students on Vercel serverless. (No Monnify/messaging dependency — safe to build now.)
+Still just Next.js + Supabase + Vercel throughout — no new infra needed. "Background job" here means: a
+status/progress row in Supabase that the client polls, work picked up by a Vercel Cron-triggered route (or
+simply a higher `maxDuration` on the route), not a separate server.
 
-- [ ] **Chunked / background invoice generation** with progress — replace the sequential per-student loop that will time out at ~1,000 students
-- [ ] **Chunked / background year-end promotion** with progress
+- [ ] **`generateInvoicesForCycle` / `regenerateStaleInvoicesForCycle`** (`fees/cycles/actions.ts`) — **highest priority.** Loop over *every* active student/invoice in a cycle inside one request with zero batching or checkpointing (unlike the items below, which already batch). Biggest timeout risk in the app today. Fix: same batch-with-checkpoint pattern as year-end rollover, or raise `maxDuration` + add simple internal batching.
+- [ ] **Year-end rollover** — already has checkpoint/resume infra (`rollover_runs`/`rollover_promotions`, a `step` state machine) to *recover* after a timeout, but the happy path still runs as one giant call. Upgrade: drive the state machine step-by-step via a Cron-triggered route with the client polling `getRolloverStatus`, so a timeout can't happen at all instead of just being recoverable from.
+- [ ] **CSV student import** — client already chunks rows into batches of 50 and loops calls to `importStudents` for the progress bar; works, but a page-nav/tab-close mid-import silently stops future batches. Upgrade: move the batch loop server-side (queue + status row), client just polls.
+- [ ] **Bulk DVA creation** (`createDVAsForAllStudents`) — same shape as CSV import (client loops in batches of 25, up to 400 iterations); bottleneck is per-student calls to the payment provider. Background job would also let failures auto-retry instead of surfacing in the admin's browser tab.
+- [ ] **Bulk invoice sending** (`bulkSendInvoices`) — already the most defensive: batches of ≤50 + a 250ms per-send stagger to avoid slamming SMTP. Lower priority; a queue would mainly let the artificial stagger go away (parallel dispatch) and survive tab-close.
 - [ ] **`maxDuration` route config** on the heavy pages (year-end, cycles, invoice generation)
-- [ ] **Server-side pagination** on the Students page (currently loads all students + a big `.in()` lookup; sluggish at 400+)
+- [ ] **Server-side pagination** on the Students page (currently loads all students + a big `.in()` lookup; sluggish at 400+) — deliberately NOT applied to the audit log, which already paginates server-side (`getAuditLog` via Supabase `.range()`) since that log is permanent/unbounded, unlike the bounded per-school student list.
 - [ ] **Fix N+1** in `computeInvoiceForStudent` (batch the per-student queries)
 
 ---

@@ -2,12 +2,13 @@
 
 import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 async function getContext() {
   // Gated on the 'manage-school-profile' permission (owner/super_admin/is_admin bypass).
   const ctx = await requirePermission('manage-school-profile')
   if (!ctx || !ctx.schoolId) return null
-  return { supabase: ctx.supabase, schoolId: ctx.schoolId }
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 export async function updateSchoolGeneralInfo(form: {
@@ -24,7 +25,7 @@ export async function updateSchoolGeneralInfo(form: {
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   if (!form.name.trim()) return { error: 'School name is required' }
   if (form.smsShortName.trim().length > 30) return { error: 'SMS short name must be 30 characters or fewer' }
@@ -58,6 +59,16 @@ export async function updateSchoolGeneralInfo(form: {
 
   if (error) return { error: error.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'school.updated',
+    targetType: 'school',
+    targetId: schoolId,
+    summary: `Updated school profile for "${form.name.trim()}"`,
+    metadata: { name: form.name.trim(), email: form.email.trim() || null, phone: form.phone.trim() || null },
+  })
+
   revalidatePath('/settings')
   revalidatePath('/dashboard')
   revalidatePath('/invoices')
@@ -70,7 +81,7 @@ const ALLOWED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+
 export async function uploadSchoolLogo(formData: FormData) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const file = formData.get('logo')
   if (!(file instanceof File) || file.size === 0) {
@@ -107,6 +118,15 @@ export async function uploadSchoolLogo(formData: FormData) {
 
   if (updateError) return { error: updateError.message }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'school.logo_uploaded',
+    targetType: 'school',
+    targetId: schoolId,
+    summary: 'Uploaded a new school logo',
+  })
+
   revalidatePath('/settings')
   revalidatePath('/dashboard')
   revalidatePath('/invoices')
@@ -116,7 +136,7 @@ export async function uploadSchoolLogo(formData: FormData) {
 export async function removeSchoolLogo() {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const { error } = await supabase
     .from('schools')
@@ -124,6 +144,15 @@ export async function removeSchoolLogo() {
     .eq('id', schoolId)
 
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'school.logo_removed',
+    targetType: 'school',
+    targetId: schoolId,
+    summary: 'Removed the school logo',
+  })
 
   revalidatePath('/settings')
   revalidatePath('/dashboard')

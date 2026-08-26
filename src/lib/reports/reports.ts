@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getAuthContext } from '@/lib/auth/permissions'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 import { toCSV, type CsvValue } from './csv'
 
 // ---------------------------------------------------------------------------
@@ -21,6 +22,7 @@ export type ReportType =
   | 'students'
   | 'invoices'
   | 'discounts'
+  | 'audit-log'
 
 export interface ReportParams {
   cycleId?: string
@@ -310,6 +312,34 @@ async function buildDiscounts(supabase: any, schoolId: string, p: ReportParams):
   }
 }
 
+// =====================================================================
+// Audit log — one row per event, newest first, optionally scoped to a
+// created_at date range. `action`-prefix filtering (e.g. "student.") is
+// applied client-side by the audit-log page; here it's just the full
+// school-scoped history for whatever date range was requested.
+// =====================================================================
+async function buildAuditLog(supabase: any, schoolId: string, p: ReportParams): Promise<BuiltReport> {
+  let q = supabase
+    .from('audit_log')
+    .select('created_at, actor_name, action, target_type, target_id, summary, metadata')
+    .eq('school_id', schoolId)
+    .order('created_at', { ascending: false })
+    .limit(5000)
+  if (p.from) q = q.gte('created_at', p.from)
+  if (p.to) q = q.lte('created_at', p.to + 'T23:59:59.999Z')
+  const { data } = await q
+
+  const rows: CsvValue[][] = (data || []).map((r: any) => [
+    r.created_at, r.actor_name, r.action, r.target_type ?? '', r.target_id ?? '',
+    r.summary, r.metadata ? JSON.stringify(r.metadata) : '',
+  ])
+  return {
+    name: 'audit-log',
+    headers: ['When', 'Actor', 'Action', 'Target type', 'Target ID', 'Summary', 'Details'],
+    rows,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Scope options for the reports page dropdowns. Sessions (newest first) and the
 // terms within each, so the UI can offer "a single term", "a whole session", or
@@ -343,6 +373,7 @@ const BUILDERS: Record<ReportType, (s: any, id: string, p: ReportParams) => Prom
   'students': buildStudents,
   'invoices': buildInvoices,
   'discounts': buildDiscounts,
+  'audit-log': buildAuditLog,
 }
 
 // Human-readable description of the scope, for the download log / history.
@@ -406,6 +437,21 @@ export async function buildReport(
       filename,
     })
   } catch { /* ignore logging errors */ }
+
+  // The audit log's own downloads are also logged as an audit event (not just
+  // the generic report_downloads row above), so "who pulled the audit log" is
+  // visible from the audit log page itself, not only the Reports history.
+  if (type === 'audit-log') {
+    await logAuditEvent(supabase, {
+      schoolId,
+      actorId: userId,
+      action: 'report.audit_log_downloaded',
+      targetType: 'school',
+      targetId: schoolId,
+      summary: 'Downloaded the audit log',
+      metadata: params,
+    })
+  }
 
   return { filename, csv: toCSV(headers, rows) }
 }

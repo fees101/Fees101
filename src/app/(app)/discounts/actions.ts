@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 import { requirePermission } from '@/lib/auth/permissions'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Approving/rejecting/revoking discounts requires the approve-discounts
 // permission (owner/super_admin/is_admin bypass inside requirePermission).
@@ -23,7 +24,7 @@ export async function approveDiscount(discountId: string) {
 
   const { data: discount } = await supabase
     .from('discounts')
-    .select('id, invoice_id, student_id, status')
+    .select('id, invoice_id, student_id, category, amount, is_percentage, status')
     .eq('id', discountId)
     .eq('school_id', schoolId)
     .single()
@@ -86,6 +87,24 @@ export async function approveDiscount(discountId: string) {
     await applyCreditBalanceDelta(supabase, schoolId, discount.student_id, -computed.creditApplied)
   }
 
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'discount.approved',
+    targetType: 'discount',
+    targetId: discountId,
+    summary: `Approved a ${discount.category || ''} discount on invoice ${invoice.id}`,
+    metadata: {
+      invoiceId: invoice.id,
+      studentId: discount.student_id,
+      category: discount.category,
+      amount: discount.amount,
+      isPercentage: discount.is_percentage,
+      newInvoiceStatus: newStatus,
+      discountAmountApplied: computed.discountAmount,
+    },
+  })
+
   revalidatePath('/discounts')
   revalidatePath(`/invoices/${invoice.id}`)
   revalidatePath(`/students/${discount.student_id}`)
@@ -101,7 +120,7 @@ export async function rejectDiscount(discountId: string, rejectionReason: string
 
   const { data: discount } = await supabase
     .from('discounts')
-    .select('id, invoice_id, status')
+    .select('id, invoice_id, student_id, status')
     .eq('id', discountId)
     .eq('school_id', schoolId)
     .single()
@@ -118,6 +137,16 @@ export async function rejectDiscount(discountId: string, rejectionReason: string
     })
     .eq('id', discountId)
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'discount.rejected',
+    targetType: 'discount',
+    targetId: discountId,
+    summary: `Rejected a discount request on invoice ${discount.invoice_id}`,
+    metadata: { invoiceId: discount.invoice_id, studentId: discount.student_id, reason: rejectionReason.trim() },
+  })
 
   revalidatePath('/discounts')
   revalidatePath(`/invoices/${discount.invoice_id}`)
@@ -137,7 +166,7 @@ export async function revokeRecurringDiscount(discountId: string) {
 
   const { data: discount } = await supabase
     .from('discounts')
-    .select('id, is_recurring, status')
+    .select('id, invoice_id, student_id, is_recurring, status')
     .eq('id', discountId)
     .eq('school_id', schoolId)
     .single()
@@ -150,6 +179,16 @@ export async function revokeRecurringDiscount(discountId: string) {
     .update({ is_recurring: false, updated_at: new Date().toISOString() })
     .eq('id', discountId)
   if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: ctx.userId,
+    action: 'discount.recurring_revoked',
+    targetType: 'discount',
+    targetId: discountId,
+    summary: `Stopped a recurring discount from carrying forward`,
+    metadata: { invoiceId: discount.invoice_id, studentId: discount.student_id },
+  })
 
   revalidatePath('/discounts')
   return { success: true }

@@ -26,6 +26,7 @@ export default function ReminderSettingsForm({ settings }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [togglingEnabled, setTogglingEnabled] = useState(false)
 
   const inputCls = "w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
   const labelCls = "text-sm text-navy font-medium"
@@ -36,25 +37,51 @@ export default function ReminderSettingsForm({ settings }: Props) {
     setSaved(false)
   }
 
+  async function persist(next: typeof form) {
+    const result = await saveReminderSettings({
+      enabled: next.enabled,
+      advanceDays: next.advanceEnabled ? Number(next.advanceDays) : null,
+      dueDayEnabled: next.dueDayEnabled,
+      overdueEnabled: next.overdueEnabled,
+      overdueIntervalUnit: next.overdueIntervalUnit,
+      overdueIntervalValue: Number(next.overdueIntervalValue),
+      overdueMaxReminders: next.overdueCapped ? Number(next.overdueMaxReminders) : null,
+    })
+    return result
+  }
+
   async function handleSave() {
     setError(null)
     setSaved(false)
     setSaving(true)
 
-    const result = await saveReminderSettings({
-      enabled: form.enabled,
-      advanceDays: form.advanceEnabled ? Number(form.advanceDays) : null,
-      dueDayEnabled: form.dueDayEnabled,
-      overdueEnabled: form.overdueEnabled,
-      overdueIntervalUnit: form.overdueIntervalUnit,
-      overdueIntervalValue: Number(form.overdueIntervalValue),
-      overdueMaxReminders: form.overdueCapped ? Number(form.overdueMaxReminders) : null,
-    })
+    const result = await persist(form)
 
     setSaving(false)
     if (result.error) return setError(result.error)
 
     setSaved(true)
+    router.refresh()
+  }
+
+  // The master switch reads as an instant on/off toggle (same as every other
+  // toggle in this app), so unlike the rest of this form it must persist the
+  // moment it's clicked — waiting for "Save settings" meant a flip was
+  // silently lost if you navigated away first.
+  async function handleToggleEnabled(nextEnabled: boolean) {
+    setError(null)
+    setTogglingEnabled(true)
+    const next = { ...form, enabled: nextEnabled }
+    setForm(next)
+
+    const result = await persist(next)
+
+    setTogglingEnabled(false)
+    if (result.error) {
+      setForm(form)
+      setError(result.error)
+      return
+    }
     router.refresh()
   }
 
@@ -66,8 +93,14 @@ export default function ReminderSettingsForm({ settings }: Props) {
             <h2 className="text-navy font-semibold text-lg">Payment reminders</h2>
             <p className="text-sm text-gray-500 mt-0.5">Automatic SMS reminders to parents about unpaid invoices. Reminders keep going until an invoice is paid in full.</p>
           </div>
-          <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
-            <input type="checkbox" checked={form.enabled} onChange={(e) => update({ enabled: e.target.checked })} className="sr-only peer" />
+          <label className={`relative inline-flex items-center flex-shrink-0 ${togglingEnabled ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}>
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              disabled={togglingEnabled}
+              onChange={(e) => handleToggleEnabled(e.target.checked)}
+              className="sr-only peer"
+            />
             <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-mint peer-focus:outline-none transition-colors" />
             <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5" />
           </label>

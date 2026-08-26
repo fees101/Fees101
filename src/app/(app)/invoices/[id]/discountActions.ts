@@ -2,6 +2,7 @@
 
 import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 const CATEGORIES = ['staff_child', 'scholarship', 'bursary', 'financial_hardship', 'fee_waiver', 'other'] as const
 export type ManualDiscountCategory = typeof CATEGORIES[number]
@@ -38,7 +39,7 @@ export async function requestDiscount(invoiceId: string, input: RequestDiscountI
 
   const { data: invoice } = await supabase
     .from('invoices')
-    .select('id, student_id, status, paid_amount')
+    .select('id, student_id, status, paid_amount, students(first_name, last_name)')
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
     .single()
@@ -58,7 +59,7 @@ export async function requestDiscount(invoiceId: string, input: RequestDiscountI
     return { error: 'A discount request is already pending on this invoice.' }
   }
 
-  const { error } = await supabase.from('discounts').insert({
+  const { data: created, error } = await supabase.from('discounts').insert({
     school_id: schoolId,
     invoice_id: invoiceId,
     student_id: invoice.student_id,
@@ -69,8 +70,29 @@ export async function requestDiscount(invoiceId: string, input: RequestDiscountI
     reason: input.reason.trim(),
     status: 'pending',
     requested_by: userId,
-  })
+  }).select('id').single()
   if (error) return { error: error.message }
+
+  const student = (invoice as any).students as { first_name?: string; last_name?: string } | null
+  const studentName = student ? `${student.first_name || ''} ${student.last_name || ''}`.trim() : null
+  const amountLabel = input.isPercentage ? `${input.amount}%` : `₦${input.amount}`
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'discount.requested',
+    targetType: 'discount',
+    targetId: created?.id,
+    summary: `Requested a ${amountLabel} ${input.category} discount${studentName ? ` for ${studentName}` : ''} on invoice ${invoiceId}`,
+    metadata: {
+      invoiceId,
+      studentId: invoice.student_id,
+      category: input.category,
+      amount: input.amount,
+      isPercentage: input.isPercentage,
+      isRecurring: input.isRecurring,
+    },
+  })
 
   revalidatePath(`/invoices/${invoiceId}`)
   return { success: true }

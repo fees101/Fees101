@@ -3,12 +3,13 @@
 import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 import { sendInvoice } from './[id]/actions'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 async function getContext() {
   // Gated on the 'manage-invoices' permission (owner/super_admin/is_admin bypass).
   const ctx = await requirePermission('manage-invoices')
   if (!ctx || !ctx.schoolId) return null
-  return { supabase: ctx.supabase, schoolId: ctx.schoolId }
+  return { supabase: ctx.supabase, schoolId: ctx.schoolId, userId: ctx.userId }
 }
 
 type BulkSendResult =
@@ -29,7 +30,7 @@ type BulkSendResult =
 export async function bulkSendInvoices(batchSize = 20): Promise<BulkSendResult> {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  const { supabase, schoolId, userId } = ctx
 
   const limit = Math.max(1, Math.min(batchSize, 50))
   const { data: invoices, error } = await supabase
@@ -65,6 +66,15 @@ export async function bulkSendInvoices(batchSize = 20): Promise<BulkSendResult> 
     .neq('status', 'cancelled')
     .gt('outstanding_amount', 0)
     .or('sent_at.is.null,needs_resend.eq.true')
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.sent_bulk',
+    targetType: 'invoice',
+    summary: `Bulk-sent ${sent} invoice${sent === 1 ? '' : 's'}${errors.length ? ` (${errors.length} failed)` : ''}`,
+    metadata: { count: sent, failures: errors.length, remaining: remaining ?? 0 },
+  })
 
   revalidatePath('/invoices')
   return { success: true, sent, failed: errors.length, remaining: remaining ?? 0, errors }

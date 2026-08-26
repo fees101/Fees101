@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 export async function changePassword(form: {
   currentPassword: string
@@ -27,5 +28,17 @@ export async function changePassword(form: {
   // Supabase's own "Password changed" notification email (Authentication →
   // Emails) fires automatically on this updateUser() call — no custom send
   // needed here.
+  const { data: userRow } = await supabase.from('users').select('school_id').eq('id', user.id).single()
+  if (userRow?.school_id) {
+    await logAuditEvent(supabase, {
+      schoolId: userRow.school_id,
+      actorId: user.id,
+      action: 'account.password_changed',
+      targetType: 'user',
+      targetId: user.id,
+      summary: 'Changed their own password',
+    })
+  }
+
   return { success: true }
 }

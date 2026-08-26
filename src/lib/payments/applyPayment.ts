@@ -22,7 +22,17 @@ interface ApplyPaymentParams {
   paidAt: string
 }
 
-export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{ paymentIds: string[] }> {
+export interface AppliedInvoicePayment {
+  invoiceId: string
+  paymentId: string
+  amount: number
+  oldStatus: string
+  newStatus: string
+}
+
+export async function applyMonnifyPayment(
+  params: ApplyPaymentParams
+): Promise<{ paymentIds: string[]; appliedInvoices: AppliedInvoicePayment[]; creditBalanceAmount: number }> {
   const {
     supabase, schoolId, studentId, amountPaid, settlementAmount,
     providerReference, providerTransactionId, paidAt,
@@ -49,7 +59,7 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
 
   const { data: candidateInvoices } = await supabase
     .from('invoices')
-    .select('id, outstanding_amount, billing_cycles!inner(name, start_date, status)')
+    .select('id, status, outstanding_amount, billing_cycles!inner(name, start_date, status)')
     .eq('student_id', studentId)
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
@@ -64,6 +74,7 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
   const notes = `provider settlementAmount=${settlementAmount} (fee not deducted from what the student is credited)`
   let remaining = amountPaid
   const paymentIds: string[] = []
+  const appliedInvoices: AppliedInvoicePayment[] = []
 
   // Payment-confirmation message is best-effort — a student/school lookup
   // miss or a delivery failure should never break payment processing itself.
@@ -129,9 +140,17 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
     paymentIds.push(paymentRow.id)
     remaining -= applyAmount
 
+    const newOutstanding = outstanding - applyAmount
+    const isFull = newOutstanding <= 0
+    appliedInvoices.push({
+      invoiceId: invoice.id,
+      paymentId: paymentRow.id,
+      amount: applyAmount,
+      oldStatus: invoice.status,
+      newStatus: isFull ? 'paid' : 'partial',
+    })
+
     if (notifyInfo) {
-      const newOutstanding = outstanding - applyAmount
-      const isFull = newOutstanding <= 0
       const termName = (invoice.billing_cycles as any)?.name || ''
       const smsText = isFull
         ? composeFullPaymentSMS({
@@ -184,6 +203,8 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
     }
   }
 
+  let creditBalanceAmount = 0
+
   // Nothing left owed on any open invoice — park the rest as credit rather
   // than touching a closed/frozen invoice or leaving money unaccounted for.
   if (remaining > 0) {
@@ -207,9 +228,10 @@ export async function applyMonnifyPayment(params: ApplyPaymentParams): Promise<{
 
     if (error) throw new Error(`Failed to insert credit-balance payment row: ${error.message}`)
     paymentIds.push(creditRow.id)
+    creditBalanceAmount = remaining
 
     await applyCreditBalanceDelta(supabase, schoolId, studentId, remaining)
   }
 
-  return { paymentIds }
+  return { paymentIds, appliedInvoices, creditBalanceAmount }
 }

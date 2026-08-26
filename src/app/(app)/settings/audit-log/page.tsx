@@ -1,21 +1,52 @@
 import { redirect } from 'next/navigation'
-import ComingSoonSettingsPage from '@/components/settings/ComingSoonSettingsPage'
 import { getAuthContext, can } from '@/lib/auth/permissions'
+import { getAuditLog } from '@/lib/audit/auditLog'
+import { AUDIT_LOG_GROUPS } from '@/lib/audit/auditLogGroups'
+import SettingsPageShell from '@/components/settings/SettingsPageShell'
+import AuditLogTable from '@/components/settings/AuditLogTable'
 
-// Stub today, but gated now so this doesn't get forgotten once it's built:
-// bundled into manage-school-profile (whoever can edit the school profile can
-// see the trail), not split into its own permission key.
-export default async function AuditLogSettingsPage() {
+const PAGE_SIZE_OPTIONS = [50, 100, 200]
+
+// Gated on its own 'see-audit-log' permission (owner/super_admin/is_admin
+// bypass) — kept separate from manage-school-profile so an owner can grant
+// audit visibility without granting school-profile edit rights.
+export default async function AuditLogSettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string; perPage?: string; group?: string; from?: string; to?: string }>
+}) {
   const ctx = await getAuthContext()
   if (!ctx) redirect('/login')
-  if (!can(ctx, 'manage-school-profile')) redirect('/dashboard')
+  if (!can(ctx, 'see-audit-log')) redirect('/dashboard')
+
+  const sp = await searchParams
+  const page = Math.max(1, parseInt(sp.page || '1', 10) || 1)
+  const perPage = PAGE_SIZE_OPTIONS.includes(Number(sp.perPage)) ? Number(sp.perPage) : PAGE_SIZE_OPTIONS[0]
+  const group = sp.group || 'all'
+  const prefixes = AUDIT_LOG_GROUPS.find(g => g.label === group)?.prefixes
+
+  const { events, total } = await getAuditLog({
+    limit: perPage,
+    offset: (page - 1) * perPage,
+    actionPrefixes: prefixes,
+    from: sp.from,
+    to: sp.to,
+  })
 
   return (
-    <ComingSoonSettingsPage
+    <SettingsPageShell
       title="Audit log"
-      subtitle="A full history of changes made in this account"
-      icon="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-      description="See who changed a fee, recorded a payment, or marked an invoice sent — with a timestamp and before/after details for every action."
-    />
+      subtitle="A history of staff, role, student, fee, payment, and settings changes made in this account"
+    >
+      <AuditLogTable
+        events={events}
+        total={total}
+        page={page}
+        perPage={perPage}
+        group={group}
+        from={sp.from || ''}
+        to={sp.to || ''}
+      />
+    </SettingsPageShell>
   )
 }
