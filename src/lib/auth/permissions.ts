@@ -29,13 +29,17 @@ export interface AuthContext {
 // Uncached loader. getAuthContext() wraps this in cache() for per-request reuse.
 async function loadAuthContext(): Promise<AuthContext | null> {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
+  // Validate the JWT locally (getClaims) rather than a network round-trip to
+  // the Auth server (getUser) — the middleware already gates access, and with
+  // asymmetric signing keys this is signature-only. `claims.sub` is the user id.
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const userId = claimsData?.claims?.sub
+  if (!userId) return null
 
   const { data: profile } = await supabase
     .from('users')
     .select('school_id, role, role_id, is_active, roles(is_admin, permissions)')
-    .eq('id', user.id)
+    .eq('id', userId)
     .single()
 
   if (!profile) return null
@@ -71,7 +75,7 @@ async function loadAuthContext(): Promise<AuthContext | null> {
 
   return {
     supabase,
-    userId: user.id,
+    userId,
     schoolId,
     role: profile.role,
     roleId: (profile.role_id as string | null) ?? null,

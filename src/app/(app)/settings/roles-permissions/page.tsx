@@ -12,19 +12,21 @@ export default async function RolesPermissionsPage() {
   const { supabase, schoolId, roleId: ownRoleId, role } = ctx!
   const isOwner = role === 'school_admin' || role === 'super_admin'
 
-  const { data: roles } = await supabase
-    .from('roles')
-    .select('id, name, description, is_system, is_admin, permissions')
-    .eq('school_id', schoolId)
-    .order('is_admin', { ascending: false })
-    .order('is_system', { ascending: false })
-    .order('name')
-
-  // How many staff are on each role (for the "assigned" count + delete guard UX).
-  const { data: staff } = await supabase
-    .from('users')
-    .select('role_id')
-    .eq('school_id', schoolId)
+  // Roles and the per-role staff counts are independent — fetch together.
+  const [{ data: roles }, { data: staff }] = await Promise.all([
+    supabase
+      .from('roles')
+      .select('id, name, description, is_system, is_admin, permissions')
+      .eq('school_id', schoolId)
+      .order('is_admin', { ascending: false })
+      .order('is_system', { ascending: false })
+      .order('name'),
+    // How many staff are on each role (for the "assigned" count + delete guard UX).
+    supabase
+      .from('users')
+      .select('role_id')
+      .eq('school_id', schoolId),
+  ])
 
   const counts: Record<string, number> = {}
   for (const s of staff || []) {

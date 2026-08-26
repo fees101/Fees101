@@ -28,30 +28,32 @@ export async function getPaymentSettings(): Promise<PaymentSettings | null> {
   const schoolId = await getSchoolId()
   if (!schoolId) return null
 
-  const { data: school } = await supabase
-    .from('schools')
-    .select('payment_provider, provider_api_key, provider_secret_key, provider_contract_code')
-    .eq('id', schoolId)
-    .single()
+  // All three are independent (the counts key off schoolId, not the school
+  // row), so they run together instead of stacking three round-trips.
+  const [{ data: school }, { count }, { count: withoutDva }] = await Promise.all([
+    supabase
+      .from('schools')
+      .select('payment_provider, provider_api_key, provider_secret_key, provider_contract_code')
+      .eq('id', schoolId)
+      .single(),
+    supabase
+      .from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .not('provider_dva_account_number', 'is', null),
+    supabase
+      .from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .is('provider_dva_reference', null),
+  ])
 
   if (!school) return null
 
   const hasApiKey = !!school.provider_api_key
   const hasSecretKey = !!school.provider_secret_key
   const isConfigured = !!school.payment_provider && hasApiKey && hasSecretKey && !!school.provider_contract_code
-
-  const { count } = await supabase
-    .from('students')
-    .select('id', { count: 'exact', head: true })
-    .eq('school_id', schoolId)
-    .not('provider_dva_account_number', 'is', null)
-
-  const { count: withoutDva } = await supabase
-    .from('students')
-    .select('id', { count: 'exact', head: true })
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .is('provider_dva_reference', null)
 
   return {
     schoolId,

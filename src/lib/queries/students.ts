@@ -17,29 +17,49 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
     studentsWithoutDvaCount: 0,
   }
 
-  // Get current billing cycle
-  const { data: currentCycle } = await supabase
-    .from('billing_cycles')
-    .select('id, name')
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .order('start_date', { ascending: false })
-    .limit(1)
-    .single()
-
-  // Get all classes for filter dropdown
-  const { data: classes } = await supabase
-    .from('classes')
-    .select('id, name')
-    .eq('school_id', schoolId)
-    .eq('is_active', true)
-    .order('display_order')
-
-  // Get status counts (always all statuses, regardless of filter)
-  const { data: allStudentsForCount } = await supabase
-    .from('students')
-    .select('status')
-    .eq('school_id', schoolId)
+  // These five are independent of one another — fetch in parallel.
+  const [
+    { data: currentCycle },
+    { data: classes },
+    { data: allStudentsForCount },
+    { data: schoolRow },
+    { count: studentsWithoutDvaCount },
+  ] = await Promise.all([
+    // Get current billing cycle
+    supabase
+      .from('billing_cycles')
+      .select('id, name')
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .single(),
+    // Get all classes for filter dropdown
+    supabase
+      .from('classes')
+      .select('id, name')
+      .eq('school_id', schoolId)
+      .eq('is_active', true)
+      .order('display_order'),
+    // Get status counts (always all statuses, regardless of filter)
+    supabase
+      .from('students')
+      .select('status')
+      .eq('school_id', schoolId),
+    // For the "some students have no payment account" banner — only relevant
+    // once the school has connected a payment provider.
+    supabase
+      .from('schools')
+      .select('payment_provider')
+      .eq('id', schoolId)
+      .single(),
+    supabase
+      .from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .is('provider_dva_reference', null),
+  ])
 
   const statusCounts = {
     active: allStudentsForCount?.filter(s => s.status === 'active').length || 0,
@@ -48,21 +68,7 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
     all: allStudentsForCount?.length || 0,
   }
 
-  // For the "some students have no payment account" banner — only relevant once
-  // the school has connected a payment provider.
-  const { data: schoolRow } = await supabase
-    .from('schools')
-    .select('payment_provider')
-    .eq('id', schoolId)
-    .single()
   const paymentsConfigured = !!schoolRow?.payment_provider
-
-  const { count: studentsWithoutDvaCount } = await supabase
-    .from('students')
-    .select('id', { count: 'exact', head: true })
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .is('provider_dva_reference', null)
 
   // Get students with class and family info, filtered by status
   let studentsQuery = supabase
@@ -97,22 +103,23 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
 
   // Get invoices for current cycle
   const studentIds = students.map(s => s.id)
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('student_id, total_amount, paid_amount, credit_applied, status')
-    .in('student_id', studentIds)
-    .eq('billing_cycle_id', currentCycle?.id || '')
-
-  // Total owed across every non-cancelled, non-superseded invoice — not just
-  // the current term's. This is what makes a former student's debt visible:
-  // a withdrawn/graduated student has no current-cycle invoice at all, so
-  // invoiceTotal/invoiceStatus above would otherwise read as "no_invoice"
-  // even while they still owe money from their last term.
-  const { data: allOutstandingInvoices } = await supabase
-    .from('invoices')
-    .select('student_id, outstanding_amount, previous_balance_from_invoice_id, id')
-    .in('student_id', studentIds)
-    .neq('status', 'cancelled')
+  const [{ data: invoices }, { data: allOutstandingInvoices }] = await Promise.all([
+    supabase
+      .from('invoices')
+      .select('student_id, total_amount, paid_amount, credit_applied, status')
+      .in('student_id', studentIds)
+      .eq('billing_cycle_id', currentCycle?.id || ''),
+    // Total owed across every non-cancelled, non-superseded invoice — not just
+    // the current term's. This is what makes a former student's debt visible:
+    // a withdrawn/graduated student has no current-cycle invoice at all, so
+    // invoiceTotal/invoiceStatus above would otherwise read as "no_invoice"
+    // even while they still owe money from their last term.
+    supabase
+      .from('invoices')
+      .select('student_id, outstanding_amount, previous_balance_from_invoice_id, id')
+      .in('student_id', studentIds)
+      .neq('status', 'cancelled'),
+  ])
 
   const supersededIds = new Set(
     (allOutstandingInvoices || [])
@@ -182,63 +189,86 @@ export async function getStudentById(studentId: string) {
   const { supabase, schoolId } = ctx
   if (!schoolId) return null
 
-  // Get student with class and family
-  const { data: student } = await supabase
-    .from('students')
-    .select(`
-      id,
-      first_name,
-      last_name,
-      admission_number,
-      admission_date,
-      status,
-      provider_dva_reference,
-      provider_dva_account_number,
-      provider_dva_bank_name,
-      classes!inner(id, name),
-      families!inner(
+  // Round 1: student, school payment config, and current cycle are all
+  // independent of one another.
+  const [{ data: student }, { data: schoolRow }, { data: currentCycle }] = await Promise.all([
+    supabase
+      .from('students')
+      .select(`
         id,
-        primary_parent_name,
-        primary_parent_phone,
-        primary_parent_email,
-        secondary_parent_name,
-        secondary_parent_phone,
-        secondary_parent_email,
-        notes
-      )
-    `)
-    .eq('id', studentId)
-    .eq('school_id', schoolId)
-    .single()
+        first_name,
+        last_name,
+        admission_number,
+        admission_date,
+        status,
+        provider_dva_reference,
+        provider_dva_account_number,
+        provider_dva_bank_name,
+        classes!inner(id, name),
+        families!inner(
+          id,
+          primary_parent_name,
+          primary_parent_phone,
+          primary_parent_email,
+          secondary_parent_name,
+          secondary_parent_phone,
+          secondary_parent_email,
+          notes
+        )
+      `)
+      .eq('id', studentId)
+      .eq('school_id', schoolId)
+      .single(),
+    // Whether this school has a payment provider at all — drives the header's
+    // virtual-account state (has account / can create / not configured).
+    supabase
+      .from('schools')
+      .select('payment_provider')
+      .eq('id', schoolId)
+      .single(),
+    // Get current billing cycle
+    supabase
+      .from('billing_cycles')
+      .select('id, name')
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .single(),
+  ])
 
   if (!student) return null
 
-  // Whether this school has a payment provider at all — drives the header's
-  // virtual-account state (has account / can create / not configured).
-  const { data: schoolRow } = await supabase
-    .from('schools')
-    .select('payment_provider')
-    .eq('id', schoolId)
-    .single()
+  // Round 2: current-term invoice (needs the cycle) and siblings (needs the
+  // family) — independent of each other.
+  // @ts-expect-error — families is joined object
+  const familyId = student.families?.id
+  const [{ data: currentInvoice }, { data: siblings }] = await Promise.all([
+    // Get current term invoice
+    supabase
+      .from('invoices')
+      .select('*')
+      .eq('student_id', studentId)
+      .eq('billing_cycle_id', currentCycle?.id || '')
+      .maybeSingle(),
+    // Get siblings (other students in same family)
+    supabase
+      .from('students')
+      .select(`
+        id,
+        first_name,
+        last_name,
+        classes!inner(name)
+      `)
+      .eq('school_id', schoolId)
+      .eq('family_id', familyId)
+      .neq('id', studentId)
+      .eq('status', 'active'),
+  ])
 
-  // Get current billing cycle
-  const { data: currentCycle } = await supabase
-    .from('billing_cycles')
-    .select('id, name')
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .order('start_date', { ascending: false })
-    .limit(1)
-    .single()
-
-  // Get current term invoice
-  const { data: currentInvoice } = await supabase
-    .from('invoices')
-    .select('*')
-    .eq('student_id', studentId)
-    .eq('billing_cycle_id', currentCycle?.id || '')
-    .maybeSingle()
-
+  // Round 3: everything that depends on the invoice and/or siblings — the
+  // revocable-discount rows, this term's payments, and sibling invoice
+  // statuses — all fetched together.
   // Discounts the admin can revoke from this invoice via the "Edit discount"
   // button — recurring ones (scoped by student+category, since a carried-
   // forward discount's stored invoice_id may point at an earlier term) plus
@@ -253,20 +283,43 @@ export async function getStudentById(studentId: string) {
   // - canFullyRevokeDiscount: blocked once EITHER the invoice was sent OR
   //   paid against — once the parent has seen a total, changing it away
   //   (rather than just stopping it going forward) needs a firmer bar.
+  const siblingIds = siblings?.map(s => s.id) || []
+  const [recurring, oneOffResult, paymentResult, siblingInvoiceResult] = await Promise.all([
+    currentInvoice ? getRecurringDiscounts(supabase, schoolId, studentId) : Promise.resolve([]),
+    currentInvoice
+      ? supabase
+          .from('discounts')
+          .select('id, category, reason')
+          .eq('school_id', schoolId)
+          .eq('invoice_id', currentInvoice.id)
+          .eq('status', 'applied')
+          .eq('is_recurring', false)
+          .not('requested_by', 'is', null)
+      : Promise.resolve({ data: null }),
+    // Get payment history for current term invoice
+    currentInvoice
+      ? supabase
+          .from('payments')
+          .select('id, amount, method, paid_at, provider_reference')
+          .eq('invoice_id', currentInvoice.id)
+          .eq('match_status', 'matched')
+          .order('paid_at', { ascending: false })
+      : Promise.resolve({ data: null }),
+    // Get sibling invoice statuses for current term
+    siblings && currentCycle && siblingIds.length > 0
+      ? supabase
+          .from('invoices')
+          .select('student_id, status')
+          .in('student_id', siblingIds)
+          .eq('billing_cycle_id', currentCycle.id)
+      : Promise.resolve({ data: null }),
+  ])
+
   let revocableDiscounts: { id: string; category: string; reason: string; isRecurring: boolean }[] = []
   let canAddDiscount = false
   let canFullyRevokeDiscount = false
   if (currentInvoice) {
-    const recurring = await getRecurringDiscounts(supabase, schoolId, studentId)
-    const { data: oneOffRows } = await supabase
-      .from('discounts')
-      .select('id, category, reason')
-      .eq('school_id', schoolId)
-      .eq('invoice_id', currentInvoice.id)
-      .eq('status', 'applied')
-      .eq('is_recurring', false)
-      .not('requested_by', 'is', null)
-
+    const oneOffRows = (oneOffResult as any).data
     revocableDiscounts = [
       ...recurring.map((row: any) => ({ id: row.id, category: row.category, reason: row.reason, isRecurring: true })),
       ...(oneOffRows || []).map((row: any) => ({ id: row.id, category: row.category, reason: row.reason, isRecurring: false })),
@@ -275,23 +328,6 @@ export async function getStudentById(studentId: string) {
     canFullyRevokeDiscount = !currentInvoice.sent_at && Number(currentInvoice.paid_amount || 0) === 0
   }
 
-  // Get siblings (other students in same family)
-  // @ts-expect-error — families is joined object
-  const familyId = student.families?.id
-  const { data: siblings } = await supabase
-    .from('students')
-    .select(`
-      id,
-      first_name,
-      last_name,
-      classes!inner(name)
-    `)
-    .eq('school_id', schoolId)
-    .eq('family_id', familyId)
-    .neq('id', studentId)
-    .eq('status', 'active')
-
-  // Get sibling invoice statuses for current term
   let siblingsWithStatus: Array<{
     id: string
     firstName: string
@@ -301,15 +337,9 @@ export async function getStudentById(studentId: string) {
   }> = []
 
   if (siblings && currentCycle) {
-    const siblingIds = siblings.map(s => s.id)
-    const { data: siblingInvoices } = await supabase
-      .from('invoices')
-      .select('student_id, status')
-      .in('student_id', siblingIds)
-      .eq('billing_cycle_id', currentCycle.id)
-
+    const siblingInvoices = (siblingInvoiceResult as any).data
     siblingsWithStatus = siblings.map(sib => {
-      const invoice = siblingInvoices?.find(inv => inv.student_id === sib.id)
+      const invoice = siblingInvoices?.find((inv: any) => inv.student_id === sib.id)
       return {
         id: sib.id,
         firstName: sib.first_name,
@@ -321,18 +351,7 @@ export async function getStudentById(studentId: string) {
     })
   }
 
-  // Get payment history for current term invoice
-  let payments: any[] = []
-  if (currentInvoice) {
-    const { data: paymentData } = await supabase
-      .from('payments')
-      .select('id, amount, method, paid_at, provider_reference')
-      .eq('invoice_id', currentInvoice.id)
-      .eq('match_status', 'matched')
-      .order('paid_at', { ascending: false })
-    
-    payments = paymentData || []
-  }
+  const payments: any[] = (paymentResult as any).data || []
 
   return {
     id: student.id,
@@ -409,37 +428,37 @@ export async function getStudentPaymentHistory(studentId: string) {
 
   if (!student) return null
 
-  // Get all invoices for this student, with billing cycle info
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select(`
-      id,
-      total_amount,
-      paid_amount,
-      status,
-      generated_at,
-      fully_paid_at,
-      line_items,
-      billing_cycle_id,
-      billing_cycles!inner(id, name)
-    `)
-    .eq('student_id', studentId)
-    .order('generated_at', { ascending: false })
-
-  // Get all payments for this student
-  const { data: payments } = await supabase
-    .from('payments')
-    .select(`
-      id,
-      amount,
-      method,
-      paid_at,
-      provider_reference,
-      invoice_id
-    `)
-    .eq('student_id', studentId)
-    .eq('match_status', 'matched')
-    .order('paid_at', { ascending: false })
+  // Get all invoices and payments for this student — independent of each other.
+  const [{ data: invoices }, { data: payments }] = await Promise.all([
+    supabase
+      .from('invoices')
+      .select(`
+        id,
+        total_amount,
+        paid_amount,
+        status,
+        generated_at,
+        fully_paid_at,
+        line_items,
+        billing_cycle_id,
+        billing_cycles!inner(id, name)
+      `)
+      .eq('student_id', studentId)
+      .order('generated_at', { ascending: false }),
+    supabase
+      .from('payments')
+      .select(`
+        id,
+        amount,
+        method,
+        paid_at,
+        provider_reference,
+        invoice_id
+      `)
+      .eq('student_id', studentId)
+      .eq('match_status', 'matched')
+      .order('paid_at', { ascending: false }),
+  ])
 
   // Compute summary numbers
   const totalInvoiced = invoices?.reduce((sum, inv) => sum + Number(inv.total_amount), 0) || 0

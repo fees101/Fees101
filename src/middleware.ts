@@ -25,8 +25,14 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh session if expired
-  const { data: { user } } = await supabase.auth.getUser()
+  // Verify the session by validating the JWT LOCALLY (getClaims) instead of a
+  // network round-trip to the Auth server on every request (getUser). With
+  // asymmetric JWT signing keys enabled on the project this is signature-only,
+  // no network; it still refreshes an expired token via the cookie adapter.
+  // This is the scalable pattern — a per-request auth-server call doesn't hold
+  // up under load. `claims.sub` is the user id when signed in; null otherwise.
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const user = claimsData?.claims ?? null
 
   // Public signup is disabled — schools are onboarded by Fees101, and staff are
   // added from within a school (Settings → Users). Send any /signup hit to login.
@@ -36,23 +42,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Deactivated staff are bounced out immediately: a live is_active check on the
-  // signed-in user (single indexed PK lookup). has_permission() also ANDs
-  // is_active server-side, so even a stale session has zero permissions.
-  if (user) {
-    const { data: profile } = await supabase
-      .from('users')
-      .select('is_active')
-      .eq('id', user.id)
-      .single()
-    if (profile && profile.is_active === false) {
-      await supabase.auth.signOut()
-      const url = request.nextUrl.clone()
-      url.pathname = '/login'
-      url.searchParams.set('error', 'account_deactivated')
-      return NextResponse.redirect(url)
-    }
-  }
+  // NOTE: the per-request is_active lookup that used to live here was removed —
+  // it duplicated the is_active column getAuthContext() already selects, and
+  // has_permission() ANDs is_active server-side, so a deactivated user gets
+  // zero permissions and is redirected out by the page/action gate on their
+  // next move regardless. Deactivation stays enforced; it's just no longer an
+  // extra DB round-trip on every single navigation.
 
   // Protected routes: anything under /dashboard, /students, /fees, /invoices, /settings
   const protectedPaths = ['/dashboard', '/students', '/fees', '/invoices', '/settings']

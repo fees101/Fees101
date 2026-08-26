@@ -49,38 +49,35 @@ export async function getFeesOverview(cycleId?: string) {
     }
   }
 
-  // ONLY load active term as default. Draft terms are not "current."
-  let cycle
-  if (cycleId) {
-    const { data } = await supabase
-      .from('billing_cycles')
-      .select('id, name, status, start_date, end_date')
-      .eq('id', cycleId)
-      .eq('school_id', schoolId)
-      .single()
-    cycle = data
-  } else {
-    const { data } = await supabase
-      .from('billing_cycles')
-      .select('id, name, status, start_date, end_date')
-      .eq('school_id', schoolId)
-      .eq('status', 'active')
-      .limit(1)
-      .maybeSingle()
-    cycle = data
-  }
+  // Cycle lookup plus the two school-wide counts are independent — run together.
+  const cyclePromise = cycleId
+    ? supabase
+        .from('billing_cycles')
+        .select('id, name, status, start_date, end_date')
+        .eq('id', cycleId)
+        .eq('school_id', schoolId)
+        .single()
+    : supabase
+        .from('billing_cycles')
+        .select('id, name, status, start_date, end_date')
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle()
 
-  const { count: activeClasses } = await supabase
-    .from('classes')
-    .select('*', { count: 'exact', head: true })
-    .eq('school_id', schoolId)
-    .eq('is_active', true)
-
-  const { count: totalActiveStudents } = await supabase
-    .from('students')
-    .select('*', { count: 'exact', head: true })
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
+  const [{ data: cycle }, { count: activeClasses }, { count: totalActiveStudents }] = await Promise.all([
+    cyclePromise,
+    supabase
+      .from('classes')
+      .select('*', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('is_active', true),
+    supabase
+      .from('students')
+      .select('*', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('status', 'active'),
+  ])
 
   let totalExpectedThisTerm = 0
   let totalCollected = 0
@@ -88,24 +85,27 @@ export async function getFeesOverview(cycleId?: string) {
   let studentsWithInvoices = 0
 
   if (cycle) {
-    const { data: invoices } = await supabase
-      .from('invoices')
-      .select('total_amount, paid_amount, credit_applied, student_id')
-      .eq('billing_cycle_id', cycle.id)
+    const [{ data: invoices }, collected] = await Promise.all([
+      supabase
+        .from('invoices')
+        .select('total_amount, paid_amount, credit_applied, student_id')
+        .eq('billing_cycle_id', cycle.id),
+      // Collected = real money received while this term was active, by
+      // payment date — not what's allocated to this term's invoices. See
+      // getCollectedForDateRange.
+      getCollectedForDateRange(supabase, schoolId, cycle.start_date, cycle.end_date),
+    ])
 
     // Expected = gross fees for the term = net total plus whatever credit
     // covered part of it (total_amount is already net of credit_applied).
-    totalExpectedThisTerm = invoices?.reduce((sum, inv) => sum + Number(inv.total_amount) + Number(inv.credit_applied || 0), 0) || 0
+    totalExpectedThisTerm = invoices?.reduce((sum: number, inv: any) => sum + Number(inv.total_amount) + Number(inv.credit_applied || 0), 0) || 0
     // Outstanding = what's still owed on these invoices (net total minus
     // direct payments). Always invoice-derived — NEVER expected minus
     // collected, which goes negative once date-based collected exceeds
     // what's been billed so far.
-    totalOutstanding = invoices?.reduce((sum, inv) => sum + Math.max(0, Number(inv.total_amount) - Number(inv.paid_amount || 0)), 0) || 0
+    totalOutstanding = invoices?.reduce((sum: number, inv: any) => sum + Math.max(0, Number(inv.total_amount) - Number(inv.paid_amount || 0)), 0) || 0
     studentsWithInvoices = invoices?.length || 0
-    // Collected = real money received while this term was active, by
-    // payment date — not what's allocated to this term's invoices. See
-    // getCollectedForDateRange.
-    totalCollected = await getCollectedForDateRange(supabase, schoolId, cycle.start_date, cycle.end_date)
+    totalCollected = collected
   }
 
   return {
@@ -127,39 +127,41 @@ export async function getClasses() {
   const { supabase, schoolId } = ctx
   if (!schoolId) return { classes: [], sections: [] }
 
-  const { data: sections } = await supabase
-    .from('sections')
-    .select('id, name')
-    .eq('school_id', schoolId)
-    .order('display_order')
-
-  const { data: classes } = await supabase
-    .from('classes')
-    .select(`
-      id,
-      name,
-      display_order,
-      is_active,
-      section_id,
-      next_class_id,
-      sections(name)
-    `)
-    .eq('school_id', schoolId)
-    .order('display_order')
+  const [{ data: sections }, { data: classes }] = await Promise.all([
+    supabase
+      .from('sections')
+      .select('id, name')
+      .eq('school_id', schoolId)
+      .order('display_order'),
+    supabase
+      .from('classes')
+      .select(`
+        id,
+        name,
+        display_order,
+        is_active,
+        section_id,
+        next_class_id,
+        sections(name)
+      `)
+      .eq('school_id', schoolId)
+      .order('display_order'),
+  ])
 
   if (!classes) return { classes: [], sections: sections || [] }
 
   const classIds = classes.map(c => c.id)
-  const { data: studentCounts } = await supabase
-    .from('students')
-    .select('class_id')
-    .in('class_id', classIds)
-    .eq('status', 'active')
-
-  const { data: feeItemCounts } = await supabase
-    .from('fee_items')
-    .select('class_id')
-    .in('class_id', classIds)
+  const [{ data: studentCounts }, { data: feeItemCounts }] = await Promise.all([
+    supabase
+      .from('students')
+      .select('class_id')
+      .in('class_id', classIds)
+      .eq('status', 'active'),
+    supabase
+      .from('fee_items')
+      .select('class_id')
+      .in('class_id', classIds),
+  ])
 
   const studentCountMap: Record<string, number> = {}
   studentCounts?.forEach(s => {
@@ -231,29 +233,29 @@ export async function getFeeStructure(billingCycleId?: string) {
     }
   }
 
-  const { data: classes } = await supabase
-    .from('classes')
-    .select('id, name, display_order')
-    .eq('school_id', schoolId)
-    .eq('is_active', true)
-    .order('display_order')
-
-  const { data: feeItems } = await supabase
-    .from('fee_items')
-    .select('id, class_id, name, amount, is_mandatory, is_optional_extra, is_discountable')
-    .eq('school_id', schoolId)
-    .eq('billing_cycle_id', cycle.id)
-
-  // Get active students per class (for revenue calculation)
-  const { data: students } = await supabase
-    .from('students')
-    .select('class_id')
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
+  const [{ data: classes }, { data: feeItems }, { data: students }] = await Promise.all([
+    supabase
+      .from('classes')
+      .select('id, name, display_order')
+      .eq('school_id', schoolId)
+      .eq('is_active', true)
+      .order('display_order'),
+    supabase
+      .from('fee_items')
+      .select('id, class_id, name, amount, is_mandatory, is_optional_extra, is_discountable')
+      .eq('school_id', schoolId)
+      .eq('billing_cycle_id', cycle.id),
+    // Get active students per class (for revenue calculation)
+    supabase
+      .from('students')
+      .select('class_id')
+      .eq('school_id', schoolId)
+      .eq('status', 'active'),
+  ])
 
   const studentCountByClass: Record<string, number> = {}
   let totalActiveStudents = 0
-  students?.forEach(s => {
+  students?.forEach((s: any) => {
     totalActiveStudents++
     if (s.class_id) {
       studentCountByClass[s.class_id] = (studentCountByClass[s.class_id] || 0) + 1
@@ -383,21 +385,41 @@ export async function getAllCycles(): Promise<CycleRow[]> {
 
   const cycleIds = cycles.map(c => c.id)
 
-  // Get total active students (for "X of Y invoiced")
-  const { count: totalActiveStudents } = await supabase
-    .from('students')
-    .select('*', { count: 'exact', head: true })
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-
-  // Get invoice stats per cycle (expected/count/outstanding — collected is payment-date-based, below)
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('billing_cycle_id, total_amount, paid_amount, credit_applied')
-    .in('billing_cycle_id', cycleIds)
+  // After the cycle list, these four are all independent of one another.
+  const [
+    { count: totalActiveStudents },
+    { data: invoices },
+    { data: allPayments },
+    { data: feeItems },
+  ] = await Promise.all([
+    // Get total active students (for "X of Y invoiced")
+    supabase
+      .from('students')
+      .select('*', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('status', 'active'),
+    // Get invoice stats per cycle (expected/count/outstanding — collected is payment-date-based, below)
+    supabase
+      .from('invoices')
+      .select('billing_cycle_id, total_amount, paid_amount, credit_applied')
+      .in('billing_cycle_id', cycleIds),
+    // Collected is attributed by payment date, not invoice allocation — fetch
+    // every matched payment once and bucket into whichever cycle's date range
+    // it falls in, rather than N+1 queries per cycle.
+    supabase
+      .from('payments')
+      .select('amount, paid_at')
+      .eq('school_id', schoolId)
+      .eq('match_status', 'matched'),
+    // Get fee item counts per cycle
+    supabase
+      .from('fee_items')
+      .select('billing_cycle_id')
+      .in('billing_cycle_id', cycleIds),
+  ])
 
   const invoiceStats: Record<string, { count: number, expected: number, outstanding: number, studentsWithOutstanding: number }> = {}
-  invoices?.forEach(inv => {
+  invoices?.forEach((inv: any) => {
     const stat = invoiceStats[inv.billing_cycle_id] ||= { count: 0, expected: 0, outstanding: 0, studentsWithOutstanding: 0 }
     stat.count++
     // total_amount is already net of credit_applied (computeInvoiceForStudent
@@ -408,15 +430,6 @@ export async function getAllCycles(): Promise<CycleRow[]> {
     stat.outstanding += outstanding
     if (outstanding > 0) stat.studentsWithOutstanding++
   })
-
-  // Collected is attributed by payment date, not invoice allocation — fetch
-  // every matched payment once and bucket into whichever cycle's date range
-  // it falls in, rather than N+1 queries per cycle.
-  const { data: allPayments } = await supabase
-    .from('payments')
-    .select('amount, paid_at')
-    .eq('school_id', schoolId)
-    .eq('match_status', 'matched')
 
   const collectedByCycle: Record<string, number> = {}
   cycles.forEach(c => {
@@ -431,14 +444,8 @@ export async function getAllCycles(): Promise<CycleRow[]> {
       .reduce((sum: number, p: any) => sum + Number(p.amount), 0)
   })
 
-  // Get fee item counts per cycle
-  const { data: feeItems } = await supabase
-    .from('fee_items')
-    .select('billing_cycle_id')
-    .in('billing_cycle_id', cycleIds)
-
   const feeItemStats: Record<string, number> = {}
-  feeItems?.forEach(f => {
+  feeItems?.forEach((f: any) => {
     feeItemStats[f.billing_cycle_id] = (feeItemStats[f.billing_cycle_id] || 0) + 1
   })
 
@@ -541,54 +548,70 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
 
   if (!cycleData) return null
 
-  // Get total active students for the school
-  const { count: totalActiveStudents } = await supabase
-    .from('students')
-    .select('*', { count: 'exact', head: true })
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-
-  // Get all invoices for this cycle
-  const { data: invoiceData } = await supabase
-    .from('invoices')
-    .select(`
-      id,
-      invoice_number,
-      student_id,
-      total_amount,
-      paid_amount,
-      outstanding_amount,
-      status,
-      sent_at,
-      needs_resend,
-      previous_balance,
-      credit_applied,
-      generated_at,
-      line_items,
-      students(first_name, last_name, admission_number, class_id, credit_balance, classes(name))
-    `)
-    .eq('billing_cycle_id', cycleId)
-    .order('generated_at', { ascending: false })
+  // After the cycle, these are all independent of one another: the active-
+  // student count, this cycle's invoices, every active student (for the
+  // "not yet invoiced" list), and date-based collected.
+  const [
+    { count: totalActiveStudents },
+    { data: invoiceData },
+    { data: allActiveStudents },
+    totalCollected,
+  ] = await Promise.all([
+    supabase
+      .from('students')
+      .select('*', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('status', 'active'),
+    supabase
+      .from('invoices')
+      .select(`
+        id,
+        invoice_number,
+        student_id,
+        total_amount,
+        paid_amount,
+        outstanding_amount,
+        status,
+        sent_at,
+        needs_resend,
+        previous_balance,
+        credit_applied,
+        generated_at,
+        line_items,
+        students(first_name, last_name, admission_number, class_id, credit_balance, classes(name))
+      `)
+      .eq('billing_cycle_id', cycleId)
+      .order('generated_at', { ascending: false }),
+    supabase
+      .from('students')
+      .select(`
+        id,
+        first_name,
+        last_name,
+        admission_number,
+        class_id,
+        classes(name)
+      `)
+      .eq('school_id', schoolId)
+      .eq('status', 'active'),
+    // Collected is attributed by payment date, not invoice allocation — see getCollectedForDateRange.
+    getCollectedForDateRange(supabase, schoolId, cycleData.start_date, cycleData.end_date),
+  ])
 
   // Student's live credit_balance already has this invoice's own
   // credit_applied subtracted out — need it for the staleness override below.
   const studentLiveCreditBalance: Record<string, number> = {}
-  ;(invoiceData || []).forEach(inv => {
-    // @ts-expect-error — joined
+  ;(invoiceData || []).forEach((inv: any) => {
     studentLiveCreditBalance[inv.student_id] = Number(inv.students?.credit_balance || 0)
   })
 
-  const invoices: InvoiceRow[] = (invoiceData || []).map(inv => ({
+  const invoices: InvoiceRow[] = (invoiceData || []).map((inv: any) => ({
     id: inv.id,
     invoiceNumber: inv.invoice_number || null,
     studentId: inv.student_id,
-    // @ts-expect-error — joined
     studentFirstName: inv.students?.first_name || '',
-    // @ts-expect-error — joined
     studentLastName: inv.students?.last_name || '',
-    // @ts-expect-error — joined
     studentAdmissionNumber: inv.students?.admission_number || '',
-    // @ts-expect-error — joined
     className: inv.students?.classes?.name || '',
     totalAmount: Number(inv.total_amount),
     paidAmount: Number(inv.paid_amount || 0),
@@ -629,31 +652,18 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     }
   }
 
-  // Get students who DON'T have an invoice for this cycle
+  // Get students who DON'T have an invoice for this cycle (allActiveStudents
+  // was fetched in parallel above).
   const invoicedStudentIds = new Set(invoices.map(i => i.studentId))
 
-  const { data: allActiveStudents } = await supabase
-    .from('students')
-    .select(`
-      id,
-      first_name,
-      last_name,
-      admission_number,
-      class_id,
-      classes(name)
-    `)
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-
   const studentsWithoutInvoices = (allActiveStudents || [])
-    .filter(s => !invoicedStudentIds.has(s.id))
-    .map(s => ({
+    .filter((s: any) => !invoicedStudentIds.has(s.id))
+    .map((s: any) => ({
       id: s.id,
       firstName: s.first_name,
       lastName: s.last_name,
       admissionNumber: s.admission_number,
       classId: s.class_id,
-      // @ts-expect-error — joined
       className: s.classes?.name || '',
     }))
 
@@ -671,8 +681,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
   // of creditApplied, so expected (the gross fee due) has to add it back.
   const totalExpected = invoices.reduce((s, i) => s + i.totalAmount + i.creditApplied, 0)
   const totalOutstanding = invoices.reduce((s, i) => s + Math.max(0, i.totalAmount - i.paidAmount), 0)
-  // Collected is attributed by payment date, not invoice allocation — see getCollectedForDateRange.
-  const totalCollected = await getCollectedForDateRange(supabase, schoolId, cycleData.start_date, cycleData.end_date)
+  // totalCollected was fetched in parallel above.
 
   const cycle: CycleRow = {
     id: cycleData.id,
@@ -805,20 +814,29 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
 
   if (!invoice) return null
 
-  // Get school info
-  const { data: school } = await supabase
-    .from('schools')
-    .select('name, logo_url, address_street, address_city, address_state, phone, email, proprietress_title, proprietress_first_name, proprietress_last_name')
-    .eq('id', schoolId)
-    .single()
-
-  // Get recorded payments for this invoice
-  const { data: payments } = await supabase
-    .from('payments')
-    .select('id, amount, method, paid_at, provider_reference, provider, provider_transaction_id, users(name)')
-    .eq('invoice_id', invoiceId)
-    .eq('match_status', 'matched')
-    .order('paid_at', { ascending: false })
+  // School info, this invoice's payments, and any pending discount request are
+  // all independent of one another.
+  const [{ data: school }, { data: payments }, { data: pendingDiscountRow }] = await Promise.all([
+    supabase
+      .from('schools')
+      .select('name, logo_url, address_street, address_city, address_state, phone, email, proprietress_title, proprietress_first_name, proprietress_last_name')
+      .eq('id', schoolId)
+      .single(),
+    supabase
+      .from('payments')
+      .select('id, amount, method, paid_at, provider_reference, provider, provider_transaction_id, users(name)')
+      .eq('invoice_id', invoiceId)
+      .eq('match_status', 'matched')
+      .order('paid_at', { ascending: false }),
+    supabase
+      .from('discounts')
+      .select('id, requested_at, users!discounts_requested_by_fkey(name)')
+      .eq('invoice_id', invoiceId)
+      .eq('status', 'pending')
+      .order('requested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
 
   // For any payment that was part of a larger transfer split across other
   // invoices (or credit), pull the sibling rows so we can show where the
@@ -849,15 +867,6 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
     // THIS invoice_id, but a null invoice_id row is naturally != invoiceId
     // already, so it's included above with termName: null (credit).
   }
-
-  const { data: pendingDiscountRow } = await supabase
-    .from('discounts')
-    .select('id, requested_at, users!discounts_requested_by_fkey(name)')
-    .eq('invoice_id', invoiceId)
-    .eq('status', 'pending')
-    .order('requested_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
 
   const total = Number(invoice.total_amount)
   const paid = Number(invoice.paid_amount || 0)
@@ -924,45 +933,46 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
   if (!ctx) return []
   const { supabase, schoolId } = ctx
 
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select(`
-      id,
-      invoice_number,
-      total_amount,
-      subtotal,
-      discount_amount,
-      discount_reason,
-      previous_balance,
-      paid_amount,
-      status,
-      sent_at,
-      needs_resend,
-      generated_at,
-      fully_paid_at,
-      line_items,
-      students!inner(
+  const [{ data: invoices }, { data: school }] = await Promise.all([
+    supabase
+      .from('invoices')
+      .select(`
         id,
-        first_name,
-        last_name,
-        admission_number,
-        provider_dva_account_number,
-        provider_dva_bank_name,
-        classes(name, display_order),
-        families(primary_parent_name, primary_parent_phone)
-      ),
-      billing_cycles!inner(id, name, due_date)
-    `)
-    .eq('billing_cycle_id', cycleId)
-    .eq('school_id', schoolId)
+        invoice_number,
+        total_amount,
+        subtotal,
+        discount_amount,
+        discount_reason,
+        previous_balance,
+        paid_amount,
+        status,
+        sent_at,
+        needs_resend,
+        generated_at,
+        fully_paid_at,
+        line_items,
+        students!inner(
+          id,
+          first_name,
+          last_name,
+          admission_number,
+          provider_dva_account_number,
+          provider_dva_bank_name,
+          classes(name, display_order),
+          families(primary_parent_name, primary_parent_phone)
+        ),
+        billing_cycles!inner(id, name, due_date)
+      `)
+      .eq('billing_cycle_id', cycleId)
+      .eq('school_id', schoolId),
+    supabase
+      .from('schools')
+      .select('name, logo_url, address_street, address_city, address_state, phone, email, proprietress_title, proprietress_first_name, proprietress_last_name')
+      .eq('id', schoolId)
+      .single(),
+  ])
 
   if (!invoices) return []
-
-  const { data: school } = await supabase
-    .from('schools')
-    .select('name, logo_url, address_street, address_city, address_state, phone, email, proprietress_title, proprietress_first_name, proprietress_last_name')
-    .eq('id', schoolId)
-    .single()
 
   // Print order: class display_order (Play Pen → Year 11), then last name within each class.
   const sorted = [...invoices].sort((a, b) => {

@@ -281,17 +281,22 @@ async function buildDiscounts(supabase: any, schoolId: string, p: ReportParams):
     resolveCycleIds(supabase, schoolId, p),
   ])
 
-  // When scoping to a term/session, keep only discounts whose invoice is in scope.
-  let inScope: Set<string> | null = null
-  if (cycleIds) {
-    const { data: invs } = await supabase.from('invoices')
-      .select('id').eq('school_id', schoolId).in('billing_cycle_id', cycleIds)
-    inScope = new Set((invs || []).map((i: any) => i.id))
-  }
+  // When scoping to a term/session, keep only discounts whose invoice is in
+  // scope. The in-scope invoice lookup and the discounts fetch are independent
+  // (inScope is only applied as a post-filter), so they run together.
+  const [invScope, { data: discounts }] = await Promise.all([
+    cycleIds
+      ? supabase.from('invoices')
+          .select('id').eq('school_id', schoolId).in('billing_cycle_id', cycleIds)
+      : Promise.resolve({ data: null }),
+    supabase.from('discounts')
+      .select('invoice_id, student_id, category, is_percentage, amount, status, is_recurring, reason, approved_at')
+      .eq('school_id', schoolId).order('created_at', { ascending: true }),
+  ])
 
-  const { data: discounts } = await supabase.from('discounts')
-    .select('invoice_id, student_id, category, is_percentage, amount, status, is_recurring, reason, approved_at')
-    .eq('school_id', schoolId).order('created_at', { ascending: true })
+  const inScope: Set<string> | null = cycleIds
+    ? new Set(((invScope as any).data || []).map((i: any) => i.id))
+    : null
 
   const rows: CsvValue[][] = (discounts || [])
     .filter((d: any) => !inScope || inScope.has(d.invoice_id))

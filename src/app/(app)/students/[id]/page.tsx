@@ -36,9 +36,13 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
   const { id } = await params
   const { tab } = await searchParams
   const activeTab = tab === 'settings' ? 'settings' : tab === 'payments' ? 'payments' : tab === 'fees' ? 'fees' : 'overview'
-  const student = await getStudentById(id)
-  const paymentHistory = activeTab === 'payments' ? await getStudentPaymentHistory(id) : null
-  const feesData = activeTab === 'fees' ? await getStudentFees(id) : null
+  // The student and whichever tab-specific dataset is active depend only on
+  // the id, not on one another — fetch them together.
+  const [student, paymentHistory, feesData] = await Promise.all([
+    getStudentById(id),
+    activeTab === 'payments' ? getStudentPaymentHistory(id) : Promise.resolve(null),
+    activeTab === 'fees' ? getStudentFees(id) : Promise.resolve(null),
+  ])
 
   if (!student) {
     notFound()
