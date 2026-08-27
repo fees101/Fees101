@@ -13,6 +13,12 @@ export default async function AppLayout({
   // this exact result instead of each doing its own createClient()+getUser().
   const authCtx = await getAuthContext()
   if (!authCtx) redirect('/login')
+  // Instant deactivation kick-out. Uses the is_active already resolved by
+  // getAuthContext() (folded into this same cached round-trip — no extra DB
+  // call), restoring the immediate bounce the middleware used to do, minus its
+  // per-navigation lookup. A deactivated user also gets zero permissions, but
+  // this stops them landing on any (app) page at all.
+  if (!authCtx.isActive) redirect('/login?error=account_deactivated')
   const { supabase, userId, schoolId, role, isOwner } = authCtx
 
   const [{ data: profile }, { data: currentCycle }, { data: notificationRows }] = await Promise.all([

@@ -24,6 +24,7 @@ export interface AuthContext {
   roleId: string | null
   isOwner: boolean
   permissions: Set<string>
+  isActive: boolean
 }
 
 // Uncached loader. getAuthContext() wraps this in cache() for per-request reuse.
@@ -81,6 +82,7 @@ async function loadAuthContext(): Promise<AuthContext | null> {
     roleId: (profile.role_id as string | null) ?? null,
     isOwner: isOwner && active,
     permissions: rawPermissions,
+    isActive: active,
   }
 }
 

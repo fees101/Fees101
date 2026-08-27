@@ -1,11 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { login } from './actions'
 
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // Surface the reason when a page redirected here with ?error= (e.g. an
+  // account that was deactivated mid-session and bounced out of the app).
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get('error')
+    if (reason === 'account_deactivated') {
+      setError('Your account has been deactivated. Please contact your school administrator.')
+    }
+  }, [])
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)
