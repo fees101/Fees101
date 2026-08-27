@@ -133,12 +133,14 @@ simply a higher `maxDuration` on the route), not a separate server.
 No owner-facing product surface exists yet. Schools are created directly in the DB; signup makes everyone a `super_admin`.
 
 - [ ] **School onboarding / creation flow** — create a new school tenant from the app (no `.from('schools').insert` exists anywhere today). ⚠️ When built, it MUST seed the two default roles (Administrator + Bursar) for the new school — see the seed block in `db/roles_permissions.sql` — or the school starts with no assignable roles.
-- [ ] **Per-school feature toggles** — e.g. enable optional manual/cash/POS payment entry per account (only after a signed liability agreement); store the agreement/consent record
+- [ ] **Per-school feature toggles** — e.g. enable optional manual/cash/POS payment entry **and school-side self-reconciliation** per account (only after the school *requests* it and signs a liability agreement — it's explicitly at the school's own risk, off by default; Fees101 flips the toggle, the school can't self-serve). Store the agreement/consent record. The toggle gates both the manual-entry UI and the reconciliation UI (line 69) for that school; unlocks the `record-payments` permission that currently has no UI to gate.
 - [x] **Remove public signup** — `/signup` is now disabled (middleware redirects it to `/login`; the "Get started" link is gone). The owner provisions schools/users; staff are added in-app via Settings → Users. *(the `/signup` page file still exists but is unreachable — delete after test)*
 - [ ] **Tenant directory** — list/manage all schools (the owner's dashboard)
 - [ ] **Impersonation / school switcher** — owner views a specific school
+- [ ] **Restore / cancel a pending school deletion (grace-window recovery)** — when a school that requested account deletion (see Data & privacy, line 175) changes its mind and comes back, Fees101 cancels the scheduled deletion from the admin dashboard, reactivating the school and its staff logins — as long as it's still within the 30-day grace window (before the purge cron runs). The school does NOT self-cancel; recovery is admin-side. Until this dashboard exists, the interim cancel path is a secret-protected admin route / manual DB update on `school_deletion_requests`.
 - [ ] **Billing / subscription per tenant** — plans, invoicing the schools themselves
 - [ ] **Usage / metering dashboard** — students, SMS volume, storage per tenant
+- [ ] **Internal (Fees101-side) users & permissions — v2** — the admin dashboard needs its own staff accounts with their own role/permission model, *separate* from the per-school roles (line 74). Not every internal person should be able to do everything — especially sensitive, cross-tenant actions: deactivating/impersonating a school, flipping the manual-payment/self-reconcile toggle (line 136), touching billing, or changing another user's account. Needs a deliberate catalog of internal permissions (who can change accounts, who can only view, who can toggle risky features) before this ships. Deferred to v2 — after the per-school roles/permissions work is fully done and tested.
 
 ---
 
@@ -171,7 +173,7 @@ Kept until near launch so login friction doesn't slow daily testing.
 - [ ] **Remove dev tooling from production** — `/simulator`, `api/dev/provision-dva`, `api/dev/simulate-payment`
 - [ ] **DB test-data cleanup** — clear seeded test school/students (folds into the fresh DB rebuild above)
 - [ ] **Audit log UI** — user-facing audit trail (`/settings/audit-log` is a stub)
-- [ ] **Data & privacy** — export/delete a school's data (`/settings/data-privacy` is a stub)
+- [~] **Data & privacy** (`/settings/data-privacy`, owner-only) — **Phase 1 built (pending test):** transparency sections (live "what we store" inventory counts, sub-processor list, security summary, retention statement), one-click **"download all my data"** as a dependency-free `.zip` of per-table CSVs (`src/lib/dataPrivacy/`, `src/lib/reports/zip.ts`, export route at `settings/data-privacy/export`), plus contact + policy links (`fees101.com/privacy` + `/terms` — URLs assumed stable, confirm/adjust in `src/lib/dataPrivacy/config.ts`). **Phase 2 (TODO):** scheduled account-deletion flow — owner confirms (type school name) → 30-day cancellable grace → daily cron hard-deletes personal data and archives anonymised financial records, purged after 6 years (Nigerian FIRS retention). Needs a new `school_deletion_requests` table + `delete_school_data`/archive SQL and a Vercel cron; the destructive executor MUST be tested against a staging school before it's trusted.
 
 ---
 
