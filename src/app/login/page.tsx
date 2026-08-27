@@ -13,6 +13,12 @@ export default function LoginPage() {
     const reason = new URLSearchParams(window.location.search).get('error')
     if (reason === 'account_deactivated') {
       setError('Your account has been deactivated. Please contact your school administrator.')
+    } else if (reason === 'scheduled_deletion') {
+      // The dated version is returned by the login action on the next sign-in
+      // attempt; here (a bounced session) we show the undated notice.
+      setError(
+        'This school account is scheduled for deletion. Contact support@fees101.com to cancel.',
+      )
     }
   }, [])
 

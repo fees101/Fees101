@@ -2,6 +2,7 @@ import Sidebar from '@/components/layout/Sidebar'
 import AdminNotificationBanner from '@/components/layout/AdminNotificationBanner'
 import { getAuthContext, permissionList } from '@/lib/auth/permissions'
 import { PermissionsProvider } from '@/lib/auth/PermissionsProvider'
+import { getScheduledDeletion } from '@/lib/dataPrivacy/deletion'
 import { redirect } from 'next/navigation'
 
 export default async function AppLayout({
@@ -18,7 +19,15 @@ export default async function AppLayout({
   // call), restoring the immediate bounce the middleware used to do, minus its
   // per-navigation lookup. A deactivated user also gets zero permissions, but
   // this stops them landing on any (app) page at all.
-  if (!authCtx.isActive) redirect('/login?error=account_deactivated')
+  if (!authCtx.isActive) {
+    // Distinguish a self-closed account (scheduled for deletion → dated,
+    // "contact support" message) from an admin deactivation (generic message).
+    // Only pays the extra lookup on the already-rare bounce path. Route through
+    // /logout so the session is actually cleared — a straight redirect to
+    // /login would loop (middleware bounces a still-valid session back in).
+    const scheduled = await getScheduledDeletion(authCtx.schoolId)
+    redirect(scheduled ? '/logout?error=scheduled_deletion' : '/logout?error=account_deactivated')
+  }
   const { supabase, userId, schoolId, role, isOwner } = authCtx
 
   const [{ data: profile }, { data: currentCycle }, { data: notificationRows }] = await Promise.all([

@@ -19,3 +19,17 @@ export const DELETION_GRACE_DAYS = 30
 // student or parent names — for this many years after closure, to satisfy tax /
 // audit record-keeping (Nigerian FIRS record-keeping is 6 years), then purged.
 export const FINANCIAL_RETENTION_YEARS = 6
+
+// The exact consent text an owner must accept to close the account. Stored on
+// the deletion request as evidence, and shown as the checkbox label — kept here
+// (not in the 'use server' actions file, which may only export async functions)
+// so both the action and the client dialog import the one source of truth.
+export const DELETION_ACKNOWLEDGEMENT =
+  "I've exported anything I need. I understand this permanently deletes my school's data after the grace period."
+
+// Format a scheduled_for timestamp for user-facing copy, e.g. "26 September 2026".
+// Kept here (pure, no server-only imports) so client components can use it too.
+export function formatDeletionDate(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+}

@@ -8,8 +8,10 @@ import {
   DELETION_GRACE_DAYS,
   FINANCIAL_RETENTION_YEARS,
 } from '@/lib/dataPrivacy/config'
+import { getScheduledDeletion } from '@/lib/dataPrivacy/deletion'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import ExportAllDataButton from '@/components/settings/ExportAllDataButton'
+import DeleteAccountSection from '@/components/settings/DeleteAccountSection'
 
 // Exporting/deleting a WHOLE SCHOOL's data is a different risk class from the
 // rest of Settings — deliberately hardcoded to the owner (not a togglable
@@ -20,7 +22,14 @@ export default async function DataPrivacySettingsPage() {
   if (!ctx) redirect('/login')
   if (!ctx.isOwner) redirect('/dashboard')
 
-  const inventory = ctx.schoolId ? await getDataInventory(ctx.schoolId) : []
+  const [inventory, schoolRow, scheduledDeletion] = await Promise.all([
+    ctx.schoolId ? getDataInventory(ctx.schoolId) : Promise.resolve([]),
+    ctx.schoolId
+      ? ctx.supabase.from('schools').select('name').eq('id', ctx.schoolId).single()
+      : Promise.resolve({ data: null } as { data: { name: string } | null }),
+    getScheduledDeletion(ctx.schoolId),
+  ])
+  const schoolName = schoolRow.data?.name ?? 'your school'
 
   const card = 'bg-white border border-gray-200 rounded-xl p-5 sm:p-6'
   const h2 = 'text-lg font-semibold text-navy'
@@ -184,6 +193,15 @@ export default async function DataPrivacySettingsPage() {
             </a>
           </div>
         </section>
+
+        {/* ---- Close account & delete data ---- */}
+        <DeleteAccountSection
+          schoolName={schoolName}
+          graceDays={DELETION_GRACE_DAYS}
+          retentionYears={FINANCIAL_RETENTION_YEARS}
+          contactEmail={PRIVACY_CONTACT_EMAIL}
+          scheduledFor={scheduledDeletion?.scheduledFor ?? null}
+        />
       </div>
     </SettingsPageShell>
   )

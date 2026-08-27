@@ -7,8 +7,17 @@ async function runReminders() {
 
   const { data: schools } = await supabase.from('schools').select('id')
 
+  // Skip schools that have closed their account (scheduled for deletion) — they
+  // shouldn't keep sending parents payment reminders during the grace window.
+  const { data: closing } = await supabase
+    .from('school_deletion_requests')
+    .select('school_id')
+    .eq('status', 'scheduled')
+  const closingIds = new Set((closing || []).map(r => r.school_id as string))
+
   const results = []
   for (const school of schools || []) {
+    if (closingIds.has(school.id)) continue
     results.push(await sendDueRemindersForSchool(school.id, supabase))
   }
 
