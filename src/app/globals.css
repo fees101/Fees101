@@ -6,6 +6,12 @@
 @source inline("bg-{emerald,blue,purple,amber,rose}-{100,500}");
 @source inline("text-{emerald,blue,purple,amber,rose}-700");
 
+/* Audit log colour-codes each module (Staff/Roles/Invoices/Students/…) with a
+   pill whose classes are chosen from a data-driven map — same JIT gotcha, so
+   safelist the full module palette too. */
+@source inline("bg-{blue,indigo,amber,sky,rose,pink,teal,cyan,violet,emerald,slate,gray}-100");
+@source inline("text-{blue,indigo,amber,sky,rose,pink,teal,cyan,violet,emerald,slate,gray}-700");
+
 @theme {
   --color-navy: #0D1B36;
   --color-mint: #5AD8A6;

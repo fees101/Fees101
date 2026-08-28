@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getAuthContext } from '@/lib/auth/permissions'
 import { logAuditEvent } from '@/lib/audit/logAudit'
+import { actionLabel } from '@/lib/audit/auditLogLabels'
 import { toCSV, type CsvValue } from './csv'
 
 // ---------------------------------------------------------------------------
@@ -319,9 +320,8 @@ async function buildDiscounts(supabase: any, schoolId: string, p: ReportParams):
 
 // =====================================================================
 // Audit log — one row per event, newest first, optionally scoped to a
-// created_at date range. `action`-prefix filtering (e.g. "student.") is
-// applied client-side by the audit-log page; here it's just the full
-// school-scoped history for whatever date range was requested.
+// created_at date range. Exported from the Reports page; the audit-log
+// settings page filters by module in-view rather than on export.
 // =====================================================================
 async function buildAuditLog(supabase: any, schoolId: string, p: ReportParams): Promise<BuiltReport> {
   let q = supabase
@@ -335,12 +335,11 @@ async function buildAuditLog(supabase: any, schoolId: string, p: ReportParams): 
   const { data } = await q
 
   const rows: CsvValue[][] = (data || []).map((r: any) => [
-    r.created_at, r.actor_name, r.action, r.target_type ?? '', r.target_id ?? '',
-    r.summary, r.metadata ? JSON.stringify(r.metadata) : '',
+    r.created_at, r.actor_name, actionLabel(r.action), r.summary,
   ])
   return {
     name: 'audit-log',
-    headers: ['When', 'Actor', 'Action', 'Target type', 'Target ID', 'Summary', 'Details'],
+    headers: ['When', 'Who', 'Action', 'Details'],
     rows,
   }
 }

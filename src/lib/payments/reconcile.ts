@@ -8,7 +8,6 @@
 
 import { getPaymentProviderForSchool } from './getProvider'
 import { applyProviderPayment } from './applyPayment'
-import { logAuditEvent } from '@/lib/audit/logAudit'
 
 export interface ReconcileResult {
   schoolId: string
@@ -81,22 +80,6 @@ export async function reconcileSchool(schoolId: string, supabase: any): Promise<
       }
     }
   }
-
-  await logAuditEvent(supabase, {
-    schoolId,
-    actorId: null,
-    action: 'payment.reconciliation_run',
-    targetType: 'school',
-    targetId: schoolId,
-    summary: `Ran payment reconciliation: ${result.applied} matched, ${result.errors.length} unmatched`,
-    metadata: {
-      studentsChecked: result.studentsChecked,
-      transactionsChecked: result.transactionsChecked,
-      matched: result.applied,
-      unmatched: result.errors.length,
-      errors: result.errors,
-    },
-  })
 
   return result
 }

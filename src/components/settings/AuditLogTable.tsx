@@ -3,80 +3,28 @@
 import { useMemo, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import type { AuditLogRow } from '@/lib/audit/auditLog'
-import { AUDIT_LOG_GROUPS } from '@/lib/audit/auditLogGroups'
-
-const ACTION_LABELS: Record<string, string> = {
-  'staff.added': 'Staff added',
-  'staff.role_changed': 'Role changed',
-  'staff.email_changed': 'Email changed',
-  'staff.activated': 'Staff activated',
-  'staff.deactivated': 'Staff deactivated',
-  'staff.invite_resent': 'Invite resent',
-  'staff.password_reset_sent': 'Password reset sent',
-  'role.created': 'Role created',
-  'role.renamed': 'Role renamed',
-  'role.deleted': 'Role deleted',
-  'role.permissions_changed': 'Permissions changed',
-  'discount.approved': 'Discount approved',
-  'discount.rejected': 'Discount rejected',
-  'discount.recurring_revoked': 'Recurring discount revoked',
-  'invoice.sent': 'Invoice sent',
-  'invoice.sent_bulk': 'Invoices sent (bulk)',
-  'invoice.generated': 'Invoice generated',
-  'invoice.generated_bulk': 'Invoices generated (bulk)',
-  'invoice.regenerated': 'Invoice regenerated',
-  'invoice.regenerated_bulk': 'Invoices regenerated (bulk)',
-  'discount.requested': 'Discount requested',
-  'student.added': 'Student added',
-  'student.imported': 'Students imported',
-  'student.updated': 'Student updated',
-  'student.status_changed': 'Student status changed',
-  'student.opt_in_toggled': 'Fee opt-in toggled',
-  'student.opt_in_bulk_updated': 'Fee opt-ins updated (bulk)',
-  'student.exemption_set': 'Exemption set',
-  'student.exemption_removed': 'Exemption removed',
-  'student.dva_created': 'Payment account created',
-  'student.dva_bulk_created': 'Payment accounts created (bulk)',
-  'student.reminder_sent': 'Manual reminder sent',
-  'family.updated': 'Family info updated',
-  'family.notes_updated': 'Family notes updated',
-  'class.added': 'Class added',
-  'class.updated': 'Class updated',
-  'class.active_toggled': 'Class active status toggled',
-  'section.added': 'Section added',
-  'section.updated': 'Section updated',
-  'section.deleted': 'Section deleted',
-  'session.created': 'Session created',
-  'session.activated': 'Session activated',
-  'session.closed': 'Session closed',
-  'term.created': 'Term created',
-  'term.updated': 'Term updated',
-  'term.closed_carried_forward': 'Term closed & carried forward',
-  'term.activated': 'Term activated',
-  'term.closed': 'Term closed',
-  'term.reopened_draft': 'Term reopened as draft',
-  'term.draft_deleted': 'Term draft deleted',
-  'year_end.started': 'Year-end rollover started',
-  'year_end.resumed': 'Year-end rollover resumed',
-  'year_end.cancelled': 'Year-end rollover cancelled',
-  'fee_item.added': 'Fee item added',
-  'fee_item.updated': 'Fee item updated',
-  'fee_item.deleted': 'Fee item deleted',
-  'fee_item.bulk_deleted': 'Fee items deleted (bulk)',
-  'fee_group.updated': 'Fee group updated',
-  'payment.reconciliation_run': 'Payment reconciliation run',
-  'payment.applied': 'Payment applied',
-  'school.updated': 'School profile updated',
-  'school.logo_uploaded': 'School logo uploaded',
-  'school.logo_removed': 'School logo removed',
-  'payment_config.updated': 'Payment provider settings updated',
-  'discount_config.updated': 'Discount policy updated',
-  'reminder_config.updated': 'Reminder settings updated',
-  'account.password_changed': 'Password changed',
-  'report.audit_log_downloaded': 'Audit log downloaded',
-}
+import { AUDIT_LOG_GROUPS, groupForAction } from '@/lib/audit/auditLogGroups'
+import { actionLabel } from '@/lib/audit/auditLogLabels'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200]
+
+// Colour-coded pill per module — one hue each so a row's area of the app reads
+// at a glance. Keys match AUDIT_LOG_GROUPS labels; classes are safelisted in
+// globals.css (the JIT can't see them here). 'Other' catches anything unmapped.
+const MODULE_STYLES: Record<string, string> = {
+  'Staff': 'bg-blue-100 text-blue-700',
+  'Roles': 'bg-indigo-100 text-indigo-700',
+  'Discounts': 'bg-amber-100 text-amber-700',
+  'Invoices': 'bg-sky-100 text-sky-700',
+  'Students': 'bg-rose-100 text-rose-700',
+  'Families': 'bg-pink-100 text-pink-700',
+  'Classes & sections': 'bg-teal-100 text-teal-700',
+  'Sessions & terms': 'bg-cyan-100 text-cyan-700',
+  'Fee structure': 'bg-violet-100 text-violet-700',
+  'Settings': 'bg-slate-100 text-slate-700',
+  'Reports': 'bg-gray-100 text-gray-700',
+  'Other': 'bg-gray-100 text-gray-700',
+}
 
 function getPageNumbers(currentPage: number, totalPages: number): (number | '...')[] {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
@@ -87,13 +35,24 @@ function getPageNumbers(currentPage: number, totalPages: number): (number | '...
   return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages]
 }
 
-function actionLabel(action: string): string {
-  return ACTION_LABELS[action] || action
-}
-
+// Exact timestamp — used as the hover title on the relative time.
 function formatWhen(iso: string): string {
   const d = new Date(iso)
   return d.toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// Relative time for at-a-glance scanning; the exact time lives in the tooltip.
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diffMs / 60000)
+  const hours = Math.floor(mins / 60)
+  const days = Math.floor(hours / 24)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  if (hours < 24) return `${hours}h ago`
+  if (days === 1) return 'Yesterday'
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 interface Props {
@@ -197,25 +156,46 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
       ) : filtered.length === 0 ? (
         <p className="p-5 text-sm text-gray-500">No events on this page match your search.</p>
       ) : (
-        <div className="overflow-hidden">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
-                <th className="px-5 py-3 font-medium">When</th>
-                <th className="px-5 py-3 font-medium">Who</th>
-                <th className="px-5 py-3 font-medium">Action</th>
+              <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-100">
+                <th className="px-5 py-3 font-medium whitespace-nowrap">When</th>
+                <th className="px-5 py-3 font-medium whitespace-nowrap">Who</th>
+                <th className="px-5 py-3 font-medium whitespace-nowrap">Action</th>
                 <th className="px-5 py-3 font-medium">Details</th>
+                <th className="px-5 py-3 font-medium whitespace-nowrap">Module</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((e) => (
-                <tr key={e.id} className="border-b border-gray-50 last:border-0">
-                  <td className="px-5 py-3 text-gray-500 whitespace-nowrap">{formatWhen(e.createdAt)}</td>
-                  <td className="px-5 py-3 text-navy">{e.actorName}</td>
-                  <td className="px-5 py-3 text-navy font-medium whitespace-nowrap">{actionLabel(e.action)}</td>
-                  <td className="px-5 py-3 text-gray-600">{e.summary}</td>
-                </tr>
-              ))}
+              {filtered.map((e) => {
+                const module = groupForAction(e.action)
+                const isSystem = e.actorName === 'System'
+                return (
+                  <tr key={e.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+                    <td className="px-5 py-3.5 align-top text-gray-500 whitespace-nowrap" title={formatWhen(e.createdAt)}>
+                      {timeAgo(e.createdAt)}
+                    </td>
+                    <td className="px-5 py-3.5 align-top whitespace-nowrap">
+                      {isSystem ? (
+                        <span className="inline-flex items-center gap-1.5 text-gray-500">
+                          <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+                          Automated
+                        </span>
+                      ) : (
+                        <span className="text-navy">{e.actorName}</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 align-top text-navy font-medium whitespace-nowrap">{actionLabel(e.action)}</td>
+                    <td className="px-5 py-3.5 align-top text-gray-600">{e.summary}</td>
+                    <td className="px-5 py-3.5 align-top whitespace-nowrap">
+                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${MODULE_STYLES[module] || MODULE_STYLES['Other']}`}>
+                        {module}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

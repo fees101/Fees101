@@ -38,7 +38,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'see-invoices', group: 'SEE', label: 'See invoices',
     description: 'View the invoice list and invoice detail pages (without being able to generate or send them).' },
   { key: 'see-audit-log', group: 'SEE', label: 'See audit log',
-    description: 'View and export the audit log — the history of staff, role, student, fee, payment and settings changes made in this account.' },
+    description: 'View and export the audit log — the history of actions staff have taken, such as role, student, fee, discount and settings changes.' },
   { key: 'see-activity', group: 'SEE', label: 'See recent activity',
     description: 'The Recent Activity feed — a browsable stream of payments received, invoices sent, messages to parents, discount decisions and new students.' },
 

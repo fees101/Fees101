@@ -36,7 +36,7 @@ export default async function AuditLogSettingsPage({
   return (
     <SettingsPageShell
       title="Audit log"
-      subtitle="A history of staff, role, student, fee, payment, and settings changes made in this account"
+      subtitle="A history of the actions staff have taken in this account — staff, role, student, fee, discount and settings changes"
     >
       <AuditLogTable
         events={events}

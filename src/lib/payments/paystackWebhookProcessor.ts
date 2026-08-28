@@ -7,7 +7,6 @@
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getPaymentProviderForSchool } from './getProvider'
 import { applyProviderPayment } from './applyPayment'
-import { logAuditEvent } from '@/lib/audit/logAudit'
 
 interface ProcessResult {
   status: number
@@ -173,43 +172,6 @@ export async function processPaystackWebhook(
       processed_at: new Date().toISOString(),
       related_payment_ids: paymentIds,
     })
-
-    for (const applied of appliedInvoices) {
-      await logAuditEvent(supabase, {
-        schoolId,
-        actorId: null,
-        action: 'payment.applied',
-        targetType: 'invoice',
-        targetId: applied.invoiceId,
-        summary: `Applied payment of ₦${applied.amount.toLocaleString()} to invoice ${applied.invoiceId}`,
-        metadata: {
-          studentId: student.id,
-          paymentId: applied.paymentId,
-          amount: applied.amount,
-          providerReference: transactionReference,
-          providerTransactionId: transactionReference,
-          oldStatus: applied.oldStatus,
-          newStatus: applied.newStatus,
-        },
-      })
-    }
-
-    if (creditBalanceAmount > 0) {
-      await logAuditEvent(supabase, {
-        schoolId,
-        actorId: null,
-        action: 'payment.applied',
-        targetType: 'student',
-        targetId: student.id,
-        summary: `Applied overpayment of ₦${creditBalanceAmount.toLocaleString()} to student credit balance`,
-        metadata: {
-          studentId: student.id,
-          amount: creditBalanceAmount,
-          providerReference: transactionReference,
-          providerTransactionId: transactionReference,
-        },
-      })
-    }
 
     return { status: 200, body: { success: true } }
   } catch (err: any) {
