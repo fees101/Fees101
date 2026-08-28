@@ -13,16 +13,17 @@ export default async function PaymentsSettingsPage() {
   const settings = await getPaymentSettings()
   if (!settings) notFound()
 
-  // Build the school-scoped webhook URL from the incoming request so it's
-  // correct in dev, preview, and prod without needing an env var.
+  // Build the base webhook origin from the incoming request so it's correct in
+  // dev, preview, and prod without needing an env var. The form appends the
+  // provider + school id (it varies with the selected provider).
   const h = await headers()
   const host = h.get('x-forwarded-host') || h.get('host') || 'localhost:3000'
   const proto = h.get('x-forwarded-proto') || (host.startsWith('localhost') ? 'http' : 'https')
-  const webhookUrl = `${proto}://${host}/api/webhooks/monnify/${settings.schoolId}`
+  const webhookBase = `${proto}://${host}/api/webhooks`
 
   return (
     <SettingsPageShell title="Payments" subtitle="Connect your payment provider to accept fees online">
-      <PaymentSettingsForm settings={settings} webhookUrl={webhookUrl} />
+      <PaymentSettingsForm settings={settings} webhookBase={webhookBase} />
     </SettingsPageShell>
   )
 }

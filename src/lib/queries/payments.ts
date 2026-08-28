@@ -53,7 +53,9 @@ export async function getPaymentSettings(): Promise<PaymentSettings | null> {
 
   const hasApiKey = !!school.provider_api_key
   const hasSecretKey = !!school.provider_secret_key
-  const isConfigured = !!school.payment_provider && hasApiKey && hasSecretKey && !!school.provider_contract_code
+  // Monnify additionally needs a contract code; Paystack does not.
+  const hasContractCode = school.payment_provider === 'monnify' ? !!school.provider_contract_code : true
+  const isConfigured = !!school.payment_provider && hasApiKey && hasSecretKey && hasContractCode
 
   return {
     schoolId,

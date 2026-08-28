@@ -39,6 +39,10 @@ export interface DVATransactionSummary {
 }
 
 export interface PaymentProvider {
+  // Machine name of the provider ('monnify' | 'paystack'). Stamped onto
+  // payments / processed_provider_transactions rows so the persistence layer
+  // stays provider-agnostic — callers read this instead of hardcoding a string.
+  readonly name: string
   // Lightweight auth check — confirms the stored api key/secret are valid
   // without creating anything. Used by the settings "Test connection" button.
   verifyCredentials(): Promise<boolean>
@@ -55,5 +59,8 @@ export interface PaymentProvider {
 export interface ProviderCredentials {
   apiKey: string
   secretKey: string
-  contractCode: string
+  // Monnify-only: its merchant contract code. Paystack has no equivalent, so
+  // this is optional. For Paystack, apiKey holds the public key (pk_…) and
+  // secretKey the secret key (sk_…) — only the secret is used server-side.
+  contractCode?: string
 }

@@ -18,7 +18,11 @@ export async function provisionStudentDVA(
   const params = {
     reference: studentId, // accountReference is always the student's own id — stable and unique
     accountName: fullName,
-    customerEmail: `student-${studentId}@fees101.internal`,
+    // Synthetic, unique-per-student, never actually emailed to. Must use a
+    // real TLD: Paystack validates the address format and rejects made-up
+    // TLDs like ".internal" (Monnify doesn't care, but this works for both).
+    // students.fees101.com is a domain we own with no mailbox behind it.
+    customerEmail: `student-${studentId}@students.fees101.com`,
     customerName: fullName,
   }
 
@@ -47,7 +51,10 @@ export async function provisionStudentDVA(
   const { error: updateError } = await supabase
     .from('students')
     .update({
-      provider_dva_reference: studentId,
+      // The provider's own stable per-student key: Monnify's accountReference
+      // (which we set to studentId) or Paystack's customer_code. Present on
+      // every webhook, so it's how we match a payment back to this student.
+      provider_dva_reference: dva.reference,
       provider_dva_bank_code: dva.bankCode,
       provider_dva_account_number: dva.accountNumber,
       provider_dva_bank_name: dva.bankName,

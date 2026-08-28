@@ -7,7 +7,7 @@
 // skipped via the same processed_provider_transactions claim.
 
 import { getPaymentProviderForSchool } from './getProvider'
-import { applyMonnifyPayment } from './applyPayment'
+import { applyProviderPayment } from './applyPayment'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 
 export interface ReconcileResult {
@@ -46,7 +46,7 @@ export async function reconcileSchool(schoolId: string, supabase: any): Promise<
       // what actually prevents double-applying, not this loop's own logic.
       const { error: claimError } = await supabase
         .from('processed_provider_transactions')
-        .insert({ school_id: schoolId, provider: 'monnify', provider_transaction_id: tx.transactionReference })
+        .insert({ school_id: schoolId, provider: provider.name, provider_transaction_id: tx.transactionReference })
 
       if (claimError) {
         if (claimError.code === '23505') continue // already handled, by webhook or an earlier reconcile run
@@ -64,12 +64,13 @@ export async function reconcileSchool(schoolId: string, supabase: any): Promise<
       }
 
       try {
-        await applyMonnifyPayment({
+        await applyProviderPayment({
           supabase,
           schoolId,
           studentId: student.id,
           amountPaid: verified.amountPaid,
           settlementAmount: verified.settlementAmount,
+          provider: provider.name,
           providerReference: verified.paymentReference,
           providerTransactionId: verified.transactionReference,
           paidAt: verified.paidOn.includes('T') ? verified.paidOn : new Date(verified.paidOn.replace(' ', 'T')).toISOString(),

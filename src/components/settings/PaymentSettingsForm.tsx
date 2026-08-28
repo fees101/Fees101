@@ -8,10 +8,10 @@ import type { PaymentSettings } from '@/lib/queries/payments'
 
 interface Props {
   settings: PaymentSettings
-  webhookUrl: string
+  webhookBase: string
 }
 
-export default function PaymentSettingsForm({ settings, webhookUrl }: Props) {
+export default function PaymentSettingsForm({ settings, webhookBase }: Props) {
   const router = useRouter()
 
   const [form, setForm] = useState({
@@ -37,6 +37,16 @@ export default function PaymentSettingsForm({ settings, webhookUrl }: Props) {
   const inputCls = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
   const labelCls = "block text-xs text-gray-500 mb-1"
 
+  // Provider-specific presentation. Paystack has no contract code and calls its
+  // publishable credential the "public key" (pk_…) vs Monnify's "API key".
+  const isPaystack = form.provider === 'paystack'
+  const providerLabel = isPaystack ? 'Paystack' : 'Monnify'
+  const apiKeyLabel = isPaystack ? 'Public key' : 'API key'
+  const apiKeyPlaceholder = settings.hasApiKey ? '•••••••• (saved)' : (isPaystack ? 'pk_live_...' : 'MK_PROD_...')
+  const secretKeyPlaceholder = settings.hasSecretKey ? '•••••••• (saved)' : (isPaystack ? 'sk_live_...' : 'Enter secret key')
+  // The webhook URL is provider- and school-scoped; recompute as the dropdown changes.
+  const webhookUrl = `${webhookBase}/${form.provider}/${settings.schoolId}`
+
   function update(patch: Partial<typeof form>) {
     setForm({ ...form, ...patch })
     setSaved(false)
@@ -46,8 +56,8 @@ export default function PaymentSettingsForm({ settings, webhookUrl }: Props) {
     setError(null)
     setSaved(false)
 
-    if (!form.contractCode.trim()) return setError('Contract code is required')
-    if (!settings.hasApiKey && !form.apiKey.trim()) return setError('API key is required')
+    if (!isPaystack && !form.contractCode.trim()) return setError('Contract code is required')
+    if (!settings.hasApiKey && !form.apiKey.trim()) return setError(`${apiKeyLabel} is required`)
     if (!settings.hasSecretKey && !form.secretKey.trim()) return setError('Secret key is required')
 
     setSaving(true)
@@ -159,27 +169,29 @@ export default function PaymentSettingsForm({ settings, webhookUrl }: Props) {
               className={inputCls}
             >
               <option value="monnify">Monnify</option>
-              <option value="paystack" disabled>Paystack (coming soon)</option>
+              <option value="paystack">Paystack</option>
             </select>
           </div>
+          {!isPaystack && (
+            <div>
+              <label className={labelCls}>Contract code</label>
+              <input
+                type="text"
+                value={form.contractCode}
+                onChange={(e) => update({ contractCode: e.target.value })}
+                className={inputCls}
+                placeholder="e.g. 4934121686"
+              />
+            </div>
+          )}
           <div>
-            <label className={labelCls}>Contract code</label>
-            <input
-              type="text"
-              value={form.contractCode}
-              onChange={(e) => update({ contractCode: e.target.value })}
-              className={inputCls}
-              placeholder="e.g. 4934121686"
-            />
-          </div>
-          <div>
-            <label className={labelCls}>API key</label>
+            <label className={labelCls}>{apiKeyLabel}</label>
             <input
               type="password"
               value={form.apiKey}
               onChange={(e) => update({ apiKey: e.target.value })}
               className={inputCls}
-              placeholder={settings.hasApiKey ? '•••••••• (saved)' : 'MK_PROD_...'}
+              placeholder={apiKeyPlaceholder}
               autoComplete="off"
             />
           </div>
@@ -190,7 +202,7 @@ export default function PaymentSettingsForm({ settings, webhookUrl }: Props) {
               value={form.secretKey}
               onChange={(e) => update({ secretKey: e.target.value })}
               className={inputCls}
-              placeholder={settings.hasSecretKey ? '•••••••• (saved)' : 'Enter secret key'}
+              placeholder={secretKeyPlaceholder}
               autoComplete="off"
             />
           </div>
@@ -312,7 +324,7 @@ export default function PaymentSettingsForm({ settings, webhookUrl }: Props) {
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
         <h2 className="text-navy font-semibold text-lg mb-1">Webhook URL</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Add this URL to your Monnify dashboard (Settings → Webhooks) so payments are recorded automatically.
+          Add this URL to your {providerLabel} dashboard{isPaystack ? ' (Settings → API Keys & Webhooks)' : ' (Settings → Webhooks)'} so payments are recorded automatically.
         </p>
         <div className="flex items-center gap-2">
           <input

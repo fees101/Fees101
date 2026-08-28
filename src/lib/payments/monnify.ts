@@ -98,6 +98,7 @@ function toDVADetails(responseBody: any): DVADetails {
 }
 
 export class MonnifyProvider implements PaymentProvider {
+  readonly name = 'monnify'
   private creds: ProviderCredentials
   private baseUrl: string
 

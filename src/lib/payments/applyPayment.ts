@@ -17,6 +17,7 @@ interface ApplyPaymentParams {
   studentId: string
   amountPaid: number
   settlementAmount: number
+  provider: string
   providerReference: string
   providerTransactionId: string
   paidAt: string
@@ -30,12 +31,12 @@ export interface AppliedInvoicePayment {
   newStatus: string
 }
 
-export async function applyMonnifyPayment(
+export async function applyProviderPayment(
   params: ApplyPaymentParams
 ): Promise<{ paymentIds: string[]; appliedInvoices: AppliedInvoicePayment[]; creditBalanceAmount: number }> {
   const {
     supabase, schoolId, studentId, amountPaid, settlementAmount,
-    providerReference, providerTransactionId, paidAt,
+    provider, providerReference, providerTransactionId, paidAt,
   } = params
 
   // Eligible invoices are any non-cancelled, outstanding invoice that hasn't
@@ -126,7 +127,7 @@ export async function applyMonnifyPayment(
         invoice_id: invoice.id,
         amount: applyAmount,
         method: 'provider_dva',
-        provider: 'monnify',
+        provider,
         provider_reference: providerReference,
         provider_transaction_id: providerTransactionId,
         paid_at: paidAt,
@@ -216,7 +217,7 @@ export async function applyMonnifyPayment(
         invoice_id: null,
         amount: remaining,
         method: 'provider_dva',
-        provider: 'monnify',
+        provider,
         provider_reference: providerReference,
         provider_transaction_id: providerTransactionId,
         paid_at: paidAt,

@@ -1,20 +1,23 @@
-// DEV-ONLY: exercises applyMonnifyPayment directly, bypassing Monnify entirely.
+// DEV-ONLY: exercises applyProviderPayment directly, bypassing the gateway.
 // For local testing of payment-confirmation SMS wiring without a real transfer.
 // Refuses to run unless NODE_ENV is development.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
-import { applyMonnifyPayment } from '@/lib/payments/applyPayment'
+import { applyProviderPayment } from '@/lib/payments/applyPayment'
 
 export async function POST(request: NextRequest) {
   if (process.env.NODE_ENV !== 'development') {
     return NextResponse.json({ error: 'Not available' }, { status: 404 })
   }
 
-  const { studentId, amount } = await request.json()
+  const { studentId, amount, provider } = await request.json()
   if (!studentId || !amount) {
     return NextResponse.json({ error: 'studentId and amount are required' }, { status: 400 })
   }
+  // Attribute the simulated payment to the right provider so the payment row /
+  // receipt match the school under test. Defaults to monnify for back-compat.
+  const providerName = provider === 'paystack' ? 'paystack' : 'monnify'
 
   const supabase = createServiceRoleClient()
   const { data: student, error: studentErr } = await supabase
@@ -29,12 +32,13 @@ export async function POST(request: NextRequest) {
 
   const ref = `dev-sim-${Date.now()}`
   try {
-    const result = await applyMonnifyPayment({
+    const result = await applyProviderPayment({
       supabase,
       schoolId: student.school_id,
       studentId: student.id,
       amountPaid: Number(amount),
       settlementAmount: Number(amount),
+      provider: providerName,
       providerReference: ref,
       providerTransactionId: ref,
       paidAt: new Date().toISOString(),

@@ -1,7 +1,8 @@
-// Handles an inbound Monnify webhook end to end: save raw payload, verify
+// Handles an inbound Paystack webhook end to end: save raw payload, verify
 // signature, parse, dedupe, and cascade the payment across the student's
-// outstanding invoices. Kept separate from route.ts so the route itself
-// stays a thin adapter between Next.js and this.
+// outstanding invoices. Mirror of processMonnifyWebhook — same persistence and
+// idempotency guarantees — but parses Paystack's charge.success shape and
+// matches the student by customer_code (which we store as provider_dva_reference).
 
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getPaymentProviderForSchool } from './getProvider'
@@ -21,7 +22,7 @@ async function updateWebhookEvent(
   await supabase.from('webhook_events').update(fields).eq('id', eventId)
 }
 
-export async function processMonnifyWebhook(
+export async function processPaystackWebhook(
   schoolId: string,
   rawBody: string,
   signatureHeader: string | null
@@ -30,10 +31,9 @@ export async function processMonnifyWebhook(
 
   const provider = await getPaymentProviderForSchool(schoolId, supabase)
   if (!provider) {
-    // Can't verify anything without credentials — log what we can and bail.
     await supabase.from('webhook_events').insert({
       school_id: schoolId,
-      provider: 'monnify',
+      provider: 'paystack',
       raw_payload: safeParse(rawBody),
       signature_header: signatureHeader,
       status: 'error',
@@ -43,13 +43,12 @@ export async function processMonnifyWebhook(
   }
 
   // Save the raw delivery FIRST, before verification — every attempt (valid,
-  // forged, or malformed) gets an audit row. webhook_events is append-only:
-  // one row per HTTP delivery, including retries of the same transaction.
+  // forged, or malformed) gets an audit row. webhook_events is append-only.
   const { data: eventRow, error: insertEventError } = await supabase
     .from('webhook_events')
     .insert({
       school_id: schoolId,
-      provider: 'monnify',
+      provider: 'paystack',
       raw_payload: safeParse(rawBody),
       signature_header: signatureHeader,
       status: 'received',
@@ -58,15 +57,13 @@ export async function processMonnifyWebhook(
     .single()
 
   if (insertEventError || !eventRow) {
-    // We couldn't even log it — nothing else to do but fail loudly.
     return { status: 500, body: { error: 'Failed to record webhook event' } }
   }
 
   const eventId = eventRow.id as string
 
-  // Verify against the raw text, never a re-serialized/parsed version —
-  // JSON.stringify(parsed) is not guaranteed to reproduce Monnify's exact
-  // bytes (key order, number formatting), which would break every signature.
+  // Verify against the raw text, never a re-serialized version — Paystack signs
+  // the exact bytes it sent (HMAC-SHA512 with the secret key).
   const signatureValid = provider.verifyWebhookSignature(rawBody, signatureHeader || '')
   if (!signatureValid) {
     await updateWebhookEvent(supabase, eventId, { status: 'invalid_signature' })
@@ -84,10 +81,10 @@ export async function processMonnifyWebhook(
     return { status: 200, body: { message: 'Captured, payload unparseable' } }
   }
 
-  const eventType = parsed.eventType as string | undefined
-  const eventData = parsed.eventData || {}
-  const transactionReference = eventData.transactionReference as string | undefined
-  const dvaReference = eventData.product?.reference as string | undefined
+  const eventType = parsed.event as string | undefined
+  const data = parsed.data || {}
+  const transactionReference = data.reference ? String(data.reference) : undefined
+  const customerCode = data.customer?.customer_code as string | undefined
 
   await updateWebhookEvent(supabase, eventId, {
     event_type: eventType || null,
@@ -95,16 +92,24 @@ export async function processMonnifyWebhook(
     status: 'processing',
   })
 
-  if (eventType !== 'SUCCESSFUL_TRANSACTION') {
-    // Some other Monnify event we don't act on yet — acknowledged, not an error.
+  // Only successful charges move money. Everything else (assign events, failed
+  // charges, transfers) is acknowledged but not acted on.
+  if (eventType !== 'charge.success') {
     await updateWebhookEvent(supabase, eventId, { status: 'processed', processed_at: new Date().toISOString() })
-    return { status: 200, body: { message: `Acknowledged, no handler for eventType ${eventType}` } }
+    return { status: 200, body: { message: `Acknowledged, no handler for event ${eventType}` } }
   }
 
-  if (!transactionReference || !dvaReference) {
+  // A belt-and-braces guard: charge.success should always be status "success",
+  // but never apply anything that isn't.
+  if (data.status && data.status !== 'success') {
+    await updateWebhookEvent(supabase, eventId, { status: 'processed', processed_at: new Date().toISOString() })
+    return { status: 200, body: { message: `Acknowledged, charge status ${data.status}` } }
+  }
+
+  if (!transactionReference || !customerCode) {
     await updateWebhookEvent(supabase, eventId, {
       status: 'error',
-      error_message: 'Missing transactionReference or product.reference in payload',
+      error_message: 'Missing reference or customer.customer_code in payload',
     })
     return { status: 200, body: { message: 'Captured, missing required fields' } }
   }
@@ -112,34 +117,32 @@ export async function processMonnifyWebhook(
   const { data: student } = await supabase
     .from('students')
     .select('id')
-    .eq('provider_dva_reference', dvaReference)
+    .eq('provider_dva_reference', customerCode)
     .eq('school_id', schoolId)
     .maybeSingle()
 
   if (!student) {
     await updateWebhookEvent(supabase, eventId, {
       status: 'error',
-      error_message: `No student found for DVA reference "${dvaReference}"`,
+      error_message: `No student found for customer code "${customerCode}"`,
     })
     return { status: 200, body: { message: 'Captured, no matching student' } }
   }
 
-  const amountPaid = Number(eventData.amountPaid || 0)
-  const settlementAmount = Number(eventData.settlementAmount || 0)
-  const paidOn = eventData.paidOn ? new Date(eventData.paidOn.replace(' ', 'T')).toISOString() : new Date().toISOString()
+  // Paystack amounts are in kobo. settlementAmount is amount minus Paystack's
+  // fee (the student is still credited the full amountPaid).
+  const amountPaid = Number(data.amount || 0) / 100
+  const settlementAmount = (Number(data.amount || 0) - Number(data.fees || 0)) / 100
+  const paidOn = data.paid_at ? new Date(data.paid_at).toISOString() : new Date().toISOString()
 
-  // Claim the transaction before doing any real work. This is the actual
-  // idempotency guarantee, not the pre-checks above — two near-simultaneous
-  // retries of the same delivery can both pass a pre-check before either
-  // has inserted, but only one can win this unique constraint. Idempotency
-  // can't live on payments itself anymore: one real transaction can produce
-  // several payments rows (cascaded across multiple invoices), so no single
-  // row's provider_transaction_id can be the uniqueness boundary.
+  // Claim the transaction before doing any real work — the real idempotency
+  // guarantee. Two near-simultaneous retries can both pass the pre-checks, but
+  // only one wins this unique (school_id, provider, provider_transaction_id).
   const { error: claimError } = await supabase
     .from('processed_provider_transactions')
     .insert({
       school_id: schoolId,
-      provider: 'monnify',
+      provider: 'paystack',
       provider_transaction_id: transactionReference,
     })
 
@@ -159,8 +162,8 @@ export async function processMonnifyWebhook(
       studentId: student.id,
       amountPaid,
       settlementAmount,
-      provider: 'monnify',
-      providerReference: eventData.paymentReference || transactionReference,
+      provider: 'paystack',
+      providerReference: transactionReference,
       providerTransactionId: transactionReference,
       paidAt: paidOn,
     })
@@ -183,7 +186,7 @@ export async function processMonnifyWebhook(
           studentId: student.id,
           paymentId: applied.paymentId,
           amount: applied.amount,
-          providerReference: eventData.paymentReference || transactionReference,
+          providerReference: transactionReference,
           providerTransactionId: transactionReference,
           oldStatus: applied.oldStatus,
           newStatus: applied.newStatus,
@@ -202,7 +205,7 @@ export async function processMonnifyWebhook(
         metadata: {
           studentId: student.id,
           amount: creditBalanceAmount,
-          providerReference: eventData.paymentReference || transactionReference,
+          providerReference: transactionReference,
           providerTransactionId: transactionReference,
         },
       })
@@ -210,10 +213,6 @@ export async function processMonnifyWebhook(
 
     return { status: 200, body: { success: true } }
   } catch (err: any) {
-    // The transaction is already claimed at this point, so a retry from
-    // Monnify would be treated as a duplicate and never retried by us
-    // automatically — this needs to surface for manual follow-up rather
-    // than silently vanishing.
     await updateWebhookEvent(supabase, eventId, {
       status: 'error',
       error_message: err?.message || 'Failed to apply payment',
