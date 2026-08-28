@@ -176,11 +176,6 @@ export const SUB_PROCESSORS: SubProcessor[] = [
     data: 'Parent phone numbers and message contents',
   },
   {
-    name: 'Termii',
-    purpose: 'SMS delivery (fallback provider)',
-    data: 'Parent phone numbers and message contents',
-  },
-  {
     name: 'Brevo',
     purpose: 'Email delivery',
     data: 'Parent email addresses and message contents',

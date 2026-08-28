@@ -1,8 +1,6 @@
-// Sendchamp implementation of MessagingProvider — replacing Termii as the SMS
-// provider now that a Sendchamp Sender ID is approved. Termii's adapter
-// (termii.ts) is left in place, untouched, as a fallback we can flip back to
-// with a one-line env change if Sendchamp turns out to have issues in
-// practice — see SMS_PROVIDER in sendMessage.ts.
+// Sendchamp implementation of MessagingProvider — our SMS provider, using an
+// approved Sendchamp Sender ID. (Termii was the original provider; removed
+// 2026-08-28 once Sendchamp proved stable in production.)
 //
 // Docs (fetched 2026-08-10, https://sendchamp.readme.io):
 //   POST https://api.sendchamp.com/api/v1/sms/send

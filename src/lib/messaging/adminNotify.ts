@@ -1,6 +1,6 @@
 // Fires when a message exhausts every channel in the fallback chain (either
-// synchronously in sendMessageWithFallback/sendMultiChannel, or later from
-// the Termii webhook / the daily sweep once a channel's delivery report
+// synchronously in sendMessageWithFallback/sendMultiChannel, or later from a
+// provider's webhook / the daily sweep once a channel's delivery report
 // comes back failed). Writes an in-app banner (admin_notifications row) —
 // the notification of record.
 

@@ -1,4 +1,4 @@
-// Brevo delivery/bounce report receiver — mirrors webhooks/termii/route.ts.
+// Brevo delivery/bounce report receiver — mirrors webhooks/sendchamp/route.ts.
 // Every outbound email is logged as 'sent' the moment Brevo's API *accepts*
 // it (see brevo.ts) — that only means it was queued, not that it reached the
 // inbox. Brevo calls this URL asynchronously once the real outcome is known.

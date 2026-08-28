@@ -1,8 +1,7 @@
-// The send engine: provider-agnostic business logic. SMS goes through
-// whichever adapter SMS_PROVIDER selects (default Sendchamp, now that our
-// Sender ID is approved there; set SMS_PROVIDER=termii to fall back), email
-// through the Brevo API adapter (brevo.ts). Every attempt is recorded in
-// message_logs (append-only audit + delivery tracking).
+// The send engine: provider-agnostic business logic. SMS goes through the
+// Sendchamp adapter (sendchamp.ts), email through the Brevo API adapter
+// (brevo.ts). Every attempt is recorded in message_logs (append-only audit +
+// delivery tracking).
 //
 // Two distinct multi-channel behaviors, because they answer different
 // questions:
@@ -20,16 +19,13 @@
 // WhatsApp was removed (2026-07-28) — will be rebuilt against Sendchamp once
 // that's prioritized.
 
-import { termii } from './termii'
 import { sendchamp } from './sendchamp'
 import { brevo } from './brevo'
 import { MessageChannel, SendResult, EmailAttachment } from './types'
 import { notifyAdminOfMessageFailure } from './adminNotify'
 
-// SMS_PROVIDER=termii rolls back to Termii in one env change if Sendchamp has
-// issues in practice — see sendchamp.ts for why Termii is kept, not deleted.
-const smsProviderName = process.env.SMS_PROVIDER === 'termii' ? 'termii' : 'sendchamp'
-const smsProvider = smsProviderName === 'termii' ? termii : sendchamp
+const smsProviderName = 'sendchamp'
+const smsProvider = sendchamp
 
 
 // Allowed message_logs.message_type values (DB CHECK constraint).
@@ -269,9 +265,9 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-// Called once a channel is confirmed failed asynchronously (Termii's webhook
-// reporting a terminal status, or the daily sweep finding a stale 'sent' row
-// with no delivery report). Looks up the student's family contact info fresh
+// Called once a channel is confirmed failed asynchronously (a provider's
+// webhook reporting a terminal status, or the daily sweep finding a stale
+// 'sent' row with no delivery report). Looks up the student's family contact info fresh
 // (the original per-channel content from the initiating call is long gone by
 // this point) and continues down the fallback chain from where it left off.
 // This is the plain-text fallback path — it never carries a PDF attachment,

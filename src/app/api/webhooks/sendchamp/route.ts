@@ -1,4 +1,4 @@
-// Sendchamp delivery report (DLR) receiver — mirrors webhooks/termii/route.ts.
+// Sendchamp delivery report (DLR) receiver.
 // Every outbound send is logged as 'sent' the moment Sendchamp's gateway
 // *accepts* it (status: 'processing', see sendchamp.ts) — that only means the
 // API call succeeded, not that the SMS actually reached the handset.
@@ -10,8 +10,8 @@
 //   https://<your-domain>/api/webhooks/sendchamp?secret=<SENDCHAMP_WEBHOOK_SECRET>
 // Docs: https://sendchamp.readme.io/reference/webhook
 //
-// Unlike Termii, Sendchamp's docs don't document any request-signing scheme
-// (no HMAC header). Until support confirms one exists, this route verifies
+// Sendchamp's docs don't document any request-signing scheme (no HMAC
+// header). Until support confirms one exists, this route verifies
 // requests via a shared secret in the query string instead of a signature —
 // weaker than HMAC, but better than trusting the payload outright.
 

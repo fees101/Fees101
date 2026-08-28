@@ -1,8 +1,8 @@
 // Brevo transactional email, via their REST API (not SMTP) — this is what
 // lets a send return Brevo's own messageId, which the webhook receiver
 // (src/app/api/webhooks/brevo/route.ts) needs to match delivery/bounce
-// events back to the right message_logs row, the same way the Termii/
-// Sendchamp SMS webhooks already do for provider_message_id.
+// events back to the right message_logs row, the same way the Sendchamp SMS
+// webhook already does for provider_message_id.
 //
 // EMAIL_MODE controls whether we actually hit the network:
 //   mock  → no network call, no cost; returns a simulated success. Use for dev/tests.

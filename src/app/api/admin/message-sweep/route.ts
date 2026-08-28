@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { escalateFailedMessage } from '@/lib/messaging/sendMessage'
 
-// Safety net for messages that Termii's gateway accepted ('sent') but never
-// sent a delivery report for at all — the webhook-triggered path in
-// api/webhooks/termii/route.ts only fires when a report actually arrives.
-// Anything still 'sent' after 24h with no fallback attempt already chained
-// off it gets treated as failed and escalated to the next channel.
+// Safety net for messages that a provider's gateway accepted ('sent') but
+// never sent a delivery report for at all — the webhook-triggered path
+// (e.g. api/webhooks/sendchamp/route.ts) only fires when a report actually
+// arrives. Anything still 'sent' after 24h with no fallback attempt already
+// chained off it gets treated as failed and escalated to the next channel.
 async function runMessageSweep() {
   const supabase = createServiceRoleClient()
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()

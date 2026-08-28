@@ -1,6 +1,6 @@
 // Full school names (e.g. "Creative Kids Elementary and High School") easily
 // push SMS text past the 160-char GSM segment limit, which silently doubles
-// the Termii bill per message. Schools can set a short SMS name (e.g. "CKEHS")
+// the SMS bill per message. Schools can set a short SMS name (e.g. "CKEHS")
 // in Settings > School profile; if they don't, we auto-abbreviate the full
 // name instead — the "Hello {{name}}" / "Powered by Fees101" template wording
 // is fixed and must never be shortened to make room.
