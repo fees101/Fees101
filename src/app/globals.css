@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Activity feed colour-codes categories via a switch (payments/invoices/
+   messages/discounts/students). Safelist the palette so the JIT always
+   compiles them even though they aren't all present as static strings. */
+@source inline("bg-{emerald,blue,purple,amber,rose}-{100,500}");
+@source inline("text-{emerald,blue,purple,amber,rose}-700");
+
 @theme {
   --color-navy: #0D1B36;
   --color-mint: #5AD8A6;

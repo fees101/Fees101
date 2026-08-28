@@ -41,6 +41,12 @@ const sections: NavSection[] = [
     title: 'School',
     items: [
       {
+        href: '/activity',
+        label: 'Recent activity',
+        perm: 'see-activity',
+        icon: ['M13 10V3L4 14h7v7l9-11h-7z'],
+      },
+      {
         href: '/settings/academic-structure',
         label: 'Academic structure',
         perm: 'manage-academic-structure',

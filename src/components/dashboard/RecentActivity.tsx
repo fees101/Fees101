@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 interface ActivityEvent {
   id: string
   type: 'payment' | 'invoice_generated'
@@ -103,9 +105,11 @@ export default function RecentActivity({ events }: RecentActivityProps) {
         </div>
       )}
 
-      {/* <button className="mt-4 text-sm text-mint font-medium hover:underline flex items-center gap-1 self-start">
-        View full activity →
-      </button> */}
+      {events.length > 0 && (
+        <Link href="/activity" className="mt-4 text-sm text-mint font-medium hover:underline flex items-center gap-1 self-start">
+          View full activity →
+        </Link>
+      )}
     </div>
   )
 }
