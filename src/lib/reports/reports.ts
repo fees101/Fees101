@@ -83,7 +83,7 @@ async function loadMaps(supabase: any, schoolId: string) {
 async function loadStudents(supabase: any, schoolId: string) {
   const { data } = await supabase
     .from('students')
-    .select('id, first_name, last_name, admission_number, admission_date, class_id, section_id, family_id, status, special_category, credit_balance, virtual_account_number, virtual_account_bank')
+    .select('id, first_name, last_name, admission_number, admission_date, class_id, section_id, family_id, status, special_category, credit_balance, provider_dva_account_number, provider_dva_bank_name')
     .eq('school_id', schoolId)
   const map = new Map<string, any>((data || []).map((s: any) => [s.id, s]))
   return { list: data || [], map }
@@ -229,7 +229,7 @@ async function buildStudents(supabase: any, schoolId: string, p: ReportParams): 
         className.get(s.class_id) ?? '', sectionName.get(s.section_id) ?? '', s.status ?? '',
         (s.admission_date || '').slice(0, 10), s.special_category ?? '',
         fam?.primary_parent_name ?? '', fam?.primary_parent_phone ?? '', fam?.primary_parent_email ?? '',
-        s.virtual_account_number ?? '', s.virtual_account_bank ?? '', money(s.credit_balance),
+        s.provider_dva_account_number ?? '', s.provider_dva_bank_name ?? '', money(s.credit_balance),
       ]
     })
   return {

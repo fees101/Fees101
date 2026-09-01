@@ -18,12 +18,13 @@ export default async function Dashboard() {
   // Single auth/profile round-trip (React cache()'d), shared with the layout
   // above it — no separate createClient()/getUser()/profile lookup here.
   const authCtx = await getAuthContext()
+  const canSeeActivity = can(authCtx, 'see-activity')
 
   const [profileResult, kpis, classData, activity] = await Promise.all([
     authCtx?.supabase.from('users').select('name').eq('id', authCtx.userId).single(),
     getDashboardKPIs(),
     getCollectionByClass(),
-    getRecentActivity(5),
+    canSeeActivity ? getRecentActivity(5) : Promise.resolve([]),
   ])
 
   const firstName = profileResult?.data?.name?.split(' ')[0] || 'there'
@@ -144,9 +145,11 @@ export default async function Dashboard() {
               <CollectionChart data={classData} />
             </div>
           )}
-          <div className={showFinancials ? 'lg:col-span-2' : 'lg:col-span-5'}>
-            <RecentActivity events={activity} />
-          </div>
+          {canSeeActivity && (
+            <div className={showFinancials ? 'lg:col-span-2' : 'lg:col-span-5'}>
+              <RecentActivity events={activity} />
+            </div>
+          )}
         </div>
 
       </div>
