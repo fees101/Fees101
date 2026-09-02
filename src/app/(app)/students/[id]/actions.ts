@@ -606,7 +606,10 @@ type BulkDVAResult =
 // never runs as one giant request that would blow past serverless/HTTP time
 // limits. Reuses the provider's cached auth token, so per-student calls stay cheap.
 export async function createDVAsForAllStudents(batchSize = 25): Promise<BulkDVAResult> {
-  const ctx = await getStudentFeeContext()
+  // Triggered from the payment settings page's bulk-provision button, not a
+  // student-editing flow — gate on the same permission as the rest of that
+  // page (manage-payment-config), not the manage-students default.
+  const ctx = await getStudentFeeContext('manage-payment-config')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
 
