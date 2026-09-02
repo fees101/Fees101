@@ -14,6 +14,7 @@ import {
   regenerateInvoice
 } from '@/app/(app)/fees/cycles/actions'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface Props {
   data: StudentFeesData
@@ -37,6 +38,8 @@ export default function StudentFeesTab({ data }: Props) {
   const [generating, setGenerating] = useState(false)
   const [generateConfirm, setGenerateConfirm] = useState(false)
   const [updateConfirm, setUpdateConfirm] = useState(false)
+  const canManageInvoices = useCan('manage-invoices')
+  const canManageStudents = useCan('manage-students')
 
   if (!data.cycle) {
     return (
@@ -171,7 +174,7 @@ export default function StudentFeesTab({ data }: Props) {
             >
               Preview invoice
             </button>
-            {!existingInvoice && (
+            {canManageInvoices && !existingInvoice && (
               <button
                 onClick={() => setGenerateConfirm(true)}
                 disabled={generating}
@@ -180,7 +183,7 @@ export default function StudentFeesTab({ data }: Props) {
                 Generate invoice
               </button>
             )}
-            {existingInvoice && !isInvoiceUpToDate && (
+            {canManageInvoices && existingInvoice && !isInvoiceUpToDate && (
               <button
                 onClick={() => setUpdateConfirm(true)}
                 disabled={generating}
