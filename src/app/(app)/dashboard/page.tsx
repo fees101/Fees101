@@ -1,7 +1,10 @@
+import { redirect } from 'next/navigation'
 import { getDashboardKPIs, getCollectionByClass, getRecentActivity } from '@/lib/queries/dashboard'
 import CollectionChart from '@/components/dashboard/CollectionChart'
 import RecentActivity from '@/components/dashboard/RecentActivity'
+import NoWidgetsFallback from '@/components/dashboard/NoWidgetsFallback'
 import { getAuthContext, can } from '@/lib/auth/permissions'
+import { getAccessibleNavItems, getPermissionScopedNavItems, hasDashboardWidgets } from '@/lib/nav/navConfig'
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
@@ -19,6 +22,22 @@ export default async function Dashboard() {
   // above it — no separate createClient()/getUser()/profile lookup here.
   const authCtx = await getAuthContext()
   const canSeeActivity = can(authCtx, 'see-activity')
+  const showFinancials = can(authCtx, 'see-financial-totals')
+  const canApproveDiscounts = can(authCtx, 'approve-discounts')
+  const canRequestDiscounts = can(authCtx, 'request-discounts')
+
+  const permissions = authCtx?.permissions ?? new Set<string>()
+  const isOwner = authCtx?.isOwner ?? false
+  const hasWidgets = hasDashboardWidgets(permissions, isOwner)
+
+  // A role with no dashboard widgets and exactly one real (permission-gated)
+  // destination goes straight there instead of landing on an empty
+  // dashboard — revisit if that single destination ever feels too scanty as
+  // a landing page once the rest of the UI is finalized.
+  if (!hasWidgets) {
+    const scoped = getPermissionScopedNavItems(permissions, isOwner)
+    if (scoped.length === 1) redirect(scoped[0].href)
+  }
 
   const [profileResult, kpis, classData, activity] = await Promise.all([
     authCtx?.supabase.from('users').select('name').eq('id', authCtx.userId).single(),
@@ -28,11 +47,6 @@ export default async function Dashboard() {
   ])
 
   const firstName = profileResult?.data?.name?.split(' ')[0] || 'there'
-
-  // Whether this user may see money figures (KPI totals + collection chart).
-  const showFinancials = can(authCtx, 'see-financial-totals')
-  const canApproveDiscounts = can(authCtx, 'approve-discounts')
-  const canRequestDiscounts = can(authCtx, 'request-discounts')
 
   return (
     <main className="px-6 py-6">
@@ -46,6 +60,13 @@ export default async function Dashboard() {
             Here's how {kpis.currentCycleName} is going
           </p>
         </header>
+
+        {!hasWidgets && (
+          <NoWidgetsFallback items={getAccessibleNavItems(permissions, isOwner)} />
+        )}
+
+        {hasWidgets && (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 
           {showFinancials && (
@@ -151,6 +172,8 @@ export default async function Dashboard() {
             </div>
           )}
         </div>
+        </>
+        )}
 
       </div>
     </main>
