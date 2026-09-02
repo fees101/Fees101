@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { renderInvoicePdfBuffer } from '@/lib/pdf/renderInvoicePdf'
 import { getInvoiceById } from '@/lib/queries/fees'
+import { requirePermission } from '@/lib/auth/permissions'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const ctx = await requirePermission('see-invoices')
+  if (!ctx) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+  }
+
   const { id } = await params
 
   const invoice = await getInvoiceById(id)
