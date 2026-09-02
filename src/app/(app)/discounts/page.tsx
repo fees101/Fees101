@@ -7,7 +7,10 @@ import { getAuthContext, can } from '@/lib/auth/permissions'
 export default async function DiscountsPage() {
   const ctx = await getAuthContext()
   if (!ctx) redirect('/login')
-  if (!can(ctx, 'see-discounts')) redirect('/dashboard')
+  // Reachable with either permission: approve-discounts needs this page to do
+  // its job (there's no separate approval route), so it can't be gated behind
+  // see-discounts alone.
+  if (!can(ctx, 'see-discounts') && !can(ctx, 'approve-discounts')) redirect('/dashboard')
 
   // Whether the approve/reject controls render — enforced again server-side in
   // discounts/actions.ts.
