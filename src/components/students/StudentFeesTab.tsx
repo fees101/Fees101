@@ -307,7 +307,7 @@ export default function StudentFeesTab({ data }: Props) {
                       )}
                     </td>
                     <td className="py-3 text-right">
-                      {fee.isExempted ? (
+                      {canManageStudents && (fee.isExempted ? (
                         <button
                           onClick={() => setRemoveExemptionConfirm(fee)}
                           disabled={pendingId === fee.id}
@@ -323,7 +323,7 @@ export default function StudentFeesTab({ data }: Props) {
                         >
                           Mark as exempt
                         </button>
-                      )}
+                      ))}
                     </td>
                   </tr>
                 ))}
@@ -373,13 +373,15 @@ export default function StudentFeesTab({ data }: Props) {
                 {data.optionalFees.map(fee => (
                   <tr key={fee.id}>
                     <td className="py-3">
-                      <input
-                        type="checkbox"
-                        checked={fee.isOptedIn}
-                        disabled={pendingId === fee.id}
-                        onChange={() => handleToggleOptIn(fee)}
-                        className="text-mint cursor-pointer disabled:opacity-50"
-                      />
+                      {canManageStudents && (
+                        <input
+                          type="checkbox"
+                          checked={fee.isOptedIn}
+                          disabled={pendingId === fee.id}
+                          onChange={() => handleToggleOptIn(fee)}
+                          className="text-mint cursor-pointer disabled:opacity-50"
+                        />
+                      )}
                     </td>
                     <td className="py-3">
                       <span className="text-sm text-navy">{fee.name}</span>
