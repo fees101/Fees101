@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { requirePermission, getAuthContext } from '@/lib/auth/permissions'
+import { requirePermission, getAuthContext, can } from '@/lib/auth/permissions'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 import { provisionStudentDVA } from '@/lib/payments/provisionDVA'
 import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
@@ -675,6 +675,7 @@ export async function sendManualReminder(
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
+  const authCtx = await getAuthContext()
 
   const { data: student } = await supabase
     .from('students')
@@ -695,7 +696,7 @@ export async function sendManualReminder(
 
   const { data: invoice } = await supabase
     .from('invoices')
-    .select('id, outstanding_amount, billing_cycles!inner(name, due_date, status)')
+    .select('id, outstanding_amount, sent_at, needs_resend, status, billing_cycles!inner(name, due_date, status)')
     .eq('student_id', studentId)
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
@@ -707,6 +708,17 @@ export async function sendManualReminder(
     .maybeSingle()
 
   if (!invoice) return { error: 'No outstanding invoice with a due date for this student.' }
+
+  // Stale invoices are never sendable — the SMS balance comes straight off
+  // this row, so texting it now would give the parent an outdated amount.
+  // Regenerate the invoice first.
+  if (invoice.needs_resend) return { error: 'This invoice is out of date. Update it before sending.' }
+
+  // Sending an invoice for the first time is part of "generate & send
+  // invoices" — same gate as generating/regenerating it. A reminder or
+  // receipt about an invoice already sent stays under manage-students.
+  const isFirstSend = !invoice.sent_at && invoice.status !== 'paid'
+  if (isFirstSend && !can(authCtx, 'manage-invoices')) return { error: 'Not authorized' }
 
   const { data: school } = await supabase.from('schools').select('name, settings').eq('id', schoolId).single()
 

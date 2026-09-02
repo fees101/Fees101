@@ -36,7 +36,8 @@ export default function SendReminderButton({
   const router = useRouter()
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const canSend = useCan('manage-students')
+  const canManageStudents = useCan('manage-students')
+  const canManageInvoices = useCan('manage-invoices')
 
   async function handleSend() {
     setSending(true)
@@ -48,15 +49,28 @@ export default function SendReminderButton({
     router.refresh()
   }
 
-  // Needs-resend always wins — the parent's last copy is stale regardless of
-  // payment status. Paid wins next — nothing is owed, so there's nothing to
-  // invoice or remind about, even if never sent (e.g. a 100%-discounted
-  // invoice). Otherwise the label reflects what the parent still needs: the
-  // invoice itself if they've never been sent one, or a nudge while a
-  // balance remains.
-  const label = needsResend
-    ? 'Needs resend'
-    : status === 'paid'
+  // Stale invoices are never sendable, by anyone, until regenerated — the SMS
+  // pulls its balance straight off the invoice row, so sending it here would
+  // text the parent an outdated amount.
+  if (needsResend) {
+    return (
+      <span
+        className="px-4 py-2 rounded-lg text-sm font-medium border border-amber-500 text-amber-700 bg-amber-50"
+        title="The invoice changed since it was last sent — update it before sending again"
+      >
+        Needs resend
+      </span>
+    )
+  }
+
+  // Sending an invoice for the first time is part of "generate & send
+  // invoices" — gated the same as generating/regenerating it. A reminder or
+  // receipt nudge about an invoice already sent stays under manage-students,
+  // whose scope explicitly covers ad-hoc reminders.
+  const isFirstSend = !sentAt && status !== 'paid'
+  const canSend = isFirstSend ? canManageInvoices : canManageStudents
+
+  const label = status === 'paid'
     ? 'Send receipt'
     : !sentAt
     ? 'Send invoice'
@@ -69,12 +83,8 @@ export default function SendReminderButton({
       <button
         onClick={handleSend}
         disabled={sending}
-        className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50 ${
-          needsResend
-            ? 'border border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100'
-            : 'border border-mint text-mint hover:bg-mint-light'
-        }`}
-        title={needsResend ? 'The invoice changed since it was last sent — resend to update the parent' : 'Sends via SMS'}
+        className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50 border border-mint text-mint hover:bg-mint-light"
+        title="Sends via SMS"
       >
         <ChannelIcons />
         {sending ? 'Sending…' : label}
