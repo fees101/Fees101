@@ -243,7 +243,8 @@ export async function getStudentById(studentId: string) {
   // family) — independent of each other.
   // @ts-expect-error — families is joined object
   const familyId = student.families?.id
-  const [{ data: currentInvoice }, { data: siblings }] = await Promise.all([
+  const SIBLINGS_LIMIT = 20
+  const [{ data: currentInvoice }, { data: siblings }, { count: siblingsTotalCount }] = await Promise.all([
     // Get current term invoice
     supabase
       .from('invoices')
@@ -251,7 +252,8 @@ export async function getStudentById(studentId: string) {
       .eq('student_id', studentId)
       .eq('billing_cycle_id', currentCycle?.id || '')
       .maybeSingle(),
-    // Get siblings (other students in same family)
+    // Get siblings (other students in same family) — capped so a very large
+    // family can't render/query an unbounded list on this page.
     supabase
       .from('students')
       .select(`
@@ -260,6 +262,15 @@ export async function getStudentById(studentId: string) {
         last_name,
         classes!inner(name)
       `)
+      .eq('school_id', schoolId)
+      .eq('family_id', familyId)
+      .neq('id', studentId)
+      .eq('status', 'active')
+      .order('first_name')
+      .limit(SIBLINGS_LIMIT),
+    supabase
+      .from('students')
+      .select('id', { count: 'exact', head: true })
       .eq('school_id', schoolId)
       .eq('family_id', familyId)
       .neq('id', studentId)
@@ -389,6 +400,7 @@ export async function getStudentById(studentId: string) {
       bankName: student.provider_dva_bank_name || null,
     },
     siblings: siblingsWithStatus,
+    siblingsTotalCount: siblingsTotalCount || 0,
     currentTermName: currentCycle?.name || '',
     currentInvoice: currentInvoice ? {
       id: currentInvoice.id,

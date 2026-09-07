@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import type { ScopeSession, ScopeCycle, DownloadRow } from '@/lib/reports/reports'
 import ExportCsvButton from './ExportCsvButton'
+import { formatDateTime } from '@/lib/format/date'
 
 // ---------------------------------------------------------------------------
 // Reports page. A compact card per report (pick scope → download) plus a single
@@ -86,11 +87,6 @@ const STATUS_OPTIONS = [
 
 const selectClass = 'mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm text-navy focus:border-mint focus:outline-none'
 
-function formatWhen(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
 export default function ReportsLayout({ sessions, cycles, downloads, showFinancials, showReports, showAuditLog }: Props) {
   const [historyFilter, setHistoryFilter] = useState('all')
 
@@ -161,7 +157,7 @@ export default function ReportsLayout({ sessions, cycles, downloads, showFinanci
                     <td className="px-5 py-3 text-gray-600">{d.scopeLabel || '—'}</td>
                     <td className="px-5 py-3 text-right tabular-nums text-gray-600">{d.rowCount ?? '—'}</td>
                     <td className="px-5 py-3 text-gray-600">{d.userName}</td>
-                    <td className="px-5 py-3 text-gray-500 whitespace-nowrap">{formatWhen(d.createdAt)}</td>
+                    <td className="px-5 py-3 text-gray-500 whitespace-nowrap">{formatDateTime(d.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>

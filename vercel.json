@@ -4,6 +4,7 @@
     { "path": "/api/admin/reconcile", "schedule": "0 7 * * *" },
     { "path": "/api/admin/reminders", "schedule": "30 7 * * *" },
     { "path": "/api/admin/message-sweep", "schedule": "0 8 * * *" },
-    { "path": "/api/admin/purge-deletions", "schedule": "15 3 * * *" }
+    { "path": "/api/admin/purge-deletions", "schedule": "15 3 * * *" },
+    { "path": "/api/admin/job-sweep", "schedule": "0 4 * * *" }
   ]
 }

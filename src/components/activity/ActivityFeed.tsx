@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import type { ActivityRow } from '@/lib/queries/activity'
 import { ACTIVITY_CATEGORIES, ACTIVITY_PAGE_SIZE_OPTIONS } from '@/lib/activity/activityMeta'
+import { formatDate, formatDateTime } from '@/lib/format/date'
 
 interface Props {
   rows: ActivityRow[]
@@ -31,13 +32,7 @@ function timeAgo(iso: string): string {
   if (diffHours < 24) return `${diffHours}h ago`
   if (diffDays === 1) return 'Yesterday'
   if (diffDays < 7) return `${diffDays}d ago`
-  return then.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-function formatExact(iso: string): string {
-  return new Date(iso).toLocaleString('en-NG', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+  return formatDate(iso)
 }
 
 function getPageNumbers(currentPage: number, totalPages: number): (number | '...')[] {
@@ -210,7 +205,7 @@ export default function ActivityFeed({ rows, total, page, perPage, category, fro
                 const badge = categoryBadge(event.category)
                 return (
                   <tr key={event.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
-                    <td className="px-5 py-3.5 align-top whitespace-nowrap text-gray-500" title={formatExact(event.occurredAt)}>
+                    <td className="px-5 py-3.5 align-top whitespace-nowrap text-gray-500" title={formatDateTime(event.occurredAt)}>
                       {timeAgo(event.occurredAt)}
                     </td>
                     <td className="px-5 py-3.5">

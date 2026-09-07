@@ -9,6 +9,7 @@ import TermSelector from './TermSelector'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { activateTerm, deleteTermDraft, closeTerm, reopenTermAsDraft, previewCloseTerm } from '@/app/(app)/fees/cycles/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import { formatDate } from '@/lib/format/date'
 
 interface Props {
   cycles: CycleRow[]
@@ -18,12 +19,6 @@ interface Props {
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
-}
-
-function formatDate(dateStr: string): string {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function statusBadge(status: 'draft' | 'active' | 'closed') {

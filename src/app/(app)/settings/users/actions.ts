@@ -41,7 +41,7 @@ export async function addStaff(input: AddStaffInput) {
   // The chosen role must belong to this school (RLS-scoped read).
   const { data: role } = await ctx.supabase
     .from('roles')
-    .select('id, name, is_admin')
+    .select('id, name, is_admin, permissions')
     .eq('id', input.roleId)
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
@@ -51,6 +51,17 @@ export async function addStaff(input: AddStaffInput) {
   // manage-team could invite a brand-new staff account straight into it.
   if (role.is_admin && ctx.role !== 'school_admin' && ctx.role !== 'super_admin') {
     return { error: 'Only the account owner can add someone as an Administrator.' }
+  }
+
+  // Cap delegation: a non-owner can't hand a role with permissions they don't
+  // personally hold — otherwise manage-team alone could bootstrap someone into
+  // any permission by routing it through a non-admin role.
+  if (!ctx.isOwner) {
+    const rolePerms = (role.permissions as Record<string, boolean> | null) || {}
+    const overReach = Object.entries(rolePerms).some(([key, on]) => on && !ctx.permissions.has(key))
+    if (overReach) {
+      return { error: 'That role has permissions you don’t hold yourself. Ask the account owner to assign it.' }
+    }
   }
 
   // Guard against a duplicate staff row in this school.
@@ -162,7 +173,7 @@ export async function updateStaffRole(userId: string, roleId: string, reason: st
 
   const { data: role } = await ctx.supabase
     .from('roles')
-    .select('id, name, is_admin')
+    .select('id, name, is_admin, permissions')
     .eq('id', roleId)
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
@@ -171,6 +182,16 @@ export async function updateStaffRole(userId: string, roleId: string, reason: st
   // Only the account owner can promote someone into an Administrator role.
   if (role.is_admin && ctx.role !== 'school_admin' && ctx.role !== 'super_admin') {
     return { error: 'Only the account owner can assign the Administrator role.' }
+  }
+
+  // Cap delegation: same reasoning as addStaff — a non-owner can't reassign
+  // someone onto a role with permissions beyond what they hold themselves.
+  if (!ctx.isOwner) {
+    const rolePerms = (role.permissions as Record<string, boolean> | null) || {}
+    const overReach = Object.entries(rolePerms).some(([key, on]) => on && !ctx.permissions.has(key))
+    if (overReach) {
+      return { error: 'That role has permissions you don’t hold yourself. Ask the account owner to assign it.' }
+    }
   }
 
   const { data: staff } = await ctx.supabase
@@ -234,12 +255,20 @@ export async function setStaffActive(userId: string, active: boolean) {
   // while staying active themselves.
   const { data: targetUser } = await ctx.supabase
     .from('users')
-    .select('name, role')
+    .select('name, role, roles(is_admin)')
     .eq('id', userId)
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
   if (!active && (targetUser?.role === 'school_admin' || targetUser?.role === 'super_admin')) {
     return { error: 'The account owner can’t be deactivated.' }
+  }
+
+  // Same ceiling as assigning the Administrator role: a non-owner can't
+  // deactivate a delegated Administrator either, or manage-team alone could
+  // pick off every admin but the literal owner one at a time.
+  const targetIsAdmin = (targetUser as any)?.roles?.is_admin === true
+  if (!active && targetIsAdmin && ctx.role !== 'school_admin' && ctx.role !== 'super_admin') {
+    return { error: 'Only the account owner can deactivate an Administrator.' }
   }
 
   // Don't let the school drop below one active admin. An "admin" is an owner

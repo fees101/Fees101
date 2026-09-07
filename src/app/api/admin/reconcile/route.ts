@@ -8,7 +8,7 @@ async function runReconcile() {
   const { data: schools } = await supabase
     .from('schools')
     .select('id')
-    .eq('payment_provider', 'monnify')
+    .in('payment_provider', ['monnify', 'paystack'])
 
   const results = []
   for (const school of schools || []) {

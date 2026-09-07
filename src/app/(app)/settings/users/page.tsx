@@ -19,7 +19,7 @@ export default async function UsersSettingsPage() {
       .order('created_at', { ascending: true }),
     supabase
       .from('roles')
-      .select('id, name, is_admin')
+      .select('id, name, is_admin, permissions')
       .eq('school_id', schoolId)
       .order('name'),
   ])
@@ -55,11 +55,22 @@ export default async function UsersSettingsPage() {
     isSelf: u.id === userId,
   }))
 
-  const roleOptions = (roles || []).map((r: any) => ({ id: r.id, name: r.name, isAdmin: r.is_admin }))
+  // Mirrors the "cap delegation" rule enforced in addStaff/updateStaffRole:
+  // a non-owner never even sees a role they couldn't actually assign — an
+  // is_admin role, or one carrying a permission they don't personally hold.
+  const assignableRoles = ctx!.isOwner
+    ? (roles || [])
+    : (roles || []).filter((r: any) => {
+        if (r.is_admin) return false
+        const rolePerms = (r.permissions as Record<string, boolean> | null) || {}
+        return Object.entries(rolePerms).every(([key, on]) => !on || ctx!.permissions.has(key))
+      })
+
+  const roleOptions = assignableRoles.map((r: any) => ({ id: r.id, name: r.name, isAdmin: r.is_admin }))
 
   return (
     <SettingsPageShell title="Users" subtitle="People who can access this account">
-      <UsersManager staff={staffRows} roles={roleOptions} />
+      <UsersManager staff={staffRows} roles={roleOptions} isOwner={ctx!.isOwner} />
     </SettingsPageShell>
   )
 }

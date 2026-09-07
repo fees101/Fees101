@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { approveDiscount, rejectDiscount } from '@/app/(app)/discounts/actions'
 import type { PendingDiscountRequest } from '@/lib/queries/discountRequests'
+import { formatDate } from '@/lib/format/date'
 
 const CATEGORY_LABELS: Record<string, string> = {
   staff_child: 'Staff-child discount',
@@ -13,10 +14,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   financial_hardship: 'Financial hardship',
   fee_waiver: 'Fee waiver',
   other: 'Other',
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 interface Props {

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { formatPaymentMethod } from '@/lib/paymentMethod'
+import { formatDate } from '@/lib/format/date'
 
 interface Invoice {
   id: string
@@ -42,12 +43,6 @@ interface Props {
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
-
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
 
 function getStatusBadge(status: string) {
   switch (status) {

@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CycleDetailData, InvoiceRow } from '@/lib/queries/fees'
 import GenerateInvoicesPanel from './GenerateInvoicesPanel'
-import { regenerateInvoice, regenerateStaleInvoicesForCycle } from '@/app/(app)/fees/cycles/actions'
+import { regenerateInvoice, startInvoiceRegenerationJob } from '@/app/(app)/fees/cycles/actions'
+import { pollJob } from '@/lib/jobs/pollJob'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import { formatDate } from '@/lib/format/date'
 
 interface Props {
   data: CycleDetailData
@@ -17,12 +19,6 @@ type Filter = 'all' | 'paid' | 'partial' | 'unpaid' | 'needs_resend' | 'out_of_d
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function statusBadge(inv: InvoiceRow) {
@@ -51,6 +47,7 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
   const [generatePanelOpen, setGeneratePanelOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [regeneratingAll, setRegeneratingAll] = useState(false)
+  const [regenerateProgress, setRegenerateProgress] = useState<{ processed: number, total: number } | null>(null)
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
   const [regenerateSummary, setRegenerateSummary] = useState<string | null>(null)
 
@@ -85,16 +82,26 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
     if (!cycle) return
     setError(null)
     setRegeneratingAll(true)
-    const result = await regenerateStaleInvoicesForCycle(cycle.id)
-    if ('error' in result) {
-      setError(result.error)
+    setRegenerateProgress({ processed: 0, total: 0 })
+
+    const started = await startInvoiceRegenerationJob(cycle.id)
+    if ('error' in started) {
+      setError(started.error ?? 'Something went wrong')
+      setRegeneratingAll(false)
+      return
+    }
+
+    const final = await pollJob(started.jobId, (s) => setRegenerateProgress({ processed: s.processed, total: s.total }))
+    if (final.status === 'failed') {
+      setError(final.error || 'Something went wrong')
     } else {
       setRegenerateSummary(
-        `${result.regenerated} ${result.regenerated === 1 ? 'invoice' : 'invoices'} updated to current fees.`
+        `${final.processed} ${final.processed === 1 ? 'invoice' : 'invoices'} updated to current fees.`
       )
       router.refresh()
     }
     setRegeneratingAll(false)
+    setRegenerateProgress(null)
   }
 
   async function handleRegenerateOne(invoiceId: string) {
@@ -227,7 +234,9 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
             disabled={regeneratingAll}
             className="px-3 py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 flex-shrink-0"
           >
-            {regeneratingAll ? 'Regenerating...' : 'Regenerate all'}
+            {regeneratingAll
+              ? `Regenerating... ${regenerateProgress?.processed ?? 0}/${regenerateProgress?.total ?? 0}`
+              : 'Regenerate all'}
           </button>
           )}
         </div>

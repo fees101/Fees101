@@ -303,52 +303,36 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
 
                 {student.siblings.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-gray-100">
-                    <p className="text-xs text-gray-500 mb-2">Siblings at this school</p>
-                    <div className="space-y-2">
-                    {student.siblings.map(sibling => (
-                        <Link 
-                        key={sibling.id}
-                        href={`/students/${sibling.id}`}
-                        className="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-gray-50 group"
-                        >
-                        <div className="flex items-center gap-2 text-sm flex-wrap">
-                            <span className="font-medium text-navy">{sibling.firstName} {sibling.lastName}</span>
-                            <span className="text-gray-400 font-bold">·</span>
-                            <span className="text-gray-500">{sibling.className}</span>
-                            <span className="text-gray-400 font-bold">·</span>
-                            {sibling.invoiceStatus === 'paid' && (
-                            <span className="inline-flex items-center gap-1 text-mint font-medium">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                </svg>
-                                Paid
-                            </span>
-                            )}
-                            {sibling.invoiceStatus === 'partial' && (
-                            <span className="inline-flex items-center gap-1 text-amber-600 font-medium">
-                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12 2 A10 10 0 0 0 12 22 V2 Z" />
-                                </svg>
-                                Partial
-                            </span>
-                            )}
-                            {sibling.invoiceStatus === 'pending' && (
-                            <span className="inline-flex items-center gap-1 text-red-600 font-medium">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                                Unpaid
-                            </span>
-                            )}
-                            {sibling.invoiceStatus === 'no_invoice' && (
-                            <span className="text-gray-400">No invoice</span>
-                            )}
-                        </div>
-                        <svg className="w-4 h-4 text-gray-400 group-hover:text-navy flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                        </svg>
-                        </Link>
-                    ))}
+                    <p className="text-xs text-gray-500 mb-2">
+                      Siblings at this school
+                      {student.siblingsTotalCount > student.siblings.length && (
+                        <span className="text-gray-400"> (showing {student.siblings.length} of {student.siblingsTotalCount})</span>
+                      )}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                    {student.siblings.map(sibling => {
+                        const statusDot =
+                          sibling.invoiceStatus === 'paid' ? 'bg-mint' :
+                          sibling.invoiceStatus === 'partial' ? 'bg-amber-500' :
+                          sibling.invoiceStatus === 'pending' ? 'bg-red-500' :
+                          'bg-gray-300'
+                        const statusLabel =
+                          sibling.invoiceStatus === 'paid' ? 'Paid' :
+                          sibling.invoiceStatus === 'partial' ? 'Partial' :
+                          sibling.invoiceStatus === 'pending' ? 'Unpaid' :
+                          'No invoice'
+                        return (
+                          <Link
+                            key={sibling.id}
+                            href={`/students/${sibling.id}`}
+                            title={`${sibling.firstName} ${sibling.lastName} · ${sibling.className} · ${statusLabel}`}
+                            className="inline-flex items-center gap-1.5 pl-1 pr-2 py-1 border border-gray-100 rounded-full text-xs hover:bg-gray-50 hover:border-gray-200 group max-w-[9.5rem]"
+                          >
+                            <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot}`} />
+                            <span className="font-medium text-navy truncate">{sibling.firstName} {sibling.lastName}</span>
+                          </Link>
+                        )
+                    })}
                     </div>
                 </div>
                 )}

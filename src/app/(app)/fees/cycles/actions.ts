@@ -2,11 +2,13 @@
 
 import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
-import { computeInvoiceForStudent, ComputedInvoice, applyCreditBalanceDelta } from '@/lib/computeInvoice'
+import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 import { carryForwardFeeAdjustments } from '@/lib/fees/carryForwardAdjustments'
 import { PromotionDecision } from '@/lib/yearEnd/promotion'
 import { logAuditEvent } from '@/lib/audit/logAudit'
+import { prepareInvoiceGeneration, prepareInvoiceRegeneration, regenerateStaleInvoicesForCycleSync } from '@/lib/invoicing/invoiceGeneration'
+import { createJob, findRunningJob, getJob, updateJobProgress } from '@/lib/jobs/backgroundJobs'
 
 async function getContext(perm: string = 'manage-fee-structure') {
   // Fee/session/term/cycle edits require manage-fee-structure by default;
@@ -911,74 +913,6 @@ export async function deleteTermDraft(id: string) {
 }
 // ============ INVOICE GENERATION ============
 
-// PREVIEW: Compute invoices for a cycle without saving
-export async function previewInvoicesForCycle(cycleId: string) {
-  const ctx = await getContext()
-  if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
-
-  // Check cycle
-  const { data: cycle } = await supabase
-    .from('billing_cycles')
-    .select('id, status, name')
-    .eq('id', cycleId)
-    .eq('school_id', schoolId)
-    .single()
-
-  if (!cycle) return { error: 'Term not found' }
-  if (cycle.status === 'closed') return { error: 'Cannot generate invoices for a closed term' }
-
-  // Get all active students
-  const { data: students } = await supabase
-    .from('students')
-    .select('id, first_name, last_name, class_id')
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-
-  // Get students who already have an invoice
-  const { data: existingInvoices } = await supabase
-    .from('invoices')
-    .select('student_id')
-    .eq('billing_cycle_id', cycleId)
-
-  const alreadyInvoicedIds = new Set((existingInvoices || []).map(i => i.student_id))
-
-  const toGenerate: ComputedInvoice[] = []
-  const skipped: { studentId: string, reason: string }[] = []
-  let warningStudentsNoClass = 0
-  let totalExpected = 0
-
-  for (const s of students || []) {
-    if (alreadyInvoicedIds.has(s.id)) {
-      skipped.push({ studentId: s.id, reason: 'already has invoice' })
-      continue
-    }
-    if (!s.class_id) {
-      warningStudentsNoClass++
-      skipped.push({ studentId: s.id, reason: 'no class assigned' })
-      continue
-    }
-
-    const result = await computeInvoiceForStudent(supabase, schoolId, s.id, cycleId)
-    if ('error' in result) {
-      skipped.push({ studentId: s.id, reason: result.error })
-      continue
-    }
-    toGenerate.push(result)
-    totalExpected += result.total
-  }
-
-  return {
-    cycleName: cycle.name,
-    toGenerateCount: toGenerate.length,
-    alreadyHaveCount: alreadyInvoicedIds.size,
-    noClassCount: warningStudentsNoClass,
-    skippedTotalCount: skipped.length,
-    totalExpected,
-    preview: toGenerate,
-  }
-}
-
 // ============ INVOICE NUMBERING ============
 // Format: INV-{YY}/{5-digit sequence}. YY = last 2 digits of the academic
 // session's start year (falls back to the term's own start year if it has
@@ -1038,116 +972,36 @@ async function getNextInvoiceSequence(
   return max + 1
 }
 
-// GENERATE bulk for a cycle
-export async function generateInvoicesForCycle(cycleId: string) {
+// GENERATE bulk for a cycle — starts a background job the client polls via
+// /api/jobs/process instead of computing every student inline in this request
+// (the old version could easily exceed a serverless timeout on a large school).
+export async function startInvoiceGenerationJob(cycleId: string) {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
 
-  const { data: cycle } = await supabase
-    .from('billing_cycles')
-    .select('id, status, name, start_date, session_id')
-    .eq('id', cycleId)
-    .eq('school_id', schoolId)
-    .single()
+  const existingJob = await findRunningJob(schoolId, 'invoice_generation', { cycleId })
+  if (existingJob) return { success: true, jobId: existingJob.id, total: existingJob.total, alreadyHad: (existingJob.payload as any).alreadyHad || 0 }
 
-  if (!cycle) return { error: 'Term not found' }
-  if (cycle.status === 'closed') return { error: 'Cannot generate invoices for a closed term' }
+  const prep = await prepareInvoiceGeneration(supabase, schoolId, cycleId)
+  if ('error' in prep) return { error: prep.error }
 
-  const yy = String(await resolveInvoiceNumberYear(supabase, cycle)).slice(-2)
-  const numberingCycleIds = await getCycleIdsInNumberingScope(supabase, schoolId, cycle)
-  let nextSeq = await getNextInvoiceSequence(supabase, schoolId, numberingCycleIds, yy)
-
-  // Get all active students with a class
-  const { data: students } = await supabase
-    .from('students')
-    .select('id, class_id')
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .not('class_id', 'is', null)
-
-  // Skip those already with invoices
-  const { data: existing } = await supabase
-    .from('invoices')
-    .select('student_id')
-    .eq('billing_cycle_id', cycleId)
-
-  const alreadyInvoicedIds = new Set((existing || []).map(i => i.student_id))
-  const toProcess = (students || []).filter(s => !alreadyInvoicedIds.has(s.id))
-
-  let generated = 0
-  const errors: { studentId: string, error: string }[] = []
-
-  for (const s of toProcess) {
-    const computed = await computeInvoiceForStudent(supabase, schoolId, s.id, cycleId)
-    if ('error' in computed) {
-      errors.push({ studentId: s.id, error: computed.error })
-      continue
-    }
-
-    const status: 'pending' | 'paid' = computed.total === 0 ? 'paid' : 'pending'
-    const invoiceNumber = `INV-${yy}/${String(nextSeq).padStart(5, '0')}`
-
-    const { data: inserted, error } = await supabase.from('invoices').insert({
-      school_id: schoolId,
-      student_id: s.id,
-      billing_cycle_id: cycleId,
-      invoice_number: invoiceNumber,
-      line_items: computed.lineItems,
-      subtotal: computed.subtotal,
-      discount_amount: computed.discountAmount,
-      discount_reason: computed.discountReason || null,
-      previous_balance: computed.previousBalance,
-      previous_balance_from_invoice_id: computed.previousInvoiceId,
-      credit_applied: computed.creditApplied,
-      total_amount: computed.total,
-      paid_amount: 0,
-      status,
-      sent_at: null,
-      needs_resend: false,
-      generated_at: new Date().toISOString(),
-    }).select('id').single()
-
-    if (error) {
-      errors.push({ studentId: s.id, error: error.message })
-      continue
-    }
-    if (computed.appliedDiscounts.length > 0) {
-      await recordAppliedDiscounts(supabase, schoolId, s.id, inserted.id, computed.appliedDiscounts)
-    }
-    if (computed.creditApplied > 0) {
-      await applyCreditBalanceDelta(supabase, schoolId, s.id, -computed.creditApplied)
-    }
-    nextSeq++
-    generated++
-  }
-
-  // Mark cycle as having generated invoices
-  await supabase
-    .from('billing_cycles')
-    .update({ invoices_generated_at: new Date().toISOString() })
-    .eq('id', cycleId)
-
-  await logAuditEvent(supabase, {
+  const job = await createJob({
     schoolId,
-    actorId: userId,
-    action: 'invoice.generated_bulk',
-    targetType: 'billing_cycle',
-    targetId: cycleId,
-    summary: `Generated ${generated} invoice(s) for term ${cycle.name}${errors.length > 0 ? ` (${errors.length} failed)` : ''}`,
-    metadata: { count: generated, failures: errors.length, alreadyHad: alreadyInvoicedIds.size, errors },
+    jobType: 'invoice_generation',
+    payload: { cycleId, yy: prep.yy, alreadyHad: prep.alreadyHad, studentNames: prep.studentNames },
+    total: prep.studentIds.length,
+    createdBy: userId,
   })
 
-  revalidatePath(`/fees/cycles/${cycleId}`)
-  revalidatePath('/fees/cycles')
-  revalidatePath('/fees')
+  const noClassFailures = prep.noClassStudents.map((s: { id: string; name: string }) => ({ label: s.name, error: 'No class assigned' }))
+  await updateJobProgress(job.id, {
+    cursor: { studentIds: prep.studentIds, nextSeq: prep.startSeq },
+    failed: noClassFailures.length,
+    failures: noClassFailures,
+  })
 
-  return {
-    success: true,
-    generated,
-    alreadyHad: alreadyInvoicedIds.size,
-    errors,
-  }
+  return { success: true, jobId: job.id, total: prep.studentIds.length, alreadyHad: prep.alreadyHad }
 }
 
 // GENERATE single (for late joiner)
@@ -1326,111 +1180,46 @@ export async function regenerateInvoice(invoiceId: string): Promise<
 }
 
 // REGENERATE every out-of-date invoice in a cycle (skips ones already matching current fees)
-export async function regenerateStaleInvoicesForCycle(cycleId: string): Promise<
-  { error: string } | { success: true; regenerated: number; alreadyUpToDate: number; errors: { studentId: string; error: string }[] }
-> {
+export async function startInvoiceRegenerationJob(cycleId: string) {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
 
-  const { data: cycle } = await supabase
-    .from('billing_cycles')
-    .select('id, status, name')
-    .eq('id', cycleId)
-    .eq('school_id', schoolId)
-    .single()
-  if (!cycle) return { error: 'Term not found' }
-  if (cycle.status === 'closed') return { error: 'This term is closed. Invoices cannot be regenerated.' }
+  const existingJob = await findRunningJob(schoolId, 'invoice_regeneration', { cycleId })
+  if (existingJob) return { success: true, jobId: existingJob.id }
 
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('id, student_id, total_amount, paid_amount, sent_at, credit_applied')
-    .eq('billing_cycle_id', cycleId)
-    .eq('school_id', schoolId)
+  const prep = await prepareInvoiceRegeneration(supabase, schoolId, cycleId)
+  if ('error' in prep) return { error: prep.error }
 
-  let regenerated = 0
-  let alreadyUpToDate = 0
-  const errors: { studentId: string, error: string }[] = []
-
-  for (const inv of invoices || []) {
-    // Undo whatever credit this invoice previously consumed before
-    // recomputing, so the comparison below and the fresh computation both
-    // see the student's true available balance.
-    const previouslyApplied = Number(inv.credit_applied || 0)
-    if (previouslyApplied > 0) {
-      await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, previouslyApplied)
-    }
-
-    const paid = Number(inv.paid_amount || 0)
-    const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, cycleId, undefined, paid, inv.id)
-    if ('error' in computed) {
-      // Recompute refused (e.g. the student is no longer active) — put the
-      // credit we optimistically restored back where it was, or it would be
-      // double-counted: still recorded as applied on this untouched invoice
-      // AND sitting in the student's balance.
-      if (previouslyApplied > 0) {
-        await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -previouslyApplied)
-      }
-      errors.push({ studentId: inv.student_id, error: computed.error })
-      continue
-    }
-
-    if (computed.total === Number(inv.total_amount)) {
-      // Nothing actually changed — re-spend the same credit back down.
-      if (computed.creditApplied > 0) {
-        await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -computed.creditApplied)
-      }
-      alreadyUpToDate++
-      continue
-    }
-
-    let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
-    if (paid >= computed.total) newStatus = 'paid'
-    else if (paid > 0) newStatus = 'partial'
-
-    const { error } = await supabase
-      .from('invoices')
-      .update({
-        line_items: computed.lineItems,
-        subtotal: computed.subtotal,
-        discount_amount: computed.discountAmount,
-        discount_reason: computed.discountReason || null,
-        previous_balance: computed.previousBalance,
-        previous_balance_from_invoice_id: computed.previousInvoiceId,
-        credit_applied: computed.creditApplied,
-        total_amount: computed.total,
-        status: newStatus,
-        needs_resend: !!inv.sent_at,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', inv.id)
-
-    if (error) {
-      errors.push({ studentId: inv.student_id, error: error.message })
-      continue
-    }
-    await recordAppliedDiscounts(supabase, schoolId, inv.student_id, inv.id, computed.appliedDiscounts)
-    if (computed.creditApplied > 0) {
-      await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -computed.creditApplied)
-    }
-    regenerated++
-  }
-
-  revalidatePath(`/fees/cycles/${cycleId}`)
-  revalidatePath('/fees/cycles')
-  revalidatePath('/fees')
-
-  await logAuditEvent(supabase, {
+  const job = await createJob({
     schoolId,
-    actorId: userId,
-    action: 'invoice.regenerated_bulk',
-    targetType: 'billing_cycle',
-    targetId: cycleId,
-    summary: `Regenerated ${regenerated} stale invoice(s) for term ${cycle.name}${errors.length > 0 ? ` (${errors.length} failed)` : ''}`,
-    metadata: { count: regenerated, failures: errors.length, alreadyUpToDate, errors },
+    jobType: 'invoice_regeneration',
+    payload: { cycleId },
+    total: prep.invoiceIds.length,
+    createdBy: userId,
   })
 
-  return { success: true, regenerated, alreadyUpToDate, errors }
+  await updateJobProgress(job.id, { cursor: { invoiceIds: prep.invoiceIds } })
+
+  return { success: true, jobId: job.id }
+}
+
+// Shared poller for both job types — the panel/layout components read
+// processed/total/status off this to render progress and know when to stop.
+export async function getInvoiceJobStatus(jobId: string) {
+  const ctx = await getContext('manage-invoices')
+  if (!ctx) return { error: 'Not authenticated' }
+  const job = await getJob(jobId)
+  if (!job || job.school_id !== ctx.schoolId) return { error: 'Job not found' }
+  return {
+    success: true,
+    status: job.status,
+    total: job.total,
+    processed: job.processed,
+    failed: job.failed,
+    failures: job.failures,
+    error: job.error,
+  }
 }
 
 // ============ YEAR-END ROLLOVER ============
@@ -1965,10 +1754,10 @@ async function continueYearEndRollover(runId: string, newTerm?: NewTermInput) {
       // We DO still self-heal any invoice that was already previewed ahead of
       // rollover (e.g. under an adopted draft term) so it reflects students'
       // post-promotion classes rather than going stale.
-      const regenResult = await regenerateStaleInvoicesForCycle(toCycleId)
+      const regenResult = await regenerateStaleInvoicesForCycleSync(supabase, schoolId, toCycleId)
       if ('success' in regenResult) {
         regeneratedCount = regenResult.regenerated
-        regenerateErrors = regenResult.errors
+        regenerateErrors = regenResult.errors.map(e => ({ studentId: e.label, error: e.error }))
       }
 
       await supabase.from('rollover_runs').update({ step: 'invoices_generated' }).eq('id', runId)

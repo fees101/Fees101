@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { addStaff, updateStaffRole, setStaffActive, resendInvite, resetStaffPassword, updateStaffEmail } from '@/app/(app)/settings/users/actions'
+import { formatDate } from '@/lib/format/date'
 
 interface StaffRow {
   id: string
@@ -26,14 +27,15 @@ interface RoleOption {
 interface Props {
   staff: StaffRow[]
   roles: RoleOption[]
+  isOwner: boolean
 }
 
 function formatLogin(iso: string | null): string {
   if (!iso) return 'Never signed in'
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDate(iso)
 }
 
-export default function UsersManager({ staff, roles }: Props) {
+export default function UsersManager({ staff, roles, isOwner }: Props) {
   const router = useRouter()
   const [showAdd, setShowAdd] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -226,7 +228,9 @@ export default function UsersManager({ staff, roles }: Props) {
                         Change email
                       </button>
                     )}
-                    {!u.isSelf && (
+                    {/* The literal owner can never be deactivated by anyone, and a
+                        delegated Administrator only by the owner — matches setStaffActive. */}
+                    {!u.isSelf && u.baseRole !== 'school_admin' && u.baseRole !== 'super_admin' && (isOwner || !u.isAdmin) && (
                       u.isActive ? (
                         <button
                           onClick={() => handleToggleActive(u.id, false)}

@@ -116,13 +116,15 @@ function RolePanel({
   // locked separately so manage-team can't be used to self-escalate; and only
   // the owner can change what any role is allowed to do at all — otherwise a
   // manage-team holder could grant a second, colluding account full access
-  // without ever touching is_admin or their own role.
-  const locked = role.isAdmin || isOwnRole || !isOwner
+  // without ever touching is_admin or their own role. Anyone who reached this
+  // page can still see what a role grants, even when they can't edit it —
+  // they need that to make sense of who they're assigning staff to.
+  const canEdit = isOwner && !role.isAdmin && !isOwnRole
 
-  const dirty = !locked && JSON.stringify(perms) !== JSON.stringify({ ...role.permissions })
+  const dirty = canEdit && JSON.stringify(perms) !== JSON.stringify({ ...role.permissions })
 
   function toggle(key: string) {
-    if (locked) return
+    if (!canEdit) return
     setPerms(p => ({ ...p, [key]: !p[key] }))
   }
 
@@ -192,29 +194,34 @@ function RolePanel({
         )}
       </div>
 
-      {locked ? (
+      {role.isAdmin ? (
         <p className="mt-5 text-sm text-gray-500 bg-gray-50 rounded-lg p-4">
-          {role.isAdmin
-            ? 'The Administrator role always has full access to everything and can’t be limited.'
-            : isOwnRole
-              ? 'You can’t edit the permissions of your own role. Ask another admin to do it.'
-              : 'Only the account owner can change role permissions.'}
+          The Administrator role always has full access to everything and can’t be limited.
         </p>
       ) : (
         <div className="mt-5 space-y-6">
-          <PermGroup title="What they can see" perms={seePerms} values={perms} onToggle={toggle} />
-          <PermGroup title="What they can do" perms={doPerms} values={perms} onToggle={toggle} />
+          {!canEdit && (
+            <p className="text-sm text-gray-500 bg-gray-50 rounded-lg p-4">
+              {isOwnRole
+                ? 'You can’t edit the permissions of your own role. Ask another admin to do it.'
+                : 'Read-only — only the account owner can change role permissions.'}
+            </p>
+          )}
+          <PermGroup title="What they can see" perms={seePerms} values={perms} onToggle={toggle} readOnly={!canEdit} />
+          <PermGroup title="What they can do" perms={doPerms} values={perms} onToggle={toggle} readOnly={!canEdit} />
 
-          <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
-            {dirty && <span className="text-xs text-amber-600">Unsaved changes</span>}
-            <button
-              onClick={handleSave}
-              disabled={saving || !dirty}
-              className="px-4 py-2 text-sm bg-navy text-white font-semibold rounded-lg hover:bg-navy/90 disabled:opacity-40"
-            >
-              {saving ? 'Saving…' : 'Save changes'}
-            </button>
-          </div>
+          {canEdit && (
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+              {dirty && <span className="text-xs text-amber-600">Unsaved changes</span>}
+              <button
+                onClick={handleSave}
+                disabled={saving || !dirty}
+                className="px-4 py-2 text-sm bg-navy text-white font-semibold rounded-lg hover:bg-navy/90 disabled:opacity-40"
+              >
+                {saving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -222,12 +229,13 @@ function RolePanel({
 }
 
 function PermGroup({
-  title, perms, values, onToggle,
+  title, perms, values, onToggle, readOnly,
 }: {
   title: string
   perms: PermissionDef[]
   values: Record<string, boolean>
   onToggle: (key: string) => void
+  readOnly?: boolean
 }) {
   return (
     <div>
@@ -235,15 +243,16 @@ function PermGroup({
       <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg">
         {perms.map(p => {
           return (
-            <label key={p.key} className="flex items-start gap-3 p-3.5 cursor-pointer hover:bg-gray-50">
+            <label key={p.key} className={`flex items-start gap-3 p-3.5 ${readOnly ? '' : 'cursor-pointer hover:bg-gray-50'}`}>
               <button
                 type="button"
                 role="switch"
                 aria-checked={!!values[p.key]}
-                onClick={() => onToggle(p.key)}
+                aria-disabled={readOnly}
+                onClick={() => !readOnly && onToggle(p.key)}
                 className={`mt-0.5 relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
                   values[p.key] ? 'bg-mint' : 'bg-gray-200'
-                }`}
+                } ${readOnly ? 'cursor-default opacity-70' : ''}`}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${values[p.key] ? 'translate-x-4' : 'translate-x-0.5'}`} />
               </button>

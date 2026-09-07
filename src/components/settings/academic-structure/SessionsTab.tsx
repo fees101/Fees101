@@ -5,16 +5,11 @@ import { useRouter } from 'next/navigation'
 import { SessionRow } from '@/lib/queries/fees'
 import { createSession, setActiveSession, closeSession } from '@/app/(app)/fees/cycles/actions'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { formatDate } from '@/lib/format/date'
 
 interface Props {
   sessions: SessionRow[]
   termCounts: Record<string, number>
-}
-
-function formatDate(dateStr: string): string {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 export default function SessionsTab({ sessions, termCounts }: Props) {

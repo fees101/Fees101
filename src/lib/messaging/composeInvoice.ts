@@ -14,6 +14,8 @@
 // stays short and points at the attachment rather than repeating every
 // line item.
 
+import { formatDate } from '@/lib/format/date'
+
 // HTML-only, used in the email footer only (not SMS) — the "101" in the
 // wordmark picks up the brand's mint accent, matching how the logo renders
 // in the app itself (see Sidebar.tsx).
@@ -38,7 +40,10 @@ function amount(n: number): string {
 function shortDate(dateStr: string): string {
   const d = new Date(dateStr)
   if (isNaN(d.getTime())) return dateStr
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  // Reuses the shared formatter (hardcoded month table) purely for a single
+  // source of truth on month abbreviations — this is server-side SMS/email
+  // text, not client-rendered, so it carries no hydration risk itself.
+  return formatDate(dateStr)
 }
 
 export interface InvoiceMessageParams {

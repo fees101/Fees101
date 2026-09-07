@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import type { AuditLogRow } from '@/lib/audit/auditLog'
 import { AUDIT_LOG_GROUPS, groupForAction } from '@/lib/audit/auditLogGroups'
 import { actionLabel } from '@/lib/audit/auditLogLabels'
+import { formatDate, formatDateTime } from '@/lib/format/date'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200]
 
@@ -35,12 +36,6 @@ function getPageNumbers(currentPage: number, totalPages: number): (number | '...
   return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages]
 }
 
-// Exact timestamp — used as the hover title on the relative time.
-function formatWhen(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
 // Relative time for at-a-glance scanning; the exact time lives in the tooltip.
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
@@ -52,7 +47,7 @@ function timeAgo(iso: string): string {
   if (hours < 24) return `${hours}h ago`
   if (days === 1) return 'Yesterday'
   if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDate(iso)
 }
 
 interface Props {
@@ -173,7 +168,7 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
                 const isSystem = e.actorName === 'System'
                 return (
                   <tr key={e.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
-                    <td className="px-5 py-3.5 align-top text-gray-500 whitespace-nowrap" title={formatWhen(e.createdAt)}>
+                    <td className="px-5 py-3.5 align-top text-gray-500 whitespace-nowrap" title={formatDateTime(e.createdAt)}>
                       {timeAgo(e.createdAt)}
                     </td>
                     <td className="px-5 py-3.5 align-top whitespace-nowrap">
