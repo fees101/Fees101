@@ -981,7 +981,7 @@ export async function startInvoiceGenerationJob(cycleId: string) {
   const { supabase, schoolId, userId } = ctx
 
   const existingJob = await findRunningJob(schoolId, 'invoice_generation', { cycleId })
-  if (existingJob) return { success: true, jobId: existingJob.id, total: existingJob.total, alreadyHad: (existingJob.payload as any).alreadyHad || 0 }
+  if (existingJob) return { success: true, jobId: existingJob.id, total: existingJob.total, processed: existingJob.processed, alreadyHad: (existingJob.payload as any).alreadyHad || 0 }
 
   const prep = await prepareInvoiceGeneration(supabase, schoolId, cycleId)
   if ('error' in prep) return { error: prep.error }

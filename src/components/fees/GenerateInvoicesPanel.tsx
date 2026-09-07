@@ -30,7 +30,7 @@ export default function GenerateInvoicesPanel({ cycleId, onClose, onSuccess }: P
         setError(start.error ?? 'Something went wrong')
         return
       }
-      setProgress({ processed: 0, total: start.total ?? 0 })
+      setProgress({ processed: start.processed ?? 0, total: start.total ?? 0 })
 
       const final = await pollJob(start.jobId, (s) => setProgress({ processed: s.processed, total: s.total }))
       if (final.status === 'failed') {
@@ -79,6 +79,15 @@ export default function GenerateInvoicesPanel({ cycleId, onClose, onSuccess }: P
               <p className="text-sm text-gray-600">
                 Generating... {progress?.processed ?? 0}/{progress?.total ?? 0}
               </p>
+              <div className="w-full max-w-xs h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-mint transition-all duration-500"
+                  style={{
+                    width: `${progress && progress.total > 0 ? Math.min(100, (progress.processed / progress.total) * 100) : 0}%`,
+                  }}
+                />
+              </div>
+              <p className="text-xs text-gray-400">Keep this window open until this finishes</p>
             </div>
           )}
 
