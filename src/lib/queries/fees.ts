@@ -1,5 +1,5 @@
 import { getAuthContext } from '@/lib/auth/permissions'
-import { computeInvoiceForStudent } from '@/lib/computeInvoice'
+import { computeInvoiceForStudent, buildInvoiceComputePreload } from '@/lib/computeInvoice'
 
 function composeAddress(street?: string | null, city?: string | null, state?: string | null): string | null {
   const parts = [street, city, state].filter(Boolean)
@@ -628,7 +628,20 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
 
   // Closed terms are frozen (fee edits are blocked), so an invoice generated
   // there can never drift — skip the recompute pass entirely.
-  if (cycleData.status !== 'closed') {
+  if (cycleData.status !== 'closed' && invoices.length > 0) {
+    // One preload for the whole cycle (~8 queries total) instead of each
+    // invoice below firing its own 5-7 sequential queries — at a few hundred
+    // invoices that was thousands of round trips and the dominant cause of
+    // slow term-page loads. See buildInvoiceComputePreload for why this
+    // produces byte-identical results to the old per-invoice query path.
+    const preload = await buildInvoiceComputePreload(
+      supabase,
+      schoolId,
+      cycleId,
+      invoices.map(inv => inv.studentId),
+      invoices.map(inv => inv.id)
+    )
+
     for (const inv of invoices) {
       // Simulate "what if this invoice's own credit were restored, then
       // recomputed" — the same restore-then-compare logic regeneration
@@ -642,7 +655,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
       // recompute a higher total (no discount) and flag the invoice stale
       // forever, while a regenerate (which does pass the id) produces the
       // same stored value, so the banner could never clear.
-      const computed = await computeInvoiceForStudent(supabase, schoolId, inv.studentId, cycleId, effectiveCredit, inv.paidAmount, inv.id)
+      const computed = await computeInvoiceForStudent(supabase, schoolId, inv.studentId, cycleId, effectiveCredit, inv.paidAmount, inv.id, preload)
       // Compare creditApplied too, not just total — a fee change can leave
       // the total unchanged when credit fully covers the bill either way,
       // while what's actually owed and drawn from credit still differs.

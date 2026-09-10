@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { CycleDetailData, InvoiceRow } from '@/lib/queries/fees'
 import GenerateInvoicesPanel from './GenerateInvoicesPanel'
 import { regenerateInvoice, startInvoiceRegenerationJob } from '@/app/(app)/fees/cycles/actions'
-import { pollJob } from '@/lib/jobs/pollJob'
+import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { formatDate } from '@/lib/format/date'
 
@@ -46,10 +46,15 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
   const [search, setSearch] = useState('')
   const [generatePanelOpen, setGeneratePanelOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [regeneratingAll, setRegeneratingAll] = useState(false)
-  const [regenerateProgress, setRegenerateProgress] = useState<{ processed: number, total: number } | null>(null)
+  const { trackJob, findRunningJob } = useActiveJobs()
+  const runningGeneration = findRunningJob(j => j.jobType === 'invoice_generation' && j.meta?.cycleId === cycle?.id)
+  const [regenerateJobId, setRegenerateJobId] = useState<string | null>(
+    () => findRunningJob(j => j.jobType === 'invoice_regeneration' && j.meta?.cycleId === cycle?.id)?.jobId ?? null
+  )
+  const regenerateJob = useTrackedJob(regenerateJobId)
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
   const [regenerateSummary, setRegenerateSummary] = useState<string | null>(null)
+  const regeneratingAll = !!regenerateJob && regenerateJob.status === 'running'
 
   const filteredInvoices = useMemo(() => {
     const term = search.toLowerCase().trim()
@@ -81,28 +86,27 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
   async function handleRegenerateAll() {
     if (!cycle) return
     setError(null)
-    setRegeneratingAll(true)
-    setRegenerateProgress({ processed: 0, total: 0 })
+    setRegenerateSummary(null)
 
     const started = await startInvoiceRegenerationJob(cycle.id)
     if ('error' in started) {
       setError(started.error ?? 'Something went wrong')
-      setRegeneratingAll(false)
       return
     }
-
-    const final = await pollJob(started.jobId, (s) => setRegenerateProgress({ processed: s.processed, total: s.total }))
-    if (final.status === 'failed') {
-      setError(final.error || 'Something went wrong')
-    } else {
-      setRegenerateSummary(
-        `${final.processed} ${final.processed === 1 ? 'invoice' : 'invoices'} updated to current fees.`
-      )
-      router.refresh()
-    }
-    setRegeneratingAll(false)
-    setRegenerateProgress(null)
+    setRegenerateJobId(started.jobId)
+    trackJob(started.jobId, 'invoice_regeneration', 'Invoice regeneration', undefined, (job) => {
+      if (job.status === 'failed') {
+        setError(job.error || 'Something went wrong')
+      } else {
+        setRegenerateSummary(
+          `${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated to current fees.`
+        )
+        router.refresh()
+      }
+    }, { cycleId: cycle.id, href: `/fees/cycles/${cycle.id}` })
   }
+
+
 
   async function handleRegenerateOne(invoiceId: string) {
     setError(null)
@@ -235,10 +239,27 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
             className="px-3 py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 flex-shrink-0"
           >
             {regeneratingAll
-              ? `Regenerating... ${regenerateProgress?.processed ?? 0}/${regenerateProgress?.total ?? 0}`
+              ? `Regenerating... ${regenerateJob?.processed ?? 0}/${regenerateJob?.total ?? 0}`
               : 'Regenerate all'}
           </button>
           )}
+        </div>
+      )}
+
+      {runningGeneration && !generatePanelOpen && (
+        <div className="mb-4 p-4 bg-mint-light/40 border border-mint/30 rounded-xl flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-4 h-4 border-2 border-mint border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            <p className="text-sm text-navy">
+              Generating invoices in the background — {runningGeneration.processed}/{runningGeneration.total || '?'}
+            </p>
+          </div>
+          <button
+            onClick={() => setGeneratePanelOpen(true)}
+            className="px-3 py-1.5 text-sm font-medium text-mint hover:underline flex-shrink-0"
+          >
+            View
+          </button>
         </div>
       )}
 

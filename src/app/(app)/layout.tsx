@@ -2,6 +2,7 @@ import Sidebar from '@/components/layout/Sidebar'
 import AdminNotificationBanner from '@/components/layout/AdminNotificationBanner'
 import { getAuthContext, permissionList } from '@/lib/auth/permissions'
 import { PermissionsProvider } from '@/lib/auth/PermissionsProvider'
+import { ActiveJobsProvider } from '@/lib/jobs/ActiveJobsProvider'
 import { getScheduledDeletion } from '@/lib/dataPrivacy/deletion'
 import { redirect } from 'next/navigation'
 
@@ -76,21 +77,23 @@ export default async function AppLayout({
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <PermissionsProvider permissions={permissions} isOwner={isOwner}>
-        <Sidebar
-          userName={profile.name}
-          userEmail={profile.email}
-          userRole={roleLabel}
-          // @ts-expect-error — schools is joined object
-          schoolName={profile.schools?.name || 'Fees101'}
-          // @ts-expect-error — schools is joined object
-          schoolLogoUrl={profile.schools?.logo_url || null}
-          currentTermName={currentCycle?.name || null}
-          currentTermId={currentCycle?.id || null}
-        />
-        <main className="flex-1 min-w-0">
-          <AdminNotificationBanner notifications={notifications} />
-          {children}
-        </main>
+        <ActiveJobsProvider>
+          <Sidebar
+            userName={profile.name}
+            userEmail={profile.email}
+            userRole={roleLabel}
+            // @ts-expect-error — schools is joined object
+            schoolName={profile.schools?.name || 'Fees101'}
+            // @ts-expect-error — schools is joined object
+            schoolLogoUrl={profile.schools?.logo_url || null}
+            currentTermName={currentCycle?.name || null}
+            currentTermId={currentCycle?.id || null}
+          />
+          <main className="flex-1 min-w-0">
+            <AdminNotificationBanner notifications={notifications} />
+            {children}
+          </main>
+        </ActiveJobsProvider>
       </PermissionsProvider>
     </div>
   )

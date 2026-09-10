@@ -1,0 +1,21 @@
+name: Background job sweep
+
+# Vercel's free/Hobby plan only runs vercel.json crons once a day, which is
+# already covered by the "0 4 * * *" job-sweep entry there as a once-daily
+# fallback. This workflow supplements that with a ~5 minute cadence (GitHub
+# Actions' practical minimum) so a background job left running after its
+# starting tab is closed resumes within minutes instead of waiting up to a
+# day — without needing a paid Vercel plan for frequent cron.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping job-sweep endpoint
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/admin/job-sweep" \
+            -H "x-sweep-secret: ${{ secrets.SWEEP_SECRET }}"

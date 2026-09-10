@@ -55,18 +55,27 @@ export async function computeSiblingDiscount(
   supabase: any,
   schoolId: string,
   student: { id: string; family_id: string | null },
-  siblingTiers: SiblingTier[]
+  siblingTiers: SiblingTier[],
+  // Bulk callers (e.g. the term-page staleness check) fetch every family's
+  // siblings in one query up front and pass the relevant slice here instead
+  // of letting this function fire one query per student — same ordering
+  // (admission_date asc, created_at asc) is required of the caller.
+  preloadedSiblings?: { id: string; admission_date: string | null }[]
 ): Promise<SiblingTier | null> {
   if (!student.family_id || siblingTiers.length === 0) return null
 
-  const { data: siblings } = await supabase
-    .from('students')
-    .select('id, admission_date')
-    .eq('school_id', schoolId)
-    .eq('family_id', student.family_id)
-    .eq('status', 'active')
-    .order('admission_date', { ascending: true })
-    .order('created_at', { ascending: true })
+  let siblings = preloadedSiblings
+  if (!siblings) {
+    const { data } = await supabase
+      .from('students')
+      .select('id, admission_date')
+      .eq('school_id', schoolId)
+      .eq('family_id', student.family_id)
+      .eq('status', 'active')
+      .order('admission_date', { ascending: true })
+      .order('created_at', { ascending: true })
+    siblings = data
+  }
 
   if (!siblings || siblings.length < 2) return null
 
@@ -84,16 +93,24 @@ export async function computeSiblingDiscount(
 export async function getRecurringDiscounts(
   supabase: any,
   schoolId: string,
-  studentId: string
+  studentId: string,
+  // Bulk callers fetch every student's recurring discounts in one query
+  // (ordered created_at desc, same as the single-student path) and pass the
+  // relevant slice here instead of one query per student.
+  preloadedRows?: any[]
 ): Promise<any[]> {
-  const { data } = await supabase
-    .from('discounts')
-    .select('id, category, amount, is_percentage, reason')
-    .eq('school_id', schoolId)
-    .eq('student_id', studentId)
-    .eq('is_recurring', true)
-    .in('status', ['approved', 'applied'])
-    .order('created_at', { ascending: false })
+  let data = preloadedRows
+  if (!data) {
+    const res = await supabase
+      .from('discounts')
+      .select('id, category, amount, is_percentage, reason')
+      .eq('school_id', schoolId)
+      .eq('student_id', studentId)
+      .eq('is_recurring', true)
+      .in('status', ['approved', 'applied'])
+      .order('created_at', { ascending: false })
+    data = res.data
+  }
 
   const seenCategories = new Set<string>()
   const latestPerCategory: any[] = []
@@ -118,17 +135,28 @@ export async function getRecurringDiscounts(
 // against THIS invoice (via the invoice-detail request/approve flow) is
 // folded back in — otherwise a regenerate would silently wipe it out, since
 // this function's own sibling/recurring logic knows nothing about it.
+// Bulk preload bundle for computeDiscountsForInvoice — built once for a whole
+// cycle by buildInvoiceComputePreload (src/lib/computeInvoice.ts) instead of
+// each per-student call firing its own siblings/recurring/manual queries.
+export interface DiscountsPreload {
+  siblingsByFamily: Map<string, { id: string; admission_date: string | null }[]>
+  recurringByStudent: Map<string, any[]>
+  manualByInvoice: Map<string, any[]>
+}
+
 export async function computeDiscountsForInvoice(
   supabase: any,
   schoolId: string,
   student: { id: string; family_id: string | null },
   subtotal: number,
   settings: DiscountSettings,
-  existingInvoiceId?: string
+  existingInvoiceId?: string,
+  preload?: DiscountsPreload
 ): Promise<DiscountComputation> {
   const applied: AppliedDiscount[] = []
 
-  const siblingTier = await computeSiblingDiscount(supabase, schoolId, student, settings.siblingTiers)
+  const preloadedSiblings = preload && student.family_id ? preload.siblingsByFamily.get(student.family_id) : undefined
+  const siblingTier = await computeSiblingDiscount(supabase, schoolId, student, settings.siblingTiers, preloadedSiblings)
   if (siblingTier) {
     const computedAmount = siblingTier.isPercentage
       ? Math.round((subtotal * siblingTier.value) / 100)
@@ -143,7 +171,8 @@ export async function computeDiscountsForInvoice(
     })
   }
 
-  const recurring = await getRecurringDiscounts(supabase, schoolId, student.id)
+  const preloadedRecurring = preload?.recurringByStudent.get(student.id)
+  const recurring = await getRecurringDiscounts(supabase, schoolId, student.id, preloadedRecurring)
   for (const row of recurring) {
     const computedAmount = row.is_percentage ? Math.round((subtotal * Number(row.amount)) / 100) : Number(row.amount)
     if (computedAmount <= 0) continue
@@ -164,14 +193,18 @@ export async function computeDiscountsForInvoice(
   }
 
   if (existingInvoiceId) {
-    const { data: manualRows } = await supabase
-      .from('discounts')
-      .select('amount, is_percentage, category, reason')
-      .eq('school_id', schoolId)
-      .eq('invoice_id', existingInvoiceId)
-      .eq('status', 'applied')
-      .eq('is_recurring', false)
-      .not('requested_by', 'is', null)
+    let manualRows = preload?.manualByInvoice.get(existingInvoiceId)
+    if (!manualRows) {
+      const res = await supabase
+        .from('discounts')
+        .select('amount, is_percentage, category, reason')
+        .eq('school_id', schoolId)
+        .eq('invoice_id', existingInvoiceId)
+        .eq('status', 'applied')
+        .eq('is_recurring', false)
+        .not('requested_by', 'is', null)
+      manualRows = res.data
+    }
 
     for (const row of manualRows || []) {
       const computedAmount = row.is_percentage ? Math.round((subtotal * Number(row.amount)) / 100) : Number(row.amount)

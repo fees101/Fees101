@@ -63,15 +63,26 @@ export async function getJob(jobId: string): Promise<BackgroundJob | null> {
 }
 
 // Find a still-running job of this type for the school (so a page reload can
-// resume polling instead of starting a duplicate job).
+// resume polling instead of starting a duplicate job). Excludes jobs whose
+// updated_at is older than the sweep's own stall threshold — an abandoned job
+// (crashed tab, dropped connection) sits at status 'running' forever until
+// something sweeps it, and in local dev nothing ever does (job-sweep only
+// fires from Vercel's cron or a manual/GitHub Actions call, neither of which
+// runs against a dev server) — so without this, a dead job from days ago
+// would get handed back as "still active" indefinitely and its frozen
+// numbers would be all a user ever sees.
+const STALE_JOB_MS = 3 * 60 * 1000
+
 export async function findRunningJob(schoolId: string, jobType: JobType, payloadFilter?: Record<string, unknown>): Promise<BackgroundJob | null> {
   const supabase = createServiceRoleClient()
-  let query = supabase
+  const staleBefore = new Date(Date.now() - STALE_JOB_MS).toISOString()
+  const query = supabase
     .from('background_jobs')
     .select('*')
     .eq('school_id', schoolId)
     .eq('job_type', jobType)
     .eq('status', 'running')
+    .gte('updated_at', staleBefore)
     .order('created_at', { ascending: false })
     .limit(1)
 

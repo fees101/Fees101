@@ -1,4 +1,4 @@
-import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
+import { computeInvoiceForStudent, applyCreditBalanceDelta, buildInvoiceComputePreload } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 
 // Chunkable invoice generation/regeneration, extracted out of
@@ -126,8 +126,15 @@ export async function processInvoiceGenerationChunk(
   let nextSeq = startSeq
   const errors: { label: string; error: string }[] = []
 
+  // Batches this chunk's reads into ~8-9 queries total instead of each of the
+  // (up to 25) students below firing its own 5-7 sequential queries — same
+  // reasoning as the term-page staleness-check fix (src/lib/queries/fees.ts),
+  // just applied to the generation write path so progress updates land every
+  // few seconds instead of every 10-20+.
+  const preload = await buildInvoiceComputePreload(supabase, schoolId, cycleId, studentIds, [])
+
   for (const studentId of studentIds) {
-    const computed = await computeInvoiceForStudent(supabase, schoolId, studentId, cycleId)
+    const computed = await computeInvoiceForStudent(supabase, schoolId, studentId, cycleId, undefined, 0, undefined, preload)
     if ('error' in computed) {
       errors.push({ label: studentNames[studentId] || studentId, error: computed.error })
       continue
@@ -227,17 +234,37 @@ export async function processInvoiceRegenerationChunk(
   let alreadyUpToDate = 0
   const errors: { label: string; error: string }[] = []
 
+  // Same batched-read fix as generation above. Credit balance is the one
+  // preloaded field this loop also mutates live (restore-then-recompute), so
+  // each restore/spend below is mirrored into the preloaded student record
+  // too — otherwise computeInvoiceForStudent would read a stale credit_balance
+  // out of the preload and under/over-apply credit on the very next student
+  // whose regeneration reads the same in-memory map.
+  const preload = await buildInvoiceComputePreload(
+    supabase,
+    schoolId,
+    cycleId,
+    (invoices || []).map((inv: any) => inv.student_id),
+    invoiceIds
+  )
+  const bumpPreloadedCredit = (studentId: string, delta: number) => {
+    const s = preload.studentsById.get(studentId)
+    if (s) s.credit_balance = Number(s.credit_balance || 0) + delta
+  }
+
   for (const inv of invoices || []) {
     const previouslyApplied = Number(inv.credit_applied || 0)
     if (previouslyApplied > 0) {
       await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, previouslyApplied)
+      bumpPreloadedCredit(inv.student_id, previouslyApplied)
     }
 
     const paid = Number(inv.paid_amount || 0)
-    const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, cycleId, undefined, paid, inv.id)
+    const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, cycleId, undefined, paid, inv.id, preload)
     if ('error' in computed) {
       if (previouslyApplied > 0) {
         await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -previouslyApplied)
+        bumpPreloadedCredit(inv.student_id, -previouslyApplied)
       }
       errors.push({ label: inv.student_id, error: computed.error })
       continue
@@ -246,6 +273,7 @@ export async function processInvoiceRegenerationChunk(
     if (computed.total === Number(inv.total_amount)) {
       if (computed.creditApplied > 0) {
         await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -computed.creditApplied)
+        bumpPreloadedCredit(inv.student_id, -computed.creditApplied)
       }
       alreadyUpToDate++
       continue
@@ -279,6 +307,7 @@ export async function processInvoiceRegenerationChunk(
     await recordAppliedDiscounts(supabase, schoolId, inv.student_id, inv.id, computed.appliedDiscounts)
     if (computed.creditApplied > 0) {
       await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -computed.creditApplied)
+      bumpPreloadedCredit(inv.student_id, -computed.creditApplied)
     }
     regenerated++
   }

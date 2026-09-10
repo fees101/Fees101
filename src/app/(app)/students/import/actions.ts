@@ -246,23 +246,54 @@ export async function importStudents(rows: ParsedRow[]) {
   let failed = 0
   const failedRows: { row: number, reason: string }[] = []
 
-  // Process each valid row
-  for (const row of validRows) {
-    try {
-      // Check if family with same primary parent phone exists
-      const { data: existingFamily } = await supabase
-        .from('families')
-        .select('id')
-        .eq('school_id', schoolId)
-        .eq('primary_parent_phone', row.parentPhone)
-        .maybeSingle()
+  // Resolve families for this batch in bulk instead of one lookup+insert pair
+  // per row (was up to 2 round trips per row on top of the student insert —
+  // 150 sequential queries for a 50-row batch). Rows sharing a phone within
+  // the same batch also share one family, same as the old per-row de-dupe did.
+  const uniquePhones = Array.from(new Set(validRows.map(r => r.parentPhone)))
+  const familyIdByPhone = new Map<string, string>()
 
-      let familyId: string
+  const { data: existingFamilies } = await supabase
+    .from('families')
+    .select('id, primary_parent_phone')
+    .eq('school_id', schoolId)
+    .in('primary_parent_phone', uniquePhones)
 
-      if (existingFamily) {
-        familyId = existingFamily.id
-      } else {
-        const { data: newFamily, error: familyError } = await supabase
+  for (const f of existingFamilies || []) familyIdByPhone.set(f.primary_parent_phone, f.id)
+
+  const phonesToCreate = uniquePhones.filter(p => !familyIdByPhone.has(p))
+  if (phonesToCreate.length > 0) {
+    const firstRowByPhone = new Map<string, ParsedRow>()
+    for (const row of validRows) {
+      if (!firstRowByPhone.has(row.parentPhone)) firstRowByPhone.set(row.parentPhone, row)
+    }
+
+    const { data: newFamilies, error: familyError } = await supabase
+      .from('families')
+      .insert(
+        phonesToCreate.map(phone => {
+          const row = firstRowByPhone.get(phone)!
+          return {
+            school_id: schoolId,
+            primary_parent_name: row.parentName,
+            primary_parent_phone: row.parentPhone,
+            primary_parent_email: row.parentEmail || null,
+            secondary_parent_name: row.secondaryParentName || null,
+            secondary_parent_phone: row.secondaryParentPhone || null,
+            secondary_parent_email: row.secondaryParentEmail || null,
+            notes: row.notes || null,
+          }
+        })
+      )
+      .select('id, primary_parent_phone')
+
+    if (familyError) {
+      // Bulk family creation failed (rare) — fall back to per-row for just
+      // the rows whose family we couldn't resolve, so one bad row doesn't
+      // sink the whole batch.
+      for (const phone of phonesToCreate) {
+        const row = firstRowByPhone.get(phone)!
+        const { data: retryFamily, error: retryError } = await supabase
           .from('families')
           .insert({
             school_id: schoolId,
@@ -276,40 +307,76 @@ export async function importStudents(rows: ParsedRow[]) {
           })
           .select('id')
           .single()
-
-        if (familyError || !newFamily) {
-          failed++
-          failedRows.push({ row: row.rowNumber, reason: familyError?.message || 'Family creation failed' })
-          continue
+        if (retryError || !retryFamily) {
+          failedRows.push({ row: row.rowNumber, reason: retryError?.message || 'Family creation failed' })
+        } else {
+          familyIdByPhone.set(phone, retryFamily.id)
         }
-        familyId = newFamily.id
       }
-
-      // Insert the student
-      const { error: studentError } = await supabase
-        .from('students')
-        .insert({
-          school_id: schoolId,
-          section_id: section.id,
-          class_id: row.classId!,
-          family_id: familyId,
-          first_name: row.firstName,
-          last_name: row.lastName,
-          admission_number: row.admissionNumber,
-          admission_date: row.admissionDate,
-          status: 'active',
-        })
-
-      if (studentError) {
-        failed++
-        failedRows.push({ row: row.rowNumber, reason: studentError.message })
-      } else {
-        imported++
-      }
-    } catch (err) {
-      failed++
-      failedRows.push({ row: row.rowNumber, reason: err instanceof Error ? err.message : 'Unknown error' })
+    } else {
+      for (const f of newFamilies || []) familyIdByPhone.set(f.primary_parent_phone, f.id)
     }
+  }
+
+  const failedPhones = new Set(
+    phonesToCreate.filter(p => !familyIdByPhone.has(p))
+  )
+  const rowsWithFamily = validRows.filter(r => !failedPhones.has(r.parentPhone))
+  for (const row of validRows) {
+    if (failedPhones.has(row.parentPhone) && !failedRows.some(f => f.row === row.rowNumber)) {
+      failed++
+      failedRows.push({ row: row.rowNumber, reason: 'Family creation failed' })
+    }
+  }
+
+  // Bulk-insert students; fall back to per-row only if the batch insert
+  // itself fails (e.g. a stray constraint violation), so we still get
+  // per-row error reporting without paying for it on the common path.
+  const { error: bulkStudentError } = await supabase
+    .from('students')
+    .insert(
+      rowsWithFamily.map(row => ({
+        school_id: schoolId,
+        section_id: section.id,
+        class_id: row.classId!,
+        family_id: familyIdByPhone.get(row.parentPhone)!,
+        first_name: row.firstName,
+        last_name: row.lastName,
+        admission_number: row.admissionNumber,
+        admission_date: row.admissionDate,
+        status: 'active',
+      }))
+    )
+
+  if (bulkStudentError) {
+    for (const row of rowsWithFamily) {
+      try {
+        const { error: studentError } = await supabase
+          .from('students')
+          .insert({
+            school_id: schoolId,
+            section_id: section.id,
+            class_id: row.classId!,
+            family_id: familyIdByPhone.get(row.parentPhone)!,
+            first_name: row.firstName,
+            last_name: row.lastName,
+            admission_number: row.admissionNumber,
+            admission_date: row.admissionDate,
+            status: 'active',
+          })
+        if (studentError) {
+          failed++
+          failedRows.push({ row: row.rowNumber, reason: studentError.message })
+        } else {
+          imported++
+        }
+      } catch (err) {
+        failed++
+        failedRows.push({ row: row.rowNumber, reason: err instanceof Error ? err.message : 'Unknown error' })
+      }
+    }
+  } else {
+    imported += rowsWithFamily.length
   }
 
 // Build class breakdown — only count successfully imported students
