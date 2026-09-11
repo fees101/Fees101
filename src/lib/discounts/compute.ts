@@ -155,7 +155,14 @@ export async function computeDiscountsForInvoice(
 ): Promise<DiscountComputation> {
   const applied: AppliedDiscount[] = []
 
-  const preloadedSiblings = preload && student.family_id ? preload.siblingsByFamily.get(student.family_id) : undefined
+  // When a preload is present it is authoritative: a family/student/invoice
+  // with no entry in the map means "no rows", NOT "not loaded" — so coalesce
+  // to [] and never fall back to a per-item query. Passing undefined here
+  // would make the helpers below fire one query per invoice for the (common)
+  // no-discount case, which defeats the whole bulk preload.
+  const preloadedSiblings = preload
+    ? (student.family_id ? (preload.siblingsByFamily.get(student.family_id) ?? []) : [])
+    : undefined
   const siblingTier = await computeSiblingDiscount(supabase, schoolId, student, settings.siblingTiers, preloadedSiblings)
   if (siblingTier) {
     const computedAmount = siblingTier.isPercentage
@@ -171,7 +178,7 @@ export async function computeDiscountsForInvoice(
     })
   }
 
-  const preloadedRecurring = preload?.recurringByStudent.get(student.id)
+  const preloadedRecurring = preload ? (preload.recurringByStudent.get(student.id) ?? []) : undefined
   const recurring = await getRecurringDiscounts(supabase, schoolId, student.id, preloadedRecurring)
   for (const row of recurring) {
     const computedAmount = row.is_percentage ? Math.round((subtotal * Number(row.amount)) / 100) : Number(row.amount)
@@ -193,8 +200,10 @@ export async function computeDiscountsForInvoice(
   }
 
   if (existingInvoiceId) {
-    let manualRows = preload?.manualByInvoice.get(existingInvoiceId)
-    if (!manualRows) {
+    // Preload authoritative: absent entry = no manual discounts, not "unloaded".
+    // Only fall back to a per-invoice query when there's no preload at all.
+    let manualRows: any[] | undefined = preload ? (preload.manualByInvoice.get(existingInvoiceId) ?? []) : undefined
+    if (!preload) {
       const res = await supabase
         .from('discounts')
         .select('amount, is_percentage, category, reason')
