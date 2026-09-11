@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { savePaymentProvider, testPaymentConnection } from '@/app/(app)/settings/payments/actions'
-import { createDVAsForAllStudents } from '@/app/(app)/students/[id]/actions'
+import { startBulkDVAJob } from '@/app/(app)/students/[id]/actions'
+import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
 import type { PaymentSettings } from '@/lib/queries/payments'
 
 interface Props {
@@ -28,11 +29,14 @@ export default function PaymentSettingsForm({ settings, webhookBase }: Props) {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [copied, setCopied] = useState(false)
 
+  const { trackJob } = useActiveJobs()
+  const [dvaJobId, setDvaJobId] = useState<string | null>(null)
+  const dvaJob = useTrackedJob(dvaJobId)
   const [creatingAll, setCreatingAll] = useState(false)
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [bulkResult, setBulkResult] = useState<
     { ok: false; message: string } | { ok: true; created: number; failed: number; failures: { name: string; error: string }[] } | null
   >(null)
+  const progress = dvaJob && dvaJob.status === 'running' ? { done: dvaJob.processed, total: dvaJob.total } : null
 
   const inputCls = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
   const labelCls = "block text-xs text-gray-500 mb-1"
@@ -88,32 +92,34 @@ export default function PaymentSettingsForm({ settings, webhookBase }: Props) {
   async function handleCreateAll() {
     setCreatingAll(true)
     setBulkResult(null)
-    const target = settings.studentsWithoutDvaCount
-    setProgress({ done: 0, total: target })
 
-    let created = 0
-    const failures: { name: string; error: string }[] = []
-    // Loop a batch at a time so a large onboarding never runs as one giant
-    // request. Safety cap: 400 batches × 25 = 10k students per run.
-    for (let i = 0; i < 400; i++) {
-      const r = await createDVAsForAllStudents(25)
-      if ('error' in r) {
-        setBulkResult({ ok: false, message: r.error })
-        setCreatingAll(false)
-        setProgress(null)
-        return
-      }
-      created += r.created
-      failures.push(...r.failures)
-      setProgress({ done: created, total: target })
-      if (r.remaining === 0) break
-      if (r.created === 0) break // no progress — the rest are failures, stop retrying
+    const start = await startBulkDVAJob()
+    if ('error' in start) {
+      setBulkResult({ ok: false, message: start.error || 'Something went wrong' })
+      setCreatingAll(false)
+      return
+    }
+    if (!start.jobId) {
+      setCreatingAll(false)
+      setBulkResult({ ok: true, created: 0, failed: 0, failures: [] })
+      return
     }
 
-    setCreatingAll(false)
-    setProgress(null)
-    setBulkResult({ ok: true, created, failed: failures.length, failures })
-    router.refresh()
+    setDvaJobId(start.jobId)
+    trackJob(start.jobId, 'bulk_dva', 'Creating payment accounts', { processed: start.processed, total: start.total }, (finished) => {
+      setCreatingAll(false)
+      if (finished.status === 'failed') {
+        setBulkResult({ ok: false, message: finished.error || 'Something went wrong' })
+        return
+      }
+      setBulkResult({
+        ok: true,
+        created: finished.processed,
+        failed: finished.failed ?? 0,
+        failures: (finished.failures ?? []).map(f => ({ name: f.label, error: f.error })),
+      })
+      router.refresh()
+    })
   }
 
   async function copyWebhook() {

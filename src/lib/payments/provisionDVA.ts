@@ -4,6 +4,7 @@
 
 import { getPaymentProviderForSchool } from './getProvider'
 import { PaymentProvider } from './types'
+import { createJob, findRunningJob } from '@/lib/jobs/backgroundJobs'
 
 // Core: create the DVA at the provider (with a retry + lost-response recovery)
 // and persist it on the student row. Assumes the student has no DVA yet and the
@@ -66,6 +67,92 @@ export async function provisionStudentDVA(
   if (updateError) throw new Error(`Payment account created but failed to save: ${updateError.message}`)
 
   return { accountNumber: dva.accountNumber, bankName: dva.bankName }
+}
+
+// Starts (or finds the already-running) bulk_dva job for a school. Shared by
+// the Settings page's button (src/app/(app)/students/[id]/actions.ts) and
+// CSV import's phase-2 chain (advanceCsvImport in advanceJob.ts) — the latter
+// runs server-side on job completion so provisioning still happens even if
+// the tab was closed partway through the import, instead of depending on a
+// client-side completion callback.
+export async function ensureBulkDVAJob(
+  supabase: any,
+  schoolId: string,
+  createdBy: string
+): Promise<{ error: string } | { jobId: string | null; total: number; processed: number }> {
+  const provider = await getPaymentProviderForSchool(schoolId, supabase)
+  if (!provider) return { error: 'This school has no payment provider configured yet.' }
+
+  const { count: total } = await supabase
+    .from('students')
+    .select('id', { count: 'exact', head: true })
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .is('provider_dva_reference', null)
+
+  if (!total) return { jobId: null, total: 0, processed: 0 }
+
+  const existingJob = await findRunningJob(schoolId, 'bulk_dva')
+  if (existingJob) {
+    return { jobId: existingJob.id, total: existingJob.total, processed: existingJob.processed }
+  }
+
+  const job = await createJob({ schoolId, jobType: 'bulk_dva', payload: {}, total, createdBy })
+  return { jobId: job.id, total, processed: 0 }
+}
+
+export interface BulkDVAChunkResult {
+  created: number
+  failed: number
+  failures: { label: string; error: string }[]
+  remaining: number
+}
+
+// One batch of the bulk-provision loop, driven by startBulkDVAJob
+// (src/app/(app)/students/[id]/actions.ts) via the background-job worker
+// (src/lib/jobs/advanceJob.ts) and the daily sweep, the same way CSV import's
+// chunk processor was split out.
+// No cursor needed — each call just re-queries "active students still
+// missing a DVA", since a completed student naturally falls out of the next
+// query. Caller is expected to have already permission-checked.
+export async function processBulkDVAChunk(
+  supabase: any,
+  schoolId: string,
+  chunkSize: number
+): Promise<BulkDVAChunkResult | { error: string }> {
+  const provider = await getPaymentProviderForSchool(schoolId, supabase)
+  if (!provider) return { error: 'This school has no payment provider configured yet.' }
+
+  const { data: students, error } = await supabase
+    .from('students')
+    .select('id, first_name, last_name')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .is('provider_dva_reference', null)
+    .limit(chunkSize)
+
+  if (error) return { error: error.message }
+
+  let created = 0
+  const failures: { label: string; error: string }[] = []
+  for (const s of students || []) {
+    const fullName = `${s.first_name} ${s.last_name}`.trim()
+    try {
+      await provisionStudentDVA(supabase, schoolId, provider, s.id, fullName)
+      created++
+    } catch (err: any) {
+      failures.push({ label: fullName || s.id, error: err?.message || 'unknown error' })
+    }
+  }
+
+  const { count: remaining } = await supabase
+    .from('students')
+    .select('id', { count: 'exact', head: true })
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .is('provider_dva_reference', null)
+
+  return { created, failed: failures.length, failures, remaining: remaining ?? 0 }
 }
 
 // Best-effort auto-create for the student-add path. Resolves the provider

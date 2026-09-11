@@ -10,6 +10,7 @@ import {
   processInvoiceRegenerationChunk,
 } from '@/lib/invoicing/invoiceGeneration'
 import { processCsvImportChunk, type ParsedRow } from '@/lib/students/csvImport'
+import { processBulkDVAChunk, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Advances one background_jobs row by as many chunks as fit in
@@ -29,6 +30,8 @@ export async function advanceJob(supabase: any, job: BackgroundJob): Promise<voi
     await advanceInvoiceRegeneration(supabase, job, started)
   } else if (job.job_type === 'csv_import') {
     await advanceCsvImport(supabase, job, started)
+  } else if (job.job_type === 'bulk_dva') {
+    await advanceBulkDVA(supabase, job, started)
   } else {
     throw new Error(`Unsupported job_type: ${job.job_type}`)
   }
@@ -157,6 +160,53 @@ async function advanceCsvImport(supabase: any, job: BackgroundJob, started: numb
       metadata: { count: processed, failures: failed, errors: failures },
     })
 
+    revalidatePath('/students')
+
+    await completeJob(job.id)
+
+    // Chain phase 2 (payment account provisioning) here, server-side, rather
+    // than relying on the client's completion callback — this way it still
+    // runs even if the tab was closed partway through the import. Best
+    // effort: skip silently if payments aren't configured or there's
+    // nothing to provision.
+    if (job.created_by) {
+      await ensureBulkDVAJob(supabase, schoolId, job.created_by).catch(() => null)
+    }
+  }
+}
+
+async function advanceBulkDVA(supabase: any, job: BackgroundJob, started: number) {
+  const schoolId = job.school_id
+  let processed = job.processed
+  let failed = job.failed
+  const failures = [...job.failures]
+  let remaining = job.total // re-checked below on the first pass regardless
+
+  while (Date.now() - started < JOB_TIME_BUDGET_MS) {
+    const result = await processBulkDVAChunk(supabase, schoolId, CHUNK_SIZE)
+    if ('error' in result) throw new Error(result.error)
+
+    processed += result.created
+    failed += result.failed
+    failures.push(...result.failures)
+    remaining = result.remaining
+
+    await updateJobProgress(job.id, { processed, failed, failures })
+
+    if (remaining === 0) break
+  }
+
+  if (remaining === 0) {
+    await logAuditEvent(supabase, {
+      schoolId,
+      actorId: job.created_by,
+      action: 'student.dva_bulk_created',
+      targetType: 'student',
+      summary: `Created ${processed} payment accounts${failed > 0 ? ` (${failed} failed)` : ''}`,
+      metadata: { count: processed, failures: failed },
+    })
+
+    revalidatePath('/settings/payments')
     revalidatePath('/students')
 
     await completeJob(job.id)

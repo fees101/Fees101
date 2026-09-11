@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { parseAndValidateCSV, startCsvImportJob } from '@/app/(app)/students/import/actions'
-import { createDVAsForAllStudents } from '@/app/(app)/students/[id]/actions'
+import { startBulkDVAJob } from '@/app/(app)/students/[id]/actions'
 import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
 
 interface ParsedRow {
@@ -37,25 +37,24 @@ export default function CSVImportFlow() {
   const [loading, setLoading] = useState(false)
   const [importResult, setImportResult] = useState<{ imported: number, failed: number, breakdown: Record<string, number>, accountsCreated: number } | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [progress, setProgress] = useState<{ label: string, done: number, total: number } | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const job = useTrackedJob(jobId)
+  const [dvaJobId, setDvaJobId] = useState<string | null>(null)
+  const dvaJob = useTrackedJob(dvaJobId)
   const validRowsRef = useRef<ParsedRow[]>([])
 
-  // If the user navigates away mid-import, stop the phase-2 (account
-  // provisioning) loop so it doesn't keep the Next router busy. Phase 1
-  // (student import) now runs as a background_jobs row via trackJob, so it
-  // keeps advancing and completing regardless of whether this component is
-  // still mounted — only phase 2's client-driven loop needs this guard.
-  const cancelledRef = useRef(false)
-  useEffect(() => () => { cancelledRef.current = true }, [])
+  // Phase 1 (student import) and phase 2 (account provisioning) both run as
+  // background_jobs rows via trackJob, so both keep advancing and completing
+  // regardless of whether this component is still mounted.
 
-  // Phase 1's progress comes straight from the tracked job (updated by the
-  // provider's poll loop); phase 2 (account provisioning) isn't job-backed
-  // yet, so it still drives `progress` via setState in its own loop below.
+  // Phase 1's progress comes from the csv_import job; once it completes,
+  // phase 2's progress comes from the bulk_dva job (started in its
+  // completion callback below).
   const displayProgress = job && job.status === 'running'
     ? { label: 'Importing students', done: job.processed, total: job.total }
-    : progress
+    : dvaJob && dvaJob.status === 'running'
+      ? { label: 'Creating payment accounts', done: dvaJob.processed, total: dvaJob.total }
+      : null
 
   async function handleFile(file: File) {
     setError(null)
@@ -105,12 +104,10 @@ export default function CSVImportFlow() {
 
     const validRows = rows.filter(r => r.errors.length === 0)
     validRowsRef.current = validRows
-    setProgress({ label: 'Importing students', done: 0, total: validRows.length })
 
     const start = await startCsvImportJob(validRows)
     if ('error' in start) {
       setError(start.error ?? 'Something went wrong')
-      setProgress(null)
       setStep('review')
       return
     }
@@ -122,7 +119,6 @@ export default function CSVImportFlow() {
     }, async (finishedJob) => {
       if (finishedJob.status === 'failed') {
         setError(finishedJob.error || 'Import failed')
-        setProgress(null)
         setStep('review')
         return
       }
@@ -139,26 +135,29 @@ export default function CSVImportFlow() {
         }
       }
 
-      // Phase 2 — automatically provision payment accounts for the students who
-      // now need one (the just-imported ones, plus any earlier stragglers). Same
-      // chunked loop as the Settings button. If payments aren't configured, the
-      // action returns an error on the first call and we simply skip this phase.
-      let accountsCreated = 0
-      let provisionTotal = 0
-      for (let i = 0; i < 400; i++) {
-        if (cancelledRef.current) return
-        const r = await createDVAsForAllStudents(25)
-        if ('error' in r) break // not configured (or unrecoverable) — skip provisioning
-        if (i === 0) provisionTotal = r.created + r.remaining
-        accountsCreated += r.created
-        setProgress({ label: 'Creating payment accounts', done: accountsCreated, total: provisionTotal })
-        if (r.remaining === 0 || r.created === 0) break
+      const finish = (accountsCreated: number) => {
+        setImportResult({ imported: finishedJob.processed, failed: finishedJob.failed ?? 0, breakdown, accountsCreated })
+        setStep('success')
+        router.refresh()
       }
 
-      setImportResult({ imported: finishedJob.processed, failed: finishedJob.failed ?? 0, breakdown, accountsCreated })
-      setProgress(null)
-      setStep('success')
-      router.refresh()
+      // Phase 2 — automatically provision payment accounts for the students who
+      // now need one (the just-imported ones, plus any earlier stragglers). If
+      // payments aren't configured, startBulkDVAJob returns an error and we
+      // simply skip this phase.
+      const dvaStart = await startBulkDVAJob()
+      if ('error' in dvaStart || !dvaStart.jobId) {
+        finish(0)
+        return
+      }
+
+      setDvaJobId(dvaStart.jobId)
+      trackJob(dvaStart.jobId, 'bulk_dva', 'Creating payment accounts', {
+        processed: dvaStart.processed,
+        total: dvaStart.total,
+      }, (dvaJobFinished) => {
+        finish(dvaJobFinished.status === 'completed' ? dvaJobFinished.processed : 0)
+      })
     })
   }
 

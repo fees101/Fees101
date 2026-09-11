@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { requirePermission, getAuthContext, can } from '@/lib/auth/permissions'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
-import { provisionStudentDVA } from '@/lib/payments/provisionDVA'
+import { provisionStudentDVA, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
 import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
 import { MessageChannel } from '@/lib/messaging/types'
 import { composeReminderSMS, composeOverdueSMS } from '@/lib/messaging/composeInvoice'
@@ -596,70 +596,16 @@ export async function createStudentDVA(studentId: string): Promise<CreateDVAResu
   }
 }
 
-type BulkDVAResult =
-  | { error: string }
-  | { success: true; created: number; failed: number; remaining: number; failures: { name: string; error: string }[] }
-
-// Provision ONE batch of virtual accounts for active students that don't have
-// one yet, then report how many still remain. The client calls this repeatedly
-// (a batch at a time, with a progress bar) so onboarding a 300+ student school
-// never runs as one giant request that would blow past serverless/HTTP time
-// limits. Reuses the provider's cached auth token, so per-student calls stay cheap.
-export async function createDVAsForAllStudents(batchSize = 25): Promise<BulkDVAResult> {
-  // Triggered from the payment settings page's bulk-provision button, not a
-  // student-editing flow — gate on the same permission as the rest of that
-  // page (manage-payment-config), not the manage-students default.
+export async function startBulkDVAJob() {
+  // Triggered from the payment settings page's bulk-provision button (and CSV
+  // import's phase 2), not a student-editing flow — gate on the same
+  // permission as the rest of that page (manage-payment-config).
   const ctx = await getStudentFeeContext('manage-payment-config')
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId, userId } = ctx
 
-  const provider = await getPaymentProviderForSchool(schoolId, supabase)
-  if (!provider) return { error: 'This school has no payment provider configured yet.' }
-
-  const limit = Math.max(1, Math.min(batchSize, 50))
-  const { data: students, error } = await supabase
-    .from('students')
-    .select('id, first_name, last_name')
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .is('provider_dva_reference', null)
-    .limit(limit)
-
-  if (error) return { error: error.message }
-
-  let created = 0
-  const failures: { name: string; error: string }[] = []
-  for (const s of students || []) {
-    const fullName = `${s.first_name} ${s.last_name}`.trim()
-    try {
-      await provisionStudentDVA(supabase, schoolId, provider, s.id, fullName)
-      created++
-    } catch (err: any) {
-      failures.push({ name: fullName || s.id, error: err?.message || 'unknown error' })
-    }
-  }
-
-  // How many active students still lack an account after this batch — tells the
-  // client whether to keep looping.
-  const { count: remaining } = await supabase
-    .from('students')
-    .select('id', { count: 'exact', head: true })
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .is('provider_dva_reference', null)
-
-  await logAuditEvent(supabase, {
-    schoolId,
-    actorId: userId,
-    action: 'student.dva_bulk_created',
-    targetType: 'student',
-    summary: `Created ${created} payment accounts (${failures.length} failed)`,
-    metadata: { count: created, failures: failures.length },
-  })
-
-  revalidatePath('/settings/payments')
-  revalidatePath('/students')
-  return { success: true, created, failed: failures.length, remaining: remaining ?? 0, failures }
+  const result = await ensureBulkDVAJob(ctx.supabase, ctx.schoolId, ctx.userId)
+  if ('error' in result) return result
+  return { success: true, ...result }
 }
 
 // ============ MANUAL REMINDER ============
