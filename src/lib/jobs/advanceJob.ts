@@ -9,6 +9,7 @@ import {
   processInvoiceGenerationChunk,
   processInvoiceRegenerationChunk,
 } from '@/lib/invoicing/invoiceGeneration'
+import { processCsvImportChunk, type ParsedRow } from '@/lib/students/csvImport'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Advances one background_jobs row by as many chunks as fit in
@@ -26,6 +27,8 @@ export async function advanceJob(supabase: any, job: BackgroundJob): Promise<voi
     await advanceInvoiceGeneration(supabase, job, started)
   } else if (job.job_type === 'invoice_regeneration') {
     await advanceInvoiceRegeneration(supabase, job, started)
+  } else if (job.job_type === 'csv_import') {
+    await advanceCsvImport(supabase, job, started)
   } else {
     throw new Error(`Unsupported job_type: ${job.job_type}`)
   }
@@ -119,6 +122,42 @@ async function advanceInvoiceRegeneration(supabase: any, job: BackgroundJob, sta
     revalidatePath(`/fees/cycles/${cycleId}`)
     revalidatePath('/fees/cycles')
     revalidatePath('/fees')
+
+    await completeJob(job.id)
+  }
+}
+
+async function advanceCsvImport(supabase: any, job: BackgroundJob, started: number) {
+  const schoolId = job.school_id
+  let rows = (job.cursor.rows as ParsedRow[]) || []
+  let processed = job.processed
+  let failed = job.failed
+  const failures = [...job.failures]
+
+  while (rows.length > 0 && Date.now() - started < JOB_TIME_BUDGET_MS) {
+    const slice = rows.slice(0, CHUNK_SIZE)
+    const rest = rows.slice(CHUNK_SIZE)
+
+    const result = await processCsvImportChunk(supabase, schoolId, slice)
+    processed += result.imported
+    failed += result.failed
+    failures.push(...result.failedRows.map(f => ({ label: `Row ${f.row}`, error: f.reason })))
+    rows = rest
+
+    await updateJobProgress(job.id, { cursor: { rows }, processed, failed, failures })
+  }
+
+  if (rows.length === 0) {
+    await logAuditEvent(supabase, {
+      schoolId,
+      actorId: job.created_by,
+      action: 'student.imported',
+      targetType: 'student',
+      summary: `Imported ${processed} students${failed > 0 ? ` (${failed} failed)` : ''}`,
+      metadata: { count: processed, failures: failed, errors: failures },
+    })
+
+    revalidatePath('/students')
 
     await completeJob(job.id)
   }

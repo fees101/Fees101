@@ -1,26 +1,8 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/permissions'
-import { logAuditEvent } from '@/lib/audit/logAudit'
-
-interface ParsedRow {
-  rowNumber: number
-  firstName: string
-  lastName: string
-  admissionNumber: string
-  className: string
-  admissionDate: string
-  parentName: string
-  parentPhone: string
-  parentEmail: string
-  secondaryParentName: string
-  secondaryParentPhone: string
-  secondaryParentEmail: string
-  notes: string
-  errors: string[]
-  classId?: string
-}
+import { createJob, findRunningJob } from '@/lib/jobs/backgroundJobs'
+import type { ParsedRow } from '@/lib/students/csvImport'
 
 const REQUIRED_FIELDS = [
   'first_name', 'last_name', 'admission_number', 'class_name', 'parent_name', 'parent_phone'
@@ -219,200 +201,28 @@ export async function parseAndValidateCSV(csvText: string) {
   }
 }
 
-export async function importStudents(rows: ParsedRow[]) {
+export async function startCsvImportJob(rows: ParsedRow[]) {
   // Gated on manage-students (owner/super_admin/is_admin bypass).
   const ctx = await requirePermission('manage-students')
   if (!ctx || !ctx.schoolId) return { error: 'Not authorized' }
-  const { supabase, schoolId, userId } = ctx
+  const { schoolId, userId } = ctx
 
-  const { data: section } = await supabase
-    .from('sections')
-    .select('id')
-    .eq('school_id', schoolId)
-    .limit(1)
-    .single()
-
-  if (!section) return { error: 'No section found' }
-
-  // Only import valid rows
   const validRows = rows.filter(r => r.errors.length === 0)
   if (validRows.length === 0) return { error: 'No valid rows to import' }
 
-  // Note: virtual accounts are NOT created inline here — a large import (300+)
-  // would exceed request/serverless time limits. Import is DB-only; accounts are
-  // provisioned afterwards via the batched "Create accounts" flow on Settings →
-  // Payments (see createDVAsForAllStudents).
-  let imported = 0
-  let failed = 0
-  const failedRows: { row: number, reason: string }[] = []
-
-  // Resolve families for this batch in bulk instead of one lookup+insert pair
-  // per row (was up to 2 round trips per row on top of the student insert —
-  // 150 sequential queries for a 50-row batch). Rows sharing a phone within
-  // the same batch also share one family, same as the old per-row de-dupe did.
-  const uniquePhones = Array.from(new Set(validRows.map(r => r.parentPhone)))
-  const familyIdByPhone = new Map<string, string>()
-
-  const { data: existingFamilies } = await supabase
-    .from('families')
-    .select('id, primary_parent_phone')
-    .eq('school_id', schoolId)
-    .in('primary_parent_phone', uniquePhones)
-
-  for (const f of existingFamilies || []) familyIdByPhone.set(f.primary_parent_phone, f.id)
-
-  const phonesToCreate = uniquePhones.filter(p => !familyIdByPhone.has(p))
-  if (phonesToCreate.length > 0) {
-    const firstRowByPhone = new Map<string, ParsedRow>()
-    for (const row of validRows) {
-      if (!firstRowByPhone.has(row.parentPhone)) firstRowByPhone.set(row.parentPhone, row)
-    }
-
-    const { data: newFamilies, error: familyError } = await supabase
-      .from('families')
-      .insert(
-        phonesToCreate.map(phone => {
-          const row = firstRowByPhone.get(phone)!
-          return {
-            school_id: schoolId,
-            primary_parent_name: row.parentName,
-            primary_parent_phone: row.parentPhone,
-            primary_parent_email: row.parentEmail || null,
-            secondary_parent_name: row.secondaryParentName || null,
-            secondary_parent_phone: row.secondaryParentPhone || null,
-            secondary_parent_email: row.secondaryParentEmail || null,
-            notes: row.notes || null,
-          }
-        })
-      )
-      .select('id, primary_parent_phone')
-
-    if (familyError) {
-      // Bulk family creation failed (rare) — fall back to per-row for just
-      // the rows whose family we couldn't resolve, so one bad row doesn't
-      // sink the whole batch.
-      for (const phone of phonesToCreate) {
-        const row = firstRowByPhone.get(phone)!
-        const { data: retryFamily, error: retryError } = await supabase
-          .from('families')
-          .insert({
-            school_id: schoolId,
-            primary_parent_name: row.parentName,
-            primary_parent_phone: row.parentPhone,
-            primary_parent_email: row.parentEmail || null,
-            secondary_parent_name: row.secondaryParentName || null,
-            secondary_parent_phone: row.secondaryParentPhone || null,
-            secondary_parent_email: row.secondaryParentEmail || null,
-            notes: row.notes || null,
-          })
-          .select('id')
-          .single()
-        if (retryError || !retryFamily) {
-          failedRows.push({ row: row.rowNumber, reason: retryError?.message || 'Family creation failed' })
-        } else {
-          familyIdByPhone.set(phone, retryFamily.id)
-        }
-      }
-    } else {
-      for (const f of newFamilies || []) familyIdByPhone.set(f.primary_parent_phone, f.id)
-    }
+  const existingJob = await findRunningJob(schoolId, 'csv_import')
+  if (existingJob) {
+    return { success: true, jobId: existingJob.id, total: existingJob.total, processed: existingJob.processed }
   }
 
-  const failedPhones = new Set(
-    phonesToCreate.filter(p => !familyIdByPhone.has(p))
-  )
-  const rowsWithFamily = validRows.filter(r => !failedPhones.has(r.parentPhone))
-  for (const row of validRows) {
-    if (failedPhones.has(row.parentPhone) && !failedRows.some(f => f.row === row.rowNumber)) {
-      failed++
-      failedRows.push({ row: row.rowNumber, reason: 'Family creation failed' })
-    }
-  }
-
-  // Bulk-insert students; fall back to per-row only if the batch insert
-  // itself fails (e.g. a stray constraint violation), so we still get
-  // per-row error reporting without paying for it on the common path.
-  const { error: bulkStudentError } = await supabase
-    .from('students')
-    .insert(
-      rowsWithFamily.map(row => ({
-        school_id: schoolId,
-        section_id: section.id,
-        class_id: row.classId!,
-        family_id: familyIdByPhone.get(row.parentPhone)!,
-        first_name: row.firstName,
-        last_name: row.lastName,
-        admission_number: row.admissionNumber,
-        admission_date: row.admissionDate,
-        status: 'active',
-      }))
-    )
-
-  if (bulkStudentError) {
-    for (const row of rowsWithFamily) {
-      try {
-        const { error: studentError } = await supabase
-          .from('students')
-          .insert({
-            school_id: schoolId,
-            section_id: section.id,
-            class_id: row.classId!,
-            family_id: familyIdByPhone.get(row.parentPhone)!,
-            first_name: row.firstName,
-            last_name: row.lastName,
-            admission_number: row.admissionNumber,
-            admission_date: row.admissionDate,
-            status: 'active',
-          })
-        if (studentError) {
-          failed++
-          failedRows.push({ row: row.rowNumber, reason: studentError.message })
-        } else {
-          imported++
-        }
-      } catch (err) {
-        failed++
-        failedRows.push({ row: row.rowNumber, reason: err instanceof Error ? err.message : 'Unknown error' })
-      }
-    }
-  } else {
-    imported += rowsWithFamily.length
-  }
-
-// Build class breakdown — only count successfully imported students
-  const classCounts: Record<string, number> = {}
-  const failedRowNumbers = new Set(failedRows.map(f => f.row))
-  
-  for (const row of validRows) {
-    if (!failedRowNumbers.has(row.rowNumber)) {
-      classCounts[row.className] = (classCounts[row.className] || 0) + 1
-    }
-  }
-
-  // Get school name for display
-  const { data: school } = await supabase
-    .from('schools')
-    .select('name')
-    .eq('id', schoolId)
-    .single()
-
-  await logAuditEvent(supabase, {
+  const job = await createJob({
     schoolId,
-    actorId: userId,
-    action: 'student.imported',
-    targetType: 'student',
-    summary: `Imported ${imported} students (${failed} failed)`,
-    metadata: { count: imported, failures: failed },
+    jobType: 'csv_import',
+    payload: {},
+    total: validRows.length,
+    createdBy: userId,
+    cursor: { rows: validRows },
   })
 
-  revalidatePath('/students')
-
-  return {
-    success: true,
-    imported,
-    failed,
-    failedRows,
-    schoolName: school?.name || 'your school',
-    breakdown: classCounts,
-  }
+  return { success: true, jobId: job.id, total: validRows.length, processed: 0 }
 }

@@ -38,6 +38,11 @@ export async function createJob(params: {
   payload: Record<string, unknown>
   total: number
   createdBy: string
+  // Set the resume cursor at insert time instead of a separate update call
+  // right after — halves the number of writes a flaky connection (corporate
+  // proxy, dropped request) can silently eat between "job created" and
+  // "job actually has work queued".
+  cursor?: Record<string, unknown>
 }): Promise<BackgroundJob> {
   const supabase = createServiceRoleClient()
   const { data, error } = await supabase
@@ -48,6 +53,7 @@ export async function createJob(params: {
       payload: params.payload,
       total: params.total,
       created_by: params.createdBy,
+      ...(params.cursor ? { cursor: params.cursor } : {}),
     })
     .select('*')
     .single()
@@ -100,18 +106,20 @@ export async function updateJobProgress(jobId: string, patch: {
   failures?: JobFailure[]
 }): Promise<void> {
   const supabase = createServiceRoleClient()
-  await supabase
+  const { error } = await supabase
     .from('background_jobs')
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', jobId)
+  if (error) throw new Error(error.message)
 }
 
 export async function completeJob(jobId: string): Promise<void> {
   const supabase = createServiceRoleClient()
-  await supabase
+  const { error } = await supabase
     .from('background_jobs')
     .update({ status: 'completed', updated_at: new Date().toISOString() })
     .eq('id', jobId)
+  if (error) throw new Error(error.message)
 }
 
 export async function failJob(jobId: string, error: string): Promise<void> {

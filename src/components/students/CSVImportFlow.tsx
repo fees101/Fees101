@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { parseAndValidateCSV, importStudents } from '@/app/(app)/students/import/actions'
+import { parseAndValidateCSV, startCsvImportJob } from '@/app/(app)/students/import/actions'
 import { createDVAsForAllStudents } from '@/app/(app)/students/[id]/actions'
+import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
 
 interface ParsedRow {
   rowNumber: number
@@ -28,21 +29,33 @@ type Step = 'upload' | 'review' | 'importing' | 'success'
 
 export default function CSVImportFlow() {
   const router = useRouter()
+  const { trackJob } = useActiveJobs()
   const [step, setStep] = useState<Step>('upload')
   const [rows, setRows] = useState<ParsedRow[]>([])
   const [summary, setSummary] = useState({ total: 0, valid: 0, invalid: 0 })
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [importResult, setImportResult] = useState<{ imported: number, failed: number, schoolName: string, breakdown: Record<string, number>, accountsCreated: number } | null>(null)
+  const [importResult, setImportResult] = useState<{ imported: number, failed: number, breakdown: Record<string, number>, accountsCreated: number } | null>(null)
   const [dragging, setDragging] = useState(false)
   const [progress, setProgress] = useState<{ label: string, done: number, total: number } | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const job = useTrackedJob(jobId)
+  const validRowsRef = useRef<ParsedRow[]>([])
 
-  // If the user navigates away mid-import, stop firing further batches so the
-  // background loop doesn't keep the Next router busy (which was blocking
-  // navigation). Any accounts left unprovisioned are caught by the Students-page
-  // banner / Settings → Payments bulk button.
+  // If the user navigates away mid-import, stop the phase-2 (account
+  // provisioning) loop so it doesn't keep the Next router busy. Phase 1
+  // (student import) now runs as a background_jobs row via trackJob, so it
+  // keeps advancing and completing regardless of whether this component is
+  // still mounted — only phase 2's client-driven loop needs this guard.
   const cancelledRef = useRef(false)
   useEffect(() => () => { cancelledRef.current = true }, [])
+
+  // Phase 1's progress comes straight from the tracked job (updated by the
+  // provider's poll loop); phase 2 (account provisioning) isn't job-backed
+  // yet, so it still drives `progress` via setState in its own loop below.
+  const displayProgress = job && job.status === 'running'
+    ? { label: 'Importing students', done: job.processed, total: job.total }
+    : progress
 
   async function handleFile(file: File) {
     setError(null)
@@ -90,59 +103,63 @@ export default function CSVImportFlow() {
     setError(null)
     setStep('importing')
 
-    // Phase 1 — import in batches so a large file (300+) shows real progress
-    // and never runs as one giant request. The server action imports whatever
-    // rows it's handed and de-dupes families against the DB, so batching is safe.
     const validRows = rows.filter(r => r.errors.length === 0)
-    const total = validRows.length
-    const BATCH = 50
-    setProgress({ label: 'Importing students', done: 0, total })
+    validRowsRef.current = validRows
+    setProgress({ label: 'Importing students', done: 0, total: validRows.length })
 
-    let imported = 0
-    let failed = 0
-    let schoolName = 'your school'
-    const breakdown: Record<string, number> = {}
+    const start = await startCsvImportJob(validRows)
+    if ('error' in start) {
+      setError(start.error ?? 'Something went wrong')
+      setProgress(null)
+      setStep('review')
+      return
+    }
 
-    for (let i = 0; i < validRows.length; i += BATCH) {
-      if (cancelledRef.current) return
-      const batch = validRows.slice(i, i + BATCH)
-      const result = await importStudents(batch)
-
-      if (result.error) {
-        setError(result.error)
+    setJobId(start.jobId)
+    trackJob(start.jobId, 'csv_import', 'Importing students', {
+      processed: start.processed ?? 0,
+      total: start.total ?? validRows.length,
+    }, async (finishedJob) => {
+      if (finishedJob.status === 'failed') {
+        setError(finishedJob.error || 'Import failed')
         setProgress(null)
         setStep('review')
         return
       }
 
-      imported += result.imported || 0
-      failed += result.failed || 0
-      schoolName = result.schoolName || schoolName
-      for (const [cls, n] of Object.entries(result.breakdown || {})) {
-        breakdown[cls] = (breakdown[cls] || 0) + (n as number)
+      const failedRowNumbers = new Set(
+        (finishedJob.failures || [])
+          .map(f => parseInt(f.label.replace('Row ', ''), 10))
+          .filter(n => !isNaN(n))
+      )
+      const breakdown: Record<string, number> = {}
+      for (const row of validRowsRef.current) {
+        if (!failedRowNumbers.has(row.rowNumber)) {
+          breakdown[row.className] = (breakdown[row.className] || 0) + 1
+        }
       }
-      setProgress({ label: 'Importing students', done: Math.min(i + batch.length, total), total })
-    }
 
-    // Phase 2 — automatically provision payment accounts for the students who
-    // now need one (the just-imported ones, plus any earlier stragglers). Same
-    // chunked loop as the Settings button. If payments aren't configured, the
-    // action returns an error on the first call and we simply skip this phase.
-    let accountsCreated = 0
-    let provisionTotal = 0
-    for (let i = 0; i < 400; i++) {
-      if (cancelledRef.current) return
-      const r = await createDVAsForAllStudents(25)
-      if ('error' in r) break // not configured (or unrecoverable) — skip provisioning
-      if (i === 0) provisionTotal = r.created + r.remaining
-      accountsCreated += r.created
-      setProgress({ label: 'Creating payment accounts', done: accountsCreated, total: provisionTotal })
-      if (r.remaining === 0 || r.created === 0) break
-    }
+      // Phase 2 — automatically provision payment accounts for the students who
+      // now need one (the just-imported ones, plus any earlier stragglers). Same
+      // chunked loop as the Settings button. If payments aren't configured, the
+      // action returns an error on the first call and we simply skip this phase.
+      let accountsCreated = 0
+      let provisionTotal = 0
+      for (let i = 0; i < 400; i++) {
+        if (cancelledRef.current) return
+        const r = await createDVAsForAllStudents(25)
+        if ('error' in r) break // not configured (or unrecoverable) — skip provisioning
+        if (i === 0) provisionTotal = r.created + r.remaining
+        accountsCreated += r.created
+        setProgress({ label: 'Creating payment accounts', done: accountsCreated, total: provisionTotal })
+        if (r.remaining === 0 || r.created === 0) break
+      }
 
-    setImportResult({ imported, failed, schoolName, breakdown, accountsCreated })
-    setProgress(null)
-    setStep('success')
+      setImportResult({ imported: finishedJob.processed, failed: finishedJob.failed ?? 0, breakdown, accountsCreated })
+      setProgress(null)
+      setStep('success')
+      router.refresh()
+    })
   }
 
   function handleStartOver() {
@@ -198,15 +215,14 @@ export default function CSVImportFlow() {
         />
       )}
 
-      {step === 'importing' && progress && (
-        <ImportingStep progress={progress} />
+      {step === 'importing' && displayProgress && (
+        <ImportingStep progress={displayProgress} />
       )}
 
         {step === 'success' && importResult && (
         <SuccessStep
             imported={importResult.imported}
             failed={importResult.failed}
-            schoolName={importResult.schoolName}
             breakdown={importResult.breakdown}
             accountsCreated={importResult.accountsCreated}
             onViewStudents={() => router.push('/students')}
@@ -587,10 +603,9 @@ function ReviewStep({ rows, summary, onConfirm, onCancel, loading, error }: {
   )
 }
 
-function SuccessStep({ imported, failed, schoolName, breakdown, accountsCreated, onViewStudents, onImportMore }: {
+function SuccessStep({ imported, failed, breakdown, accountsCreated, onViewStudents, onImportMore }: {
   imported: number
   failed: number
-  schoolName: string
   breakdown: Record<string, number>
   accountsCreated: number
   onViewStudents: () => void
@@ -612,7 +627,7 @@ function SuccessStep({ imported, failed, schoolName, breakdown, accountsCreated,
 
       <h2 className="text-3xl font-bold text-navy mb-2">Import successful</h2>
       <p className="text-gray-500 mb-4">
-        {imported} {imported === 1 ? 'student' : 'students'} added to {schoolName}
+        {imported} {imported === 1 ? 'student' : 'students'} added
         {failed > 0 && `, ${failed} ${failed === 1 ? 'row' : 'rows'} failed`}
       </p>
       {accountsCreated > 0 && (
