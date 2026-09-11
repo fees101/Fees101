@@ -296,7 +296,7 @@ function ImportingStep({ progress }: { progress: { label: string, done: number, 
       >
         {progress.label}…
       </h2>
-      <p className="text-gray-500 text-sm mb-6">Sit tight — this only takes a moment. Please keep this tab open.</p>
+      <p className="text-gray-500 text-sm mb-6">This runs in the background — you can leave this page and we'll keep going. We'll let you know when it's done.</p>
 
       {/* Determinate progress bar with a light sweep across the fill */}
       <div className="relative w-full h-3 bg-gray-100 rounded-full overflow-hidden">

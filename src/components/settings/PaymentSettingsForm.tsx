@@ -288,7 +288,7 @@ export default function PaymentSettingsForm({ settings, webhookBase }: Props) {
           {progress && progress.total > 0 && (
             <div className="mt-4">
               <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Creating virtual accounts… keep this tab open.</span>
+                <span>Creating virtual accounts… you can leave this page, it keeps running.</span>
                 <span>{progress.done} / {progress.total}</span>
               </div>
               <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">

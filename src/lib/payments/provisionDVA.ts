@@ -83,55 +83,70 @@ export async function ensureBulkDVAJob(
   const provider = await getPaymentProviderForSchool(schoolId, supabase)
   if (!provider) return { error: 'This school has no payment provider configured yet.' }
 
-  const { count: total } = await supabase
+  // Snapshot the exact student IDs that need a DVA and store them as the job's
+  // resume cursor — a fixed checklist, the same way csv_import carries its rows.
+  // The job then consumes this list a chunk at a time and finishes when it's
+  // empty, so a student whose provisioning keeps failing gets crossed off and
+  // reported rather than re-queried forever (which would never let the job end).
+  const { data: pending, error } = await supabase
     .from('students')
-    .select('id', { count: 'exact', head: true })
+    .select('id')
     .eq('school_id', schoolId)
     .eq('status', 'active')
     .is('provider_dva_reference', null)
 
-  if (!total) return { jobId: null, total: 0, processed: 0 }
+  if (error) return { error: error.message }
+  const studentIds = (pending || []).map((s: any) => s.id)
+
+  if (studentIds.length === 0) return { jobId: null, total: 0, processed: 0 }
 
   const existingJob = await findRunningJob(schoolId, 'bulk_dva')
   if (existingJob) {
     return { jobId: existingJob.id, total: existingJob.total, processed: existingJob.processed }
   }
 
-  const job = await createJob({ schoolId, jobType: 'bulk_dva', payload: {}, total, createdBy })
-  return { jobId: job.id, total, processed: 0 }
+  const job = await createJob({
+    schoolId,
+    jobType: 'bulk_dva',
+    payload: {},
+    total: studentIds.length,
+    createdBy,
+    cursor: { studentIds },
+  })
+  return { jobId: job.id, total: studentIds.length, processed: 0 }
 }
 
 export interface BulkDVAChunkResult {
   created: number
   failed: number
   failures: { label: string; error: string }[]
-  remaining: number
 }
 
-// One batch of the bulk-provision loop, driven by startBulkDVAJob
-// (src/app/(app)/students/[id]/actions.ts) via the background-job worker
-// (src/lib/jobs/advanceJob.ts) and the daily sweep, the same way CSV import's
-// chunk processor was split out.
-// No cursor needed — each call just re-queries "active students still
-// missing a DVA", since a completed student naturally falls out of the next
-// query. Caller is expected to have already permission-checked.
+// One batch of the bulk-provision loop, driven by the background-job worker
+// (advanceBulkDVA in src/lib/jobs/advanceJob.ts) and the daily sweep, the same
+// way CSV import's chunk processor was split out. Provisions the given slice of
+// student IDs (the job's cursor) — the caller resolves the provider once and
+// removes this slice from the cursor whether or not each student succeeds, so a
+// persistently-failing student is crossed off and reported instead of wedging
+// the job in an endless "still N remaining" retry. Re-filters to students that
+// are still active and still lack a DVA, so one already provisioned (via the
+// single-add path) or withdrawn between snapshot and processing is skipped.
+// Caller is expected to have already permission-checked.
 export async function processBulkDVAChunk(
   supabase: any,
   schoolId: string,
-  chunkSize: number
-): Promise<BulkDVAChunkResult | { error: string }> {
-  const provider = await getPaymentProviderForSchool(schoolId, supabase)
-  if (!provider) return { error: 'This school has no payment provider configured yet.' }
+  provider: PaymentProvider,
+  studentIds: string[]
+): Promise<BulkDVAChunkResult> {
+  if (studentIds.length === 0) return { created: 0, failed: 0, failures: [] }
 
-  const { data: students, error } = await supabase
+  const { data: students } = await supabase
     .from('students')
     .select('id, first_name, last_name')
     .eq('school_id', schoolId)
     .eq('status', 'active')
     .is('provider_dva_reference', null)
-    .limit(chunkSize)
-
-  if (error) return { error: error.message }
+    .in('id', studentIds)
 
   let created = 0
   const failures: { label: string; error: string }[] = []
@@ -145,14 +160,7 @@ export async function processBulkDVAChunk(
     }
   }
 
-  const { count: remaining } = await supabase
-    .from('students')
-    .select('id', { count: 'exact', head: true })
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .is('provider_dva_reference', null)
-
-  return { created, failed: failures.length, failures, remaining: remaining ?? 0 }
+  return { created, failed: failures.length, failures }
 }
 
 // Best-effort auto-create for the student-add path. Resolves the provider

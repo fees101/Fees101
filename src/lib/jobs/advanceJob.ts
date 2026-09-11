@@ -11,6 +11,7 @@ import {
 } from '@/lib/invoicing/invoiceGeneration'
 import { processCsvImportChunk, type ParsedRow } from '@/lib/students/csvImport'
 import { processBulkDVAChunk, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
+import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Advances one background_jobs row by as many chunks as fit in
@@ -177,26 +178,33 @@ async function advanceCsvImport(supabase: any, job: BackgroundJob, started: numb
 
 async function advanceBulkDVA(supabase: any, job: BackgroundJob, started: number) {
   const schoolId = job.school_id
+  let studentIds = (job.cursor.studentIds as string[]) || []
   let processed = job.processed
   let failed = job.failed
   const failures = [...job.failures]
-  let remaining = job.total // re-checked below on the first pass regardless
 
-  while (Date.now() - started < JOB_TIME_BUDGET_MS) {
-    const result = await processBulkDVAChunk(supabase, schoolId, CHUNK_SIZE)
-    if ('error' in result) throw new Error(result.error)
+  // Resolve the provider once for the whole run rather than per chunk. If it's
+  // gone (removed after the job was queued) there's nothing to provision —
+  // throw so the worker/sweep marks the job failed instead of looping.
+  const provider = await getPaymentProviderForSchool(schoolId, supabase)
+  if (!provider) throw new Error('This school has no payment provider configured yet.')
 
+  // Consume the cursor a chunk at a time, removing each slice whether or not
+  // its students succeeded — so the checklist always empties and the job ends.
+  while (studentIds.length > 0 && Date.now() - started < JOB_TIME_BUDGET_MS) {
+    const slice = studentIds.slice(0, CHUNK_SIZE)
+    const rest = studentIds.slice(CHUNK_SIZE)
+
+    const result = await processBulkDVAChunk(supabase, schoolId, provider, slice)
     processed += result.created
     failed += result.failed
     failures.push(...result.failures)
-    remaining = result.remaining
+    studentIds = rest
 
-    await updateJobProgress(job.id, { processed, failed, failures })
-
-    if (remaining === 0) break
+    await updateJobProgress(job.id, { cursor: { studentIds }, processed, failed, failures })
   }
 
-  if (remaining === 0) {
+  if (studentIds.length === 0) {
     await logAuditEvent(supabase, {
       schoolId,
       actorId: job.created_by,
