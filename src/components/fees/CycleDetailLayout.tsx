@@ -97,6 +97,11 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
     trackJob(started.jobId, 'invoice_regeneration', 'Invoice regeneration', undefined, (job) => {
       if (job.status === 'failed') {
         setError(job.error || 'Something went wrong')
+      } else if (job.status === 'cancelled') {
+        setRegenerateSummary(
+          `Cancelled — ${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated before stopping.`
+        )
+        router.refresh()
       } else {
         setRegenerateSummary(
           `${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated to current fees.`

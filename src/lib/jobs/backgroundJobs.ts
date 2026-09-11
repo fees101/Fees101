@@ -104,13 +104,20 @@ export async function updateJobProgress(jobId: string, patch: {
   processed?: number
   failed?: number
   failures?: JobFailure[]
-}): Promise<void> {
+}): Promise<boolean> {
   const supabase = createServiceRoleClient()
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('background_jobs')
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', jobId)
+    // Only write while still 'running' — if a user cancelled mid-chunk, this
+    // update becomes a no-op (0 rows) instead of silently reviving a
+    // cancelled job with fresh progress. Callers check the return value and
+    // stop advancing (without calling completeJob) when it's false.
+    .eq('status', 'running')
+    .select('id')
   if (error) throw new Error(error.message)
+  return (data?.length ?? 0) > 0
 }
 
 export async function completeJob(jobId: string): Promise<void> {
@@ -128,6 +135,22 @@ export async function failJob(jobId: string, error: string): Promise<void> {
     .from('background_jobs')
     .update({ status: 'failed', error, updated_at: new Date().toISOString() })
     .eq('id', jobId)
+}
+
+// User-initiated stop. Only takes effect while the job is still 'running' —
+// a chunk loop already mid-flight notices via updateJobProgress's own
+// status check (above) and stops after its current chunk, rather than
+// completing; there's no way to interrupt a chunk already in progress.
+export async function cancelJob(jobId: string): Promise<boolean> {
+  const supabase = createServiceRoleClient()
+  const { data, error } = await supabase
+    .from('background_jobs')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', jobId)
+    .eq('status', 'running')
+    .select('id')
+  if (error) throw new Error(error.message)
+  return (data?.length ?? 0) > 0
 }
 
 // Wall-clock budget per worker-route invocation, safely under Vercel's

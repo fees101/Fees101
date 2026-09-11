@@ -122,6 +122,12 @@ export default function CSVImportFlow() {
         setStep('review')
         return
       }
+      if (finishedJob.status === 'cancelled') {
+        setError(`Cancelled — ${finishedJob.processed} student${finishedJob.processed === 1 ? '' : 's'} imported before stopping.`)
+        setStep('review')
+        router.refresh()
+        return
+      }
 
       const failedRowNumbers = new Set(
         (finishedJob.failures || [])
@@ -156,7 +162,7 @@ export default function CSVImportFlow() {
         processed: dvaStart.processed,
         total: dvaStart.total,
       }, (dvaJobFinished) => {
-        finish(dvaJobFinished.status === 'completed' ? dvaJobFinished.processed : 0)
+        finish(dvaJobFinished.status === 'failed' ? 0 : dvaJobFinished.processed)
       })
     })
   }

@@ -30,6 +30,10 @@ export interface TrackedJob {
   // find "is one of my jobs already running" and a global indicator know
   // where "view" should navigate to.
   meta?: Record<string, string>
+  // Set optimistically the moment Cancel is clicked, before the server has
+  // actually flipped status away from 'running' — cancellation only takes
+  // effect between chunks, so there's a real (if usually short) gap.
+  cancelling?: boolean
 }
 
 interface PersistedJob {
@@ -56,6 +60,10 @@ interface ActiveJobsValue {
   // a page to notice "this cycle already has a generation job going" without
   // re-clicking the button that started it.
   findRunningJob: (predicate: (job: TrackedJob) => boolean) => TrackedJob | undefined
+  // Ask the server to stop a running job. Best-effort and not immediate — see
+  // TrackedJob.cancelling — the existing poll loop picks up the real
+  // 'cancelled' status once the server applies it.
+  cancelJob: (jobId: string) => void
 }
 
 const ActiveJobsContext = createContext<ActiveJobsValue | null>(null)
@@ -107,7 +115,11 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
     pollJob(jobId, (s) => {
       setJobs(prev => ({
         ...prev,
-        [jobId]: { jobId, jobType, label, processed: s.processed, total: s.total, status: 'running', meta: meta ?? prev[jobId]?.meta },
+        [jobId]: {
+          jobId, jobType, label, processed: s.processed, total: s.total, status: 'running',
+          meta: meta ?? prev[jobId]?.meta,
+          cancelling: prev[jobId]?.cancelling,
+        },
       }))
     })
       .then((final) => {
@@ -135,6 +147,8 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
           ])
         } else if (final.status === 'failed') {
           setToasts(t => [...t, { id: jobId, ok: false, message: `${label} failed — ${final.error || 'something went wrong'}` }])
+        } else if (final.status === 'cancelled') {
+          setToasts(t => [...t, { id: jobId, ok: false, message: `${label} cancelled — ${final.processed}${final.total ? `/${final.total}` : ''} done` }])
         }
 
         const listener = completionListeners.current.get(jobId)
@@ -184,6 +198,19 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
     return Object.values(jobs).find(j => j.status === 'running' && predicate(j))
   }, [jobs])
 
+  const cancelJob = useCallback((jobId: string) => {
+    setJobs(prev => (prev[jobId] ? { ...prev, [jobId]: { ...prev[jobId], cancelling: true } } : prev))
+    fetch('/api/jobs/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId }),
+    }).catch(() => {
+      // best-effort — the poll loop already running for this job will still
+      // pick up 'cancelled' once the server applies it, even if this
+      // particular request failed to round-trip
+    })
+  }, [])
+
   // Resume any job still marked running from before a hard reload. SPA
   // navigation between pages never unmounts this provider (mounted once in
   // the (app) layout), so this effect only ever fires on real (re)mounts.
@@ -204,8 +231,8 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
   // page cares about is running, but it stops the churn from bleeding into
   // every other mounted page in the app for jobs they don't track.
   const value = useMemo(
-    () => ({ jobs, trackJob, dismissJob, findRunningJob }),
-    [jobs, trackJob, dismissJob, findRunningJob]
+    () => ({ jobs, trackJob, dismissJob, findRunningJob, cancelJob }),
+    [jobs, trackJob, dismissJob, findRunningJob, cancelJob]
   )
 
   return (
@@ -217,14 +244,25 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
           const inner = (
             <>
               <div className="w-4 h-4 border-2 border-mint border-t-transparent rounded-full animate-spin flex-shrink-0" />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-xs font-medium text-navy truncate">
-                  {j.label}... {j.processed}/{j.total || '?'}
+                  {j.cancelling ? 'Cancelling...' : `${j.label}... ${j.processed}/${j.total || '?'}`}
                 </p>
                 <div className="w-40 h-1.5 bg-gray-100 rounded-full overflow-hidden mt-1">
                   <div className="h-full bg-mint transition-all duration-500" style={{ width: `${pct}%` }} />
                 </div>
               </div>
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelJob(j.jobId) }}
+                disabled={j.cancelling}
+                aria-label="Cancel"
+                title="Cancel"
+                className="p-1 -m-1 rounded-md text-gray-300 hover:text-gray-600 hover:bg-gray-50 flex-shrink-0 disabled:opacity-40"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </>
           )
           const cls = 'pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border border-gray-200 bg-white max-w-sm'

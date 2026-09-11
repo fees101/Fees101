@@ -96,6 +96,12 @@ export default function GenerateInvoicesPanel({ cycleId, onClose, onSuccess }: P
             </div>
           )}
 
+          {result && result.status === 'cancelled' && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+              Cancelled — <strong>{result.processed}</strong> invoice{result.processed === 1 ? '' : 's'} generated before stopping.
+            </div>
+          )}
+
           {result && result.status === 'completed' && (
             <div className="space-y-4">
               <div className="p-4 bg-mint-light/40 border border-mint/30 rounded-xl">

@@ -60,7 +60,9 @@ async function advanceInvoiceGeneration(supabase: any, job: BackgroundJob, start
     nextSeq = result.nextSeq
     studentIds = rest
 
-    await updateJobProgress(job.id, { cursor: { studentIds, nextSeq }, processed, failed, failures })
+    // false means the job was cancelled mid-chunk (or vanished) — stop here
+    // without completeJob, exactly as a persisted "cancelled" job should.
+    if (!(await updateJobProgress(job.id, { cursor: { studentIds, nextSeq }, processed, failed, failures }))) return
   }
 
   if (studentIds.length === 0) {
@@ -108,7 +110,7 @@ async function advanceInvoiceRegeneration(supabase: any, job: BackgroundJob, sta
     failures.push(...result.errors)
     invoiceIds = rest
 
-    await updateJobProgress(job.id, { cursor: { invoiceIds, alreadyUpToDate }, processed, failed, failures })
+    if (!(await updateJobProgress(job.id, { cursor: { invoiceIds, alreadyUpToDate }, processed, failed, failures }))) return
   }
 
   if (invoiceIds.length === 0) {
@@ -148,7 +150,7 @@ async function advanceCsvImport(supabase: any, job: BackgroundJob, started: numb
     failures.push(...result.failedRows.map(f => ({ label: `Row ${f.row}`, error: f.reason })))
     rows = rest
 
-    await updateJobProgress(job.id, { cursor: { rows }, processed, failed, failures })
+    if (!(await updateJobProgress(job.id, { cursor: { rows }, processed, failed, failures }))) return
   }
 
   if (rows.length === 0) {
@@ -201,7 +203,7 @@ async function advanceBulkDVA(supabase: any, job: BackgroundJob, started: number
     failures.push(...result.failures)
     studentIds = rest
 
-    await updateJobProgress(job.id, { cursor: { studentIds }, processed, failed, failures })
+    if (!(await updateJobProgress(job.id, { cursor: { studentIds }, processed, failed, failures }))) return
   }
 
   if (studentIds.length === 0) {

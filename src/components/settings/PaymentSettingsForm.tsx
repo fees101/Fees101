@@ -112,6 +112,11 @@ export default function PaymentSettingsForm({ settings, webhookBase }: Props) {
         setBulkResult({ ok: false, message: finished.error || 'Something went wrong' })
         return
       }
+      if (finished.status === 'cancelled') {
+        setBulkResult({ ok: false, message: `Cancelled — ${finished.processed} account${finished.processed === 1 ? '' : 's'} created before stopping.` })
+        router.refresh()
+        return
+      }
       setBulkResult({
         ok: true,
         created: finished.processed,
