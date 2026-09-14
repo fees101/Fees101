@@ -58,8 +58,8 @@ export async function sendInvoiceCore(
   const { data: inv } = await supabase
     .from('invoices')
     .select(`
-      id, total_amount, paid_amount, outstanding_amount, status,
-      students!inner(id, first_name, last_name, provider_dva_account_number, provider_dva_bank_name,
+      id, total_amount, paid_amount, outstanding_amount, status, sent_at, credit_applied,
+      students!inner(id, first_name, last_name, provider_dva_account_number, provider_dva_bank_name, credit_balance,
         families(primary_parent_name, primary_parent_phone, primary_parent_email)),
       billing_cycles!inner(name, due_date)
     `)
@@ -88,6 +88,9 @@ export async function sendInvoiceCore(
     inv.outstanding_amount ?? (Number(inv.total_amount) - Number(inv.paid_amount || 0))
   )
 
+  // A resend of an invoice already sent once before is an "update" — the
+  // message calls out the credit movement so it doesn't read as a mistake.
+  const isUpdate = !!inv.sent_at
   const messageParams = {
     studentName: `${student.first_name} ${student.last_name}`.trim(),
     parentName,
@@ -96,6 +99,9 @@ export async function sendInvoiceCore(
     accountNumber: student.provider_dva_account_number,
     bankName: student.provider_dva_bank_name,
     dueDate,
+    isUpdate,
+    creditApplied: Number(inv.credit_applied || 0),
+    creditBalance: Number(student.credit_balance || 0),
   }
   const smsText = composeInvoiceSMS({ ...messageParams, schoolName: getSchoolSmsName(school) })
 

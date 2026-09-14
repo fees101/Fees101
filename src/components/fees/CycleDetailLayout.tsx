@@ -6,9 +6,11 @@ import Link from 'next/link'
 import { CycleDetailData, InvoiceRow } from '@/lib/queries/fees'
 import GenerateInvoicesPanel from './GenerateInvoicesPanel'
 import { regenerateInvoice, startInvoiceRegenerationJob } from '@/app/(app)/fees/cycles/actions'
+import { sendInvoiceUpdateNotice } from '@/app/(app)/invoices/actions'
 import { useActiveJobs, useTrackedJob, useOnJobOpenRequested } from '@/lib/jobs/ActiveJobsProvider'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { formatDate } from '@/lib/format/date'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 interface Props {
   data: CycleDetailData
@@ -63,6 +65,14 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
   const [regenerateSummary, setRegenerateSummary] = useState<string | null>(null)
   const regeneratingAll = !!regenerateJob && regenerateJob.status === 'running'
+  const [regenerateAllConfirm, setRegenerateAllConfirm] = useState<{ sentOrPaidCount: number; totalCount: number } | null>(null)
+  const [regenerateOneConfirm, setRegenerateOneConfirm] = useState<{
+    invoiceId: string
+    current: { total: number; creditApplied: number }
+    updated: { total: number; creditApplied: number }
+  } | null>(null)
+  const [notifyingId, setNotifyingId] = useState<string | null>(null)
+  const [notifiedIds, setNotifiedIds] = useState<Set<string>>(new Set())
 
   const filteredInvoices = useMemo(() => {
     const term = search.toLowerCase().trim()
@@ -97,12 +107,21 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
     setRegenerateSummary(null)
 
     const started = await startInvoiceRegenerationJob(cycle.id)
+    if ('needsConfirmation' in started) {
+      setRegenerateAllConfirm({ sentOrPaidCount: started.sentOrPaidCount, totalCount: started.totalCount })
+      return
+    }
     if ('error' in started) {
       setError(started.error ?? 'Something went wrong')
       return
     }
-    setRegenerateJobId(started.jobId)
-    trackJob(started.jobId, 'invoice_regeneration', 'Invoice regeneration', undefined, (job) => {
+    runRegenerateAllJob(started.jobId)
+  }
+
+  function runRegenerateAllJob(jobId: string) {
+    if (!cycle) return
+    setRegenerateJobId(jobId)
+    trackJob(jobId, 'invoice_regeneration', 'Invoice regeneration', undefined, (job) => {
       if (job.status === 'failed') {
         setError(job.error || 'Something went wrong')
       } else if (job.status === 'cancelled') {
@@ -119,12 +138,29 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
     }, { cycleId: cycle.id, href: `/fees/cycles/${cycle.id}` })
   }
 
+  async function handleConfirmRegenerateAll() {
+    if (!cycle || !regenerateAllConfirm) return
+    setRegenerateAllConfirm(null)
+    const started = await startInvoiceRegenerationJob(cycle.id, true)
+    if ('error' in started) {
+      setError(started.error ?? 'Something went wrong')
+      return
+    }
+    if ('needsConfirmation' in started) return
+    runRegenerateAllJob(started.jobId)
+  }
+
 
 
   async function handleRegenerateOne(invoiceId: string) {
     setError(null)
     setRegeneratingId(invoiceId)
     const result = await regenerateInvoice(invoiceId)
+    if ('needsConfirmation' in result) {
+      setRegenerateOneConfirm({ invoiceId, current: result.current, updated: result.updated })
+      setRegeneratingId(null)
+      return
+    }
     if ('error' in result) {
       setError(result.error)
     } else {
@@ -134,6 +170,35 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
       router.refresh()
     }
     setRegeneratingId(null)
+  }
+
+  async function handleConfirmRegenerateOne() {
+    if (!regenerateOneConfirm) return
+    const { invoiceId } = regenerateOneConfirm
+    setRegenerateOneConfirm(null)
+    setRegeneratingId(invoiceId)
+    const result = await regenerateInvoice(invoiceId, true)
+    if ('error' in result) {
+      setError(result.error)
+    } else if (!('needsConfirmation' in result)) {
+      if (result.wasOverpaid) {
+        setError('Invoice updated — the new total is now less than what the student has already paid. Review for a possible refund or credit.')
+      }
+      router.refresh()
+    }
+    setRegeneratingId(null)
+  }
+
+  async function handleNotifyUpdate(invoiceId: string) {
+    setNotifyingId(invoiceId)
+    setError(null)
+    const result = await sendInvoiceUpdateNotice(invoiceId)
+    if ('error' in result) {
+      setError(result.error)
+    } else {
+      setNotifiedIds(prev => new Set(prev).add(invoiceId))
+    }
+    setNotifyingId(null)
   }
 
   if (!cycle) {
@@ -483,6 +548,11 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
                           incl. {formatNaira(inv.previousBalance)} prev. balance
                         </p>
                       )}
+                      {inv.creditApplied > 0 && (
+                        <p className="text-xs text-mint mt-0.5">
+                          − {formatNaira(inv.creditApplied)} credit
+                        </p>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-sm text-right">
                       <span className={inv.paidAmount > 0 ? 'text-mint font-medium' : 'text-gray-400'}>
@@ -499,6 +569,22 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
                         <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${b.cls}`}>
                           {b.label}
                         </span>
+                        {inv.needsResend && canManageInvoices && (
+                          notifiedIds.has(inv.id) ? (
+                            <span className="text-xs text-mint font-medium">Notified</span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleNotifyUpdate(inv.id)
+                              }}
+                              disabled={notifyingId === inv.id}
+                              className="text-xs text-mint font-medium hover:underline disabled:opacity-50"
+                            >
+                              {notifyingId === inv.id ? 'Sending...' : 'Notify parent of update'}
+                            </button>
+                          )
+                        )}
                         {inv.needsRegeneration && (
                           <>
                             <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
@@ -560,6 +646,26 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
             setGeneratePanelOpen(false)
             router.refresh()
           }}
+        />
+      )}
+
+      {regenerateAllConfirm && (
+        <ConfirmDialog
+          title="Regenerate invoices?"
+          message={`${regenerateAllConfirm.sentOrPaidCount} of ${regenerateAllConfirm.totalCount} invoices in this term have already been sent or paid. Regenerating may change their totals. Parents will not be notified automatically.`}
+          confirmLabel="Regenerate all"
+          onConfirm={handleConfirmRegenerateAll}
+          onCancel={() => setRegenerateAllConfirm(null)}
+        />
+      )}
+
+      {regenerateOneConfirm && (
+        <ConfirmDialog
+          title="This invoice has already been sent or paid"
+          message={`Regenerating will change the total from ${formatNaira(regenerateOneConfirm.current.total)} to ${formatNaira(regenerateOneConfirm.updated.total)}${regenerateOneConfirm.updated.creditApplied !== regenerateOneConfirm.current.creditApplied ? ` (credit applied: ${formatNaira(regenerateOneConfirm.current.creditApplied)} → ${formatNaira(regenerateOneConfirm.updated.creditApplied)})` : ''}. The parent will not be notified automatically — you can send an update notice afterward.`}
+          confirmLabel="Regenerate"
+          onConfirm={handleConfirmRegenerateOne}
+          onCancel={() => setRegenerateOneConfirm(null)}
         />
       )}
     </>

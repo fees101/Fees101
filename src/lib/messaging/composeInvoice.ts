@@ -56,13 +56,23 @@ export interface InvoiceMessageParams {
   accountNumber: string
   bankName: string
   logoUrl?: string | null
+  // Set when this send is a deliberate resend of an invoice whose numbers
+  // changed after it was already sent (fee edit, opt-in, carry-forward,
+  // credit shift) — surfaces the credit movement so the change doesn't read
+  // as a mistake to the parent.
+  isUpdate?: boolean
+  creditApplied?: number
+  creditBalance?: number
 }
 
 export function composeInvoiceSMS(p: InvoiceMessageParams): string {
+  const creditNote = p.isUpdate && (p.creditApplied || p.creditBalance)
+    ? ` Updated invoice — NGN ${amount(p.creditApplied || 0)} credit applied, account credit balance is now NGN ${amount(p.creditBalance || 0)}.`
+    : ''
   return (
     `Hello ${greetingName(p.parentName)}, this is the ${p.termName} fees invoice for ${p.studentName} ` +
     `at ${safeSchoolName(p.schoolName)}: NGN ${amount(p.amountDue)}, due ${shortDate(p.dueDate)}. ` +
-    `Pay to ${p.accountNumber} (${p.bankName}).`
+    `Pay to ${p.accountNumber} (${p.bankName}).${creditNote}`
   )
 }
 
@@ -213,10 +223,16 @@ function attachmentNotice(label: string): string {
 export function composeInvoiceEmail(p: InvoiceMessageParams): EmailBody {
   const schoolName = p.schoolName
   const greeting = greetingName(p.parentName)
-  const subject = `${schoolName} — ${p.termName} Fees Invoice for ${p.studentName}`
+  const isUpdate = !!p.isUpdate
+  const subject = isUpdate
+    ? `${schoolName} — Updated ${p.termName} Fees Invoice for ${p.studentName}`
+    : `${schoolName} — ${p.termName} Fees Invoice for ${p.studentName}`
+  const showCreditNote = isUpdate && ((p.creditApplied || 0) > 0 || (p.creditBalance || 0) > 0)
   const text =
     `Dear ${greeting},\n\n` +
-    `Please find attached the ${p.termName} fees invoice for ${p.studentName} at ${schoolName}.\n\n` +
+    (isUpdate
+      ? `This invoice for ${p.studentName} at ${schoolName} has been updated. Please find the revised invoice attached.\n\n`
+      : `Please find attached the ${p.termName} fees invoice for ${p.studentName} at ${schoolName}.\n\n`) +
     `-----------------------------------\n` +
     `INVOICE SUMMARY\n` +
     `-----------------------------------\n` +
@@ -225,6 +241,7 @@ export function composeInvoiceEmail(p: InvoiceMessageParams): EmailBody {
     `Amount due:    NGN ${amount(p.amountDue)}\n` +
     `Due date:      ${shortDate(p.dueDate)}\n` +
     `Payment account: ${p.accountNumber} (${p.bankName})\n` +
+    (showCreditNote ? `Credit applied: NGN ${amount(p.creditApplied || 0)}\nCredit balance: NGN ${amount(p.creditBalance || 0)}\n` : '') +
     `-----------------------------------\n\n` +
     `A detailed PDF breakdown of this invoice is attached to this email for your records.\n\n` +
     `Kindly make payment on or before the due date to avoid a late reminder. If you have already paid, please disregard this notice — payments are usually reflected automatically within a few minutes.\n\n` +
@@ -234,13 +251,19 @@ export function composeInvoiceEmail(p: InvoiceMessageParams): EmailBody {
   const html = emailWrapper(
     schoolName,
     `<p style="margin:0 0 16px;">Dear ${greeting},</p>` +
-    `<p style="margin:0 0 8px;">Please find below the <strong>${p.termName}</strong> fees invoice for <strong>${p.studentName}</strong> at <strong>${schoolName}</strong>.</p>` +
+    (isUpdate
+      ? `<p style="margin:0 0 8px;">This invoice for <strong>${p.studentName}</strong> at <strong>${schoolName}</strong> has been updated. Please find the revised <strong>${p.termName}</strong> invoice below.</p>`
+      : `<p style="margin:0 0 8px;">Please find below the <strong>${p.termName}</strong> fees invoice for <strong>${p.studentName}</strong> at <strong>${schoolName}</strong>.</p>`) +
     detailsTable(
       detailRow('Student', p.studentName) +
       detailRow('Term', p.termName) +
       detailRow('Amount due', `NGN ${amount(p.amountDue)}`, true) +
       detailRow('Due date', shortDate(p.dueDate)) +
-      detailRow('Payment account', `${p.accountNumber} (${p.bankName})`)
+      detailRow('Payment account', `${p.accountNumber} (${p.bankName})`) +
+      (showCreditNote
+        ? detailRow('Credit applied', `NGN ${amount(p.creditApplied || 0)}`) +
+          detailRow('Account credit balance', `NGN ${amount(p.creditBalance || 0)}`)
+        : '')
     ) +
     attachmentNotice('The full invoice') +
     `<p style="margin:20px 0 0;">Kindly make payment on or before the due date to avoid a late reminder. If you have already paid, please disregard this notice — payments are usually reflected automatically within a few minutes.</p>` +

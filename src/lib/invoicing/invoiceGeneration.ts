@@ -184,7 +184,9 @@ export async function processInvoiceGenerationChunk(
 // Regeneration (recompute existing invoices whose fee structure changed)
 // ---------------------------------------------------------------------------
 
-export async function prepareInvoiceRegeneration(supabase: any, schoolId: string, cycleId: string) {
+export async function prepareInvoiceRegeneration(supabase: any, schoolId: string, cycleId: string): Promise<
+  { error: string } | { cycle: { id: string; status: string; name: string }; invoiceIds: string[] }
+> {
   const { data: cycle } = await supabase
     .from('billing_cycles')
     .select('id, status, name')

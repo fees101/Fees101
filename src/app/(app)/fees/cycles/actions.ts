@@ -1075,8 +1075,10 @@ export async function generateInvoiceForStudent(studentId: string, cycleId: stri
 }
 
 // REGENERATE existing invoice (recompute line items, keep payments)
-export async function regenerateInvoice(invoiceId: string): Promise<
-  { error: string } | { success: true; newTotal: number; wasOverpaid: boolean }
+export async function regenerateInvoice(invoiceId: string, confirmed: boolean = false): Promise<
+  | { error: string }
+  | { needsConfirmation: true; current: { total: number; creditApplied: number }; updated: { total: number; creditApplied: number } }
+  | { success: true; newTotal: number; wasOverpaid: boolean }
 > {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
@@ -1084,7 +1086,7 @@ export async function regenerateInvoice(invoiceId: string): Promise<
 
   const { data: existing } = await supabase
     .from('invoices')
-    .select('id, student_id, billing_cycle_id, paid_amount, sent_at, credit_applied, invoice_number, billing_cycles(status)')
+    .select('id, student_id, billing_cycle_id, paid_amount, sent_at, credit_applied, total_amount, invoice_number, billing_cycles(status), students!inner(credit_balance)')
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
     .single()
@@ -1095,23 +1097,34 @@ export async function regenerateInvoice(invoiceId: string): Promise<
     return { error: 'This term is closed. Invoices cannot be regenerated.' }
   }
 
-  // Undo whatever credit this invoice previously consumed before recomputing,
-  // so computeInvoiceForStudent sees the correct available balance.
   const previouslyApplied = Number(existing.credit_applied || 0)
-  if (previouslyApplied > 0) {
-    await applyCreditBalanceDelta(supabase, schoolId, existing.student_id, previouslyApplied)
-  }
-
+  // @ts-expect-error — joined
+  const liveCreditBalance = Number(existing.students?.credit_balance || 0)
   const paid = Number(existing.paid_amount || 0)
-  const computed = await computeInvoiceForStudent(supabase, schoolId, existing.student_id, existing.billing_cycle_id, undefined, paid, invoiceId)
-  if ('error' in computed) {
-    // Recompute refused — restore the credit we optimistically returned to the
-    // balance above, otherwise it's double-counted (applied on this untouched
-    // invoice AND back in the student's balance).
-    if (previouslyApplied > 0) {
-      await applyCreditBalanceDelta(supabase, schoolId, existing.student_id, -previouslyApplied)
+
+  // See this invoice's own previously-applied credit as already given back
+  // (liveCreditBalance + previouslyApplied) without an actual DB write, then
+  // persist the invoice + the single net credit delta atomically below —
+  // same pattern as processInvoiceRegenerationChunk, avoiding the
+  // undo-write/recompute/reapply-write gap the old version had.
+  const computed = await computeInvoiceForStudent(
+    supabase,
+    schoolId,
+    existing.student_id,
+    existing.billing_cycle_id,
+    liveCreditBalance + previouslyApplied,
+    paid,
+    invoiceId
+  )
+  if ('error' in computed) return { error: computed.error }
+
+  const wasSentOrPaid = !!existing.sent_at || paid > 0
+  if (wasSentOrPaid && !confirmed) {
+    return {
+      needsConfirmation: true,
+      current: { total: Number(existing.total_amount), creditApplied: previouslyApplied },
+      updated: { total: computed.total, creditApplied: computed.creditApplied },
     }
-    return { error: computed.error }
   }
 
   // Determine new status
@@ -1119,29 +1132,26 @@ export async function regenerateInvoice(invoiceId: string): Promise<
   if (paid >= computed.total) newStatus = 'paid'
   else if (paid > 0) newStatus = 'partial'
 
-  const { error } = await supabase
-    .from('invoices')
-    .update({
-      line_items: computed.lineItems,
-      subtotal: computed.subtotal,
-      discount_amount: computed.discountAmount,
-      discount_reason: computed.discountReason || null,
-      previous_balance: computed.previousBalance,
-      previous_balance_from_invoice_id: computed.previousInvoiceId,
-      credit_applied: computed.creditApplied,
-      total_amount: computed.total,
-      status: newStatus,
-      needs_resend: !!existing.sent_at,  // flag if was previously sent
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', invoiceId)
+  const { error } = await supabase.rpc('apply_invoice_recompute', {
+    p_invoice_id: invoiceId,
+    p_school_id: schoolId,
+    p_student_id: existing.student_id,
+    p_line_items: computed.lineItems,
+    p_subtotal: computed.subtotal,
+    p_discount_amount: computed.discountAmount,
+    p_discount_reason: computed.discountReason || null,
+    p_previous_balance: computed.previousBalance,
+    p_previous_balance_from_invoice_id: computed.previousInvoiceId,
+    p_credit_applied: computed.creditApplied,
+    p_total_amount: computed.total,
+    p_status: newStatus,
+    p_needs_resend: !!existing.sent_at,
+    p_credit_delta: previouslyApplied - computed.creditApplied,
+  })
 
   if (error) return { error: error.message }
 
   await recordAppliedDiscounts(supabase, schoolId, existing.student_id, invoiceId, computed.appliedDiscounts)
-  if (computed.creditApplied > 0) {
-    await applyCreditBalanceDelta(supabase, schoolId, existing.student_id, -computed.creditApplied)
-  }
 
   await logAuditEvent(supabase, {
     schoolId,
@@ -1159,7 +1169,11 @@ export async function regenerateInvoice(invoiceId: string): Promise<
 }
 
 // REGENERATE every out-of-date invoice in a cycle (skips ones already matching current fees)
-export async function startInvoiceRegenerationJob(cycleId: string) {
+export async function startInvoiceRegenerationJob(cycleId: string, confirmed: boolean = false): Promise<
+  | { error: string }
+  | { needsConfirmation: true; sentOrPaidCount: number; totalCount: number }
+  | { success: true; jobId: string }
+> {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -1169,6 +1183,19 @@ export async function startInvoiceRegenerationJob(cycleId: string) {
 
   const prep = await prepareInvoiceRegeneration(supabase, schoolId, cycleId)
   if ('error' in prep) return { error: prep.error }
+
+  if (!confirmed) {
+    const { count } = await supabase
+      .from('invoices')
+      .select('id', { count: 'exact', head: true })
+      .eq('billing_cycle_id', cycleId)
+      .eq('school_id', schoolId)
+      .or('sent_at.not.is.null,paid_amount.gt.0')
+    const sentOrPaidCount = count || 0
+    if (sentOrPaidCount > 0) {
+      return { needsConfirmation: true, sentOrPaidCount, totalCount: prep.invoiceIds.length }
+    }
+  }
 
   const job = await createJob({
     schoolId,

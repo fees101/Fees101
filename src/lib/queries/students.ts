@@ -571,6 +571,7 @@ export interface StudentFeesData {
   existingInvoice: {
     id: string
     totalAmount: number
+    subtotal: number
     paidAmount: number
     outstandingAmount: number
     creditApplied: number
@@ -753,7 +754,7 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
   // Check if an invoice already exists for this student + cycle
   const { data: existingInvoice } = await supabase
     .from('invoices')
-    .select('id, total_amount, paid_amount, credit_applied, status, sent_at, needs_resend, previous_balance, line_items, generated_at, discount_amount, discount_reason')
+    .select('id, total_amount, subtotal, paid_amount, credit_applied, status, sent_at, needs_resend, previous_balance, line_items, generated_at, discount_amount, discount_reason')
     .eq('student_id', studentId)
     .eq('billing_cycle_id', cycle.id)
     .maybeSingle()
@@ -784,6 +785,7 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
   const existingInvoiceInfo = existingInvoice ? {
     id: existingInvoice.id,
     totalAmount: Number(existingInvoice.total_amount),
+    subtotal: Number(existingInvoice.subtotal || 0),
     paidAmount: Number(existingInvoice.paid_amount || 0),
     outstandingAmount: Number(existingInvoice.total_amount) - Number(existingInvoice.paid_amount || 0),
     creditApplied: Number(existingInvoice.credit_applied || 0),

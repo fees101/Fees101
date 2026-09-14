@@ -1,7 +1,9 @@
 'use server'
 
 import { requirePermission } from '@/lib/auth/permissions'
-import { startBulkSendInvoicesJob } from '@/lib/invoicing/sendInvoice'
+import { revalidatePath } from 'next/cache'
+import { startBulkSendInvoicesJob, sendInvoiceCore } from '@/lib/invoicing/sendInvoice'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 
 async function getContext() {
   // Gated on the 'manage-invoices' permission (owner/super_admin/is_admin bypass).
@@ -22,4 +24,42 @@ export async function startBulkSend() {
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
   return startBulkSendInvoicesJob(supabase, schoolId, userId)
+}
+
+// Manual, single-invoice "notify parent this invoice changed" action — the
+// deliberate nudge the needs_resend flag never had anything attached to.
+// Only usable on an invoice already flagged needs_resend (i.e. it was sent
+// before and its numbers changed since); this deliberately bypasses
+// sendManualReminder's needs_resend block, which exists to stop a routine
+// reminder going out on stale numbers, not to stop this explicit "yes, tell
+// them" action.
+export async function sendInvoiceUpdateNotice(invoiceId: string): Promise<{ error: string } | { success: true }> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: invoice } = await supabase
+    .from('invoices')
+    .select('id, needs_resend')
+    .eq('id', invoiceId)
+    .eq('school_id', schoolId)
+    .maybeSingle()
+  if (!invoice) return { error: 'Invoice not found' }
+  if (!invoice.needs_resend) return { error: 'This invoice has not changed since it was last sent.' }
+
+  const result = await sendInvoiceCore(supabase, schoolId, invoiceId)
+  if ('error' in result) return result
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.update_notice_sent',
+    targetType: 'invoice',
+    targetId: invoiceId,
+    summary: `Sent update notice for invoice to ${result.studentName}`,
+    metadata: { studentId: result.studentId, channelsUsed: result.channelsUsed },
+  })
+
+  revalidatePath(`/students/${result.studentId}`)
+  return { success: true as const }
 }

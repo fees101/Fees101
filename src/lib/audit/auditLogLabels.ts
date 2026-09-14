@@ -22,6 +22,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'invoice.generated_bulk': 'Invoices generated (bulk)',
   'invoice.regenerated': 'Invoice regenerated',
   'invoice.regenerated_bulk': 'Invoices regenerated (bulk)',
+  'invoice.update_notice_sent': 'Invoice update notice sent',
   'discount.requested': 'Discount requested',
   'student.added': 'Student added',
   'student.imported': 'Students imported',

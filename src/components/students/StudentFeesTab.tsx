@@ -13,6 +13,7 @@ import {
   generateInvoiceForStudent,
   regenerateInvoice
 } from '@/app/(app)/fees/cycles/actions'
+import { sendInvoiceUpdateNotice } from '@/app/(app)/invoices/actions'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 
@@ -38,6 +39,8 @@ export default function StudentFeesTab({ data }: Props) {
   const [generating, setGenerating] = useState(false)
   const [generateConfirm, setGenerateConfirm] = useState(false)
   const [updateConfirm, setUpdateConfirm] = useState(false)
+  const [notifying, setNotifying] = useState(false)
+  const [notified, setNotified] = useState(false)
   const canManageInvoices = useCan('manage-invoices')
   const canManageStudents = useCan('manage-students')
 
@@ -138,14 +141,28 @@ export default function StudentFeesTab({ data }: Props) {
     if (!existingInvoice) return
     setError(null)
     setGenerating(true)
-    const result = await regenerateInvoice(existingInvoice.id)
+    const result = await regenerateInvoice(existingInvoice.id, true)
     if ('error' in result && result.error) {
       setError(result.error)
     } else {
+      setNotified(false)
       router.refresh()
     }
     setGenerating(false)
     setUpdateConfirm(false)
+  }
+
+  async function handleNotifyUpdate() {
+    if (!existingInvoice) return
+    setError(null)
+    setNotifying(true)
+    const result = await sendInvoiceUpdateNotice(existingInvoice.id)
+    if ('error' in result) {
+      setError(result.error)
+    } else {
+      setNotified(true)
+    }
+    setNotifying(false)
   }
 
   return (
@@ -211,9 +228,15 @@ export default function StudentFeesTab({ data }: Props) {
               <div>
                 <p className="text-xs text-gray-600 uppercase tracking-wider mb-1">Current invoice</p>
                 <div className="flex items-center gap-3 flex-wrap">
-                  <span className="text-sm font-semibold text-navy">
-                    Total: {formatNaira(existingInvoice.totalAmount)}
-                  </span>
+                  {existingInvoice.creditApplied > 0 ? (
+                    <span className="text-sm font-semibold text-navy">
+                      {formatNaira(existingInvoice.subtotal)} − {formatNaira(existingInvoice.creditApplied)} credit = {formatNaira(existingInvoice.totalAmount)}
+                    </span>
+                  ) : (
+                    <span className="text-sm font-semibold text-navy">
+                      Total: {formatNaira(existingInvoice.totalAmount)}
+                    </span>
+                  )}
                   <span className="text-gray-300">·</span>
                   <span className="text-sm text-mint">
                     Paid: {formatNaira(existingInvoice.paidAmount)}
@@ -223,14 +246,6 @@ export default function StudentFeesTab({ data }: Props) {
                       <span className="text-gray-300">·</span>
                       <span className="text-sm text-mint" title={existingInvoice.discountReason || undefined}>
                         Discount: -{formatNaira(existingInvoice.discountAmount)}
-                      </span>
-                    </>
-                  )}
-                  {existingInvoice.creditApplied > 0 && (
-                    <>
-                      <span className="text-gray-300">·</span>
-                      <span className="text-sm text-mint" title="Covered by credit from a prior overpayment, not a new payment this term">
-                        Credit applied: {formatNaira(existingInvoice.creditApplied)}
                       </span>
                     </>
                   )}
@@ -244,6 +259,19 @@ export default function StudentFeesTab({ data }: Props) {
                       <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">
                         needs resend
                       </span>
+                      {canManageInvoices && (
+                        notified ? (
+                          <span className="text-xs text-mint font-medium">Notified</span>
+                        ) : (
+                          <button
+                            onClick={handleNotifyUpdate}
+                            disabled={notifying}
+                            className="text-xs text-mint font-medium hover:underline disabled:opacity-50"
+                          >
+                            {notifying ? 'Sending...' : 'Notify parent of update'}
+                          </button>
+                        )
+                      )}
                     </>
                   )}
                 </div>
