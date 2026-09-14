@@ -31,7 +31,7 @@ export default async function AppLayout({
   }
   const { supabase, userId, schoolId, role, isOwner } = authCtx
 
-  const [{ data: profile }, { data: currentCycle }, { data: notificationRows }] = await Promise.all([
+  const [{ data: profile }, { data: currentCycle }, { data: notificationRows }, { data: jobRows }] = await Promise.all([
     supabase
       .from('users')
       .select('name, email, schools(name, logo_url), roles(name)')
@@ -52,6 +52,19 @@ export default async function AppLayout({
       .is('read_at', null)
       .order('created_at', { ascending: false })
       .limit(10),
+    // Re-attach a still-running job's progress bar after a hard reload/new
+    // device (localStorage-only tracking loses it), and surface a job whose
+    // owning tab is gone before it ever completed or failed. Bounded to the
+    // last 24h — older interrupted jobs are effectively abandoned, not worth
+    // resurfacing indefinitely.
+    supabase
+      .from('background_jobs')
+      .select('id, job_type, status, payload, total, processed, failed, error, updated_at')
+      .eq('school_id', schoolId || '')
+      .in('status', ['running', 'failed'])
+      .is('acknowledged_at', null)
+      .gte('updated_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .order('updated_at', { ascending: false }),
   ])
 
   if (!profile) redirect('/login')
@@ -74,10 +87,44 @@ export default async function AppLayout({
     createdAt: n.created_at,
   }))
 
+  // Static per-job-type label/href so a job surfaced here (not started by
+  // this browser) reads the same as one tracked live — see the trackJob call
+  // sites for the labels this mirrors. cycleId-bearing job types link back to
+  // the cycle that owns them; the rest link to their fixed home page.
+  const JOB_LABELS: Record<string, string> = {
+    invoice_generation: 'Invoice generation',
+    invoice_regeneration: 'Invoice regeneration',
+    csv_import: 'Importing students',
+    bulk_dva: 'Creating payment accounts',
+    bulk_send: 'Sending invoices',
+    close_term: 'Carrying forward balances',
+  }
+  const JOB_HREFS: Record<string, string> = {
+    csv_import: '/students/import',
+    bulk_dva: '/students',
+    bulk_send: '/invoices',
+    close_term: '/fees/cycles',
+  }
+  const interruptedJobs = (jobRows || []).map(j => {
+    const payload = (j.payload as Record<string, unknown>) || {}
+    const cycleId = typeof payload.cycleId === 'string' ? payload.cycleId : null
+    return {
+      jobId: j.id,
+      jobType: j.job_type,
+      label: JOB_LABELS[j.job_type] || j.job_type,
+      processed: j.processed,
+      total: j.total,
+      status: j.status as 'running' | 'failed',
+      failed: j.failed,
+      error: j.error,
+      href: cycleId ? `/fees/cycles/${cycleId}` : JOB_HREFS[j.job_type],
+    }
+  })
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <PermissionsProvider permissions={permissions} isOwner={isOwner}>
-        <ActiveJobsProvider>
+        <ActiveJobsProvider interruptedJobs={interruptedJobs}>
           <Sidebar
             userName={profile.name}
             userEmail={profile.email}

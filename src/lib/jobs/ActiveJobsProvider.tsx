@@ -101,8 +101,30 @@ interface ToastEntry {
   ok: boolean
 }
 
-export function ActiveJobsProvider({ children }: { children: React.ReactNode }) {
+// A job the (app) layout found server-side — either still 'running' with no
+// browser tracking it (different device, or this one after a hard reload),
+// or 'failed'/interrupted with its owning tab long gone. See (app)/layout.tsx.
+export interface InterruptedJob {
+  jobId: string
+  jobType: TrackedJobType
+  label: string
+  processed: number
+  total: number
+  status: 'running' | 'failed'
+  failed?: number
+  error?: string | null
+  href?: string
+}
+
+export function ActiveJobsProvider({ children, interruptedJobs = [] }: { children: React.ReactNode; interruptedJobs?: InterruptedJob[] }) {
   const [jobs, setJobs] = useState<Record<string, TrackedJob>>({})
+  // Failed/interrupted jobs surfaced from the server, not yet dismissed by
+  // the user in this session. Separate from `jobs` (which is for live-tracked
+  // running jobs) since these were never polled here and have no progress to
+  // keep advancing — this is a one-time notice, not a chip.
+  const [failedNotices, setFailedNotices] = useState<InterruptedJob[]>(
+    interruptedJobs.filter(j => j.status === 'failed')
+  )
   const [toasts, setToasts] = useState<ToastEntry[]>([])
   // Chips the user has hidden from the floating widget — the job underneath
   // keeps running/polling either way. This is deliberately separate from
@@ -232,6 +254,14 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
   // the (app) layout), so this effect only ever fires on real (re)mounts.
   useEffect(() => {
     for (const j of readPersisted()) drive(j.jobId, j.jobType, j.label, j.meta)
+    // Also reattach any still-running job the server found but this browser
+    // has no localStorage record of (a different device, or this one after
+    // clearing storage) — dedupes against the loop above via drive()'s own
+    // polling.current guard.
+    for (const j of interruptedJobs) {
+      if (j.status !== 'running') continue
+      drive(j.jobId, j.jobType, j.label, j.href ? { href: j.href } : undefined)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -246,6 +276,19 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
   const requestOpenJob = useCallback((jobId: string) => {
     openNonce.current += 1
     setOpenRequest({ jobId, nonce: openNonce.current })
+  }, [])
+
+  // "I've seen this, stop showing it" — persists via the acknowledge route so
+  // a hard reload doesn't bring the same notice straight back.
+  const dismissFailedNotice = useCallback((jobId: string) => {
+    setFailedNotices(prev => prev.filter(j => j.jobId !== jobId))
+    fetch('/api/jobs/acknowledge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId }),
+    }).catch(() => {
+      // best-effort — worst case the notice reappears on the next reload
+    })
   }, [])
 
   const runningJobs = Object.values(jobs).filter(j => j.status === 'running' && !hiddenChipIds.has(j.jobId))
@@ -269,6 +312,36 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
     <ActiveJobsContext.Provider value={value}>
       {children}
       <div className="fixed bottom-6 right-6 z-[110] flex flex-col-reverse gap-3 items-end pointer-events-none max-w-[calc(100vw-3rem)]">
+        {failedNotices.map(j => (
+          <div key={j.jobId} className="pointer-events-auto max-w-sm">
+            <div className="flex items-start gap-3 p-4 rounded-xl shadow-lg border border-amber-200 bg-white">
+              <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-navy">{j.label} didn't finish</p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  {j.processed}{j.total ? `/${j.total}` : ''} done{j.failed ? `, ${j.failed} failed` : ''}
+                  {j.error ? ` — ${j.error}` : ''}
+                </p>
+                {j.href && (
+                  <a href={j.href} className="text-xs font-medium text-mint hover:underline mt-1 inline-block">
+                    Go review →
+                  </a>
+                )}
+              </div>
+              <button
+                onClick={() => dismissFailedNotice(j.jobId)}
+                aria-label="Dismiss"
+                className="p-1.5 -m-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 flex-shrink-0"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        ))}
         {hiddenRunningJobs.length > 0 && (
           <button
             onClick={restoreHiddenChips}

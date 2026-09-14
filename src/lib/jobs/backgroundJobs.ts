@@ -30,6 +30,7 @@ export interface BackgroundJob {
   created_by: string | null
   created_at: string
   updated_at: string
+  acknowledged_at: string | null
 }
 
 export async function createJob(params: {
@@ -157,6 +158,17 @@ export async function cancelJob(jobId: string): Promise<boolean> {
     .select('id')
   if (error) throw new Error(error.message)
   return (data?.length ?? 0) > 0
+}
+
+// Dismisses the "job didn't finish" notice surfaced on layout load for a job
+// whose owning tab/session is gone — see getInterruptedJobsForSchool below.
+// Purely a UI acknowledgment; doesn't touch status/progress.
+export async function acknowledgeJob(jobId: string): Promise<void> {
+  const supabase = createServiceRoleClient()
+  await supabase
+    .from('background_jobs')
+    .update({ acknowledged_at: new Date().toISOString() })
+    .eq('id', jobId)
 }
 
 // Wall-clock budget per worker-route invocation, safely under Vercel's
