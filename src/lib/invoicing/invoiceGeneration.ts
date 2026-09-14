@@ -1,4 +1,4 @@
-import { computeInvoiceForStudent, applyCreditBalanceDelta, buildInvoiceComputePreload } from '@/lib/computeInvoice'
+import { computeInvoiceForStudent, buildInvoiceComputePreload } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 
 // Chunkable invoice generation/regeneration, extracted out of
@@ -143,39 +143,35 @@ export async function processInvoiceGenerationChunk(
     const status: 'pending' | 'paid' = computed.total === 0 ? 'paid' : 'pending'
     const invoiceNumber = `INV-${yy}/${String(nextSeq).padStart(5, '0')}`
 
-    const { data: inserted, error } = await supabase
-      .from('invoices')
-      .insert({
-        school_id: schoolId,
-        student_id: studentId,
-        billing_cycle_id: cycleId,
-        invoice_number: invoiceNumber,
-        line_items: computed.lineItems,
-        subtotal: computed.subtotal,
-        discount_amount: computed.discountAmount,
-        discount_reason: computed.discountReason || null,
-        previous_balance: computed.previousBalance,
-        previous_balance_from_invoice_id: computed.previousInvoiceId,
-        credit_applied: computed.creditApplied,
-        total_amount: computed.total,
-        paid_amount: 0,
-        status,
-        sent_at: null,
-        needs_resend: false,
-        generated_at: new Date().toISOString(),
-      })
-      .select('id')
-      .single()
+    // This is a resumable chunked job too: a crash between inserting the
+    // invoice and spending the credit it used would leave the invoice
+    // recorded as having used credit that was never actually deducted from
+    // the student's balance — and since (student_id, billing_cycle_id) is
+    // unique, a naive retry's re-insert would just fail as a duplicate and
+    // skip re-applying the credit, leaving the gap permanent. One RPC does
+    // the insert and the credit spend together so they commit as a unit.
+    const { data: invoiceId, error } = await supabase.rpc('insert_generated_invoice', {
+      p_school_id: schoolId,
+      p_student_id: studentId,
+      p_billing_cycle_id: cycleId,
+      p_invoice_number: invoiceNumber,
+      p_line_items: computed.lineItems,
+      p_subtotal: computed.subtotal,
+      p_discount_amount: computed.discountAmount,
+      p_discount_reason: computed.discountReason || null,
+      p_previous_balance: computed.previousBalance,
+      p_previous_balance_from_invoice_id: computed.previousInvoiceId,
+      p_credit_applied: computed.creditApplied,
+      p_total_amount: computed.total,
+      p_status: status,
+    })
 
     if (error) {
       errors.push({ label: studentNames[studentId] || studentId, error: error.message })
       continue
     }
     if (computed.appliedDiscounts.length > 0) {
-      await recordAppliedDiscounts(supabase, schoolId, studentId, inserted.id, computed.appliedDiscounts)
-    }
-    if (computed.creditApplied > 0) {
-      await applyCreditBalanceDelta(supabase, schoolId, studentId, -computed.creditApplied)
+      await recordAppliedDiscounts(supabase, schoolId, studentId, invoiceId, computed.appliedDiscounts)
     }
     nextSeq++
     generated++
@@ -234,12 +230,10 @@ export async function processInvoiceRegenerationChunk(
   let alreadyUpToDate = 0
   const errors: { label: string; error: string }[] = []
 
-  // Same batched-read fix as generation above. Credit balance is the one
-  // preloaded field this loop also mutates live (restore-then-recompute), so
-  // each restore/spend below is mirrored into the preloaded student record
-  // too — otherwise computeInvoiceForStudent would read a stale credit_balance
-  // out of the preload and under/over-apply credit on the very next student
-  // whose regeneration reads the same in-memory map.
+  // Same batched-read fix as generation above. This function itself re-runs
+  // fresh on every retry (the caller passes an invoiceIds slice, not a
+  // stale cursor snapshot of field values), so the batch reads above and
+  // this preload are never stale across a resumed chunk.
   const preload = await buildInvoiceComputePreload(
     supabase,
     schoolId,
@@ -247,34 +241,35 @@ export async function processInvoiceRegenerationChunk(
     (invoices || []).map((inv: any) => inv.student_id),
     invoiceIds
   )
-  const bumpPreloadedCredit = (studentId: string, delta: number) => {
-    const s = preload.studentsById.get(studentId)
-    if (s) s.credit_balance = Number(s.credit_balance || 0) + delta
-  }
 
   for (const inv of invoices || []) {
     const previouslyApplied = Number(inv.credit_applied || 0)
-    if (previouslyApplied > 0) {
-      await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, previouslyApplied)
-      bumpPreloadedCredit(inv.student_id, previouslyApplied)
-    }
-
+    const liveCreditBalance = Number(preload.studentsById.get(inv.student_id)?.credit_balance || 0)
     const paid = Number(inv.paid_amount || 0)
-    const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, cycleId, undefined, paid, inv.id, preload)
+
+    // Resumable job, same reasoning as closeTermCarryForward.ts: rather than
+    // undoing this invoice's own previously-applied credit with a real write
+    // before recomputing (which left a crash-vulnerable gap between that
+    // write, the invoice update, and the final re-apply), see it as already
+    // given back via creditBalanceOverride and persist everything — the
+    // invoice row and the single net credit delta — in one atomic call below.
+    const computed = await computeInvoiceForStudent(
+      supabase,
+      schoolId,
+      inv.student_id,
+      cycleId,
+      liveCreditBalance + previouslyApplied,
+      paid,
+      inv.id,
+      preload
+    )
     if ('error' in computed) {
-      if (previouslyApplied > 0) {
-        await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -previouslyApplied)
-        bumpPreloadedCredit(inv.student_id, -previouslyApplied)
-      }
+      // Nothing was written, so there's nothing to unwind.
       errors.push({ label: inv.student_id, error: computed.error })
       continue
     }
 
-    if (computed.total === Number(inv.total_amount)) {
-      if (computed.creditApplied > 0) {
-        await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -computed.creditApplied)
-        bumpPreloadedCredit(inv.student_id, -computed.creditApplied)
-      }
+    if (computed.total === Number(inv.total_amount) && computed.creditApplied === previouslyApplied) {
       alreadyUpToDate++
       continue
     }
@@ -283,32 +278,27 @@ export async function processInvoiceRegenerationChunk(
     if (paid >= computed.total) newStatus = 'paid'
     else if (paid > 0) newStatus = 'partial'
 
-    const { error } = await supabase
-      .from('invoices')
-      .update({
-        line_items: computed.lineItems,
-        subtotal: computed.subtotal,
-        discount_amount: computed.discountAmount,
-        discount_reason: computed.discountReason || null,
-        previous_balance: computed.previousBalance,
-        previous_balance_from_invoice_id: computed.previousInvoiceId,
-        credit_applied: computed.creditApplied,
-        total_amount: computed.total,
-        status: newStatus,
-        needs_resend: !!inv.sent_at,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', inv.id)
-
+    const { error } = await supabase.rpc('apply_invoice_recompute', {
+      p_invoice_id: inv.id,
+      p_school_id: schoolId,
+      p_student_id: inv.student_id,
+      p_line_items: computed.lineItems,
+      p_subtotal: computed.subtotal,
+      p_discount_amount: computed.discountAmount,
+      p_discount_reason: computed.discountReason || null,
+      p_previous_balance: computed.previousBalance,
+      p_previous_balance_from_invoice_id: computed.previousInvoiceId,
+      p_credit_applied: computed.creditApplied,
+      p_total_amount: computed.total,
+      p_status: newStatus,
+      p_needs_resend: !!inv.sent_at,
+      p_credit_delta: previouslyApplied - computed.creditApplied,
+    })
     if (error) {
       errors.push({ label: inv.student_id, error: error.message })
       continue
     }
     await recordAppliedDiscounts(supabase, schoolId, inv.student_id, inv.id, computed.appliedDiscounts)
-    if (computed.creditApplied > 0) {
-      await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -computed.creditApplied)
-      bumpPreloadedCredit(inv.student_id, -computed.creditApplied)
-    }
     regenerated++
   }
 

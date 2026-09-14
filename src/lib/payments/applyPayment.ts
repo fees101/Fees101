@@ -4,7 +4,6 @@
 // transaction in processed_provider_transactions — this function assumes
 // it will run exactly once per real-world transaction.
 
-import { applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { sendMultiChannel } from '@/lib/messaging/sendMessage'
 import { composePartialPaymentSMS, composeFullPaymentSMS, composeFullPaymentEmail } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
@@ -208,30 +207,26 @@ export async function applyProviderPayment(
 
   // Nothing left owed on any open invoice — park the rest as credit rather
   // than touching a closed/frozen invoice or leaving money unaccounted for.
+  // Inserting the payment row and crediting the balance happen in one DB
+  // transaction (insert_credit_balance_payment) — otherwise a crash between
+  // the two would leave real money recorded as received with nothing
+  // reflected on the student's account, and nothing would ever revisit it.
   if (remaining > 0) {
-    const { data: creditRow, error } = await supabase
-      .from('payments')
-      .insert({
-        school_id: schoolId,
-        student_id: studentId,
-        invoice_id: null,
-        amount: remaining,
-        method: 'provider_dva',
-        provider,
-        provider_reference: providerReference,
-        provider_transaction_id: providerTransactionId,
-        paid_at: paidAt,
-        match_status: 'matched',
-        notes: `${notes}; overpayment applied to student credit balance`,
-      })
-      .select('id')
-      .single()
+    const { data: creditPaymentId, error } = await supabase.rpc('insert_credit_balance_payment', {
+      p_school_id: schoolId,
+      p_student_id: studentId,
+      p_amount: remaining,
+      p_method: 'provider_dva',
+      p_provider: provider,
+      p_provider_reference: providerReference,
+      p_provider_transaction_id: providerTransactionId,
+      p_paid_at: paidAt,
+      p_notes: `${notes}; overpayment applied to student credit balance`,
+    })
 
-    if (error) throw new Error(`Failed to insert credit-balance payment row: ${error.message}`)
-    paymentIds.push(creditRow.id)
+    if (error) throw new Error(`Failed to record credit-balance payment: ${error.message}`)
+    paymentIds.push(creditPaymentId)
     creditBalanceAmount = remaining
-
-    await applyCreditBalanceDelta(supabase, schoolId, studentId, remaining)
   }
 
   return { paymentIds, appliedInvoices, creditBalanceAmount }
