@@ -10,6 +10,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { activateTerm, deleteTermDraft, closeTerm, reopenTermAsDraft, previewCloseTerm } from '@/app/(app)/fees/cycles/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { useActiveJobs } from '@/lib/jobs/ActiveJobsProvider'
+import BulkSendInvoicesPanel from '@/components/invoices/BulkSendInvoicesPanel'
 import { formatDate } from '@/lib/format/date'
 
 interface Props {
@@ -82,9 +83,11 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
     totalOutstanding: number
     futureInvoicesToUpdateCount: number
     futureInvoicesNeedingResendCount: number
+    unnotifiedChangedCount: number
   } | null>(null)
   const [closePreviewLoadingId, setClosePreviewLoadingId] = useState<string | null>(null)
   const [closing, setClosing] = useState(false)
+  const [resendPanelOpen, setResendPanelOpen] = useState(false)
 
   const activeCycle = cycles.find(c => c.status === 'active')
   const draftCycle = cycles.find(c => c.status === 'draft')
@@ -228,6 +231,16 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
       return
     }
     setClosePreview({ cycle, ...preview })
+  }
+
+  // Re-checks the un-notified count after "Resend now" finishes, so the
+  // informational panel reflects reality without forcing the admin to
+  // reopen the close dialog.
+  async function refreshClosePreview() {
+    if (!closePreview) return
+    const preview = await previewCloseTerm(closePreview.cycle.id)
+    if ('error' in preview) return
+    setClosePreview(prev => (prev ? { ...prev, ...preview } : prev))
   }
 
   async function handleConfirmClose() {
@@ -622,6 +635,20 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
                   )}
                 </>
               )}
+
+              {closePreview.unnotifiedChangedCount > 0 && (
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900 flex items-center justify-between gap-3">
+                  <span>
+                    <strong>{closePreview.unnotifiedChangedCount}</strong> {closePreview.unnotifiedChangedCount === 1 ? 'invoice has' : 'invoices have'} changed since last sent and {closePreview.unnotifiedChangedCount === 1 ? 'hasn\'t' : 'haven\'t'} been resent to parents. Closing won&apos;t block on this — it&apos;s recorded either way.
+                  </span>
+                  <button
+                    onClick={() => setResendPanelOpen(true)}
+                    className="flex-shrink-0 px-3 py-1.5 bg-white border border-amber-300 text-amber-800 text-xs font-semibold rounded-lg hover:bg-amber-100"
+                  >
+                    Resend now
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2">
@@ -642,6 +669,16 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
             </div>
           </div>
         </div>
+      )}
+
+      {resendPanelOpen && closePreview && (
+        <BulkSendInvoicesPanel
+          count={closePreview.unnotifiedChangedCount}
+          onClose={() => {
+            setResendPanelOpen(false)
+            refreshClosePreview()
+          }}
+        />
       )}
 
       {/* Post-close / post-activate carry-forward summary */}

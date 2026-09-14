@@ -25,6 +25,7 @@ export default async function Dashboard() {
   const showFinancials = can(authCtx, 'see-financial-totals')
   const canApproveDiscounts = can(authCtx, 'approve-discounts')
   const canRequestDiscounts = can(authCtx, 'request-discounts')
+  const canManageInvoices = can(authCtx, 'manage-invoices')
 
   const permissions = authCtx?.permissions ?? new Set<string>()
   const isOwner = authCtx?.isOwner ?? false
@@ -156,6 +157,23 @@ export default async function Dashboard() {
               </div>
             </div>
           </div>
+          )}
+
+          {canManageInvoices && kpis.needsResendCount > 0 && (
+          <a href="/invoices?filter=needs_resend" className="bg-white p-6 rounded-xl border border-gray-200 hover:border-mint/50 transition-colors">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-gray-500 text-sm mb-1">Invoices changed — not resent</p>
+                <p className="text-navy text-2xl font-bold">{kpis.needsResendCount}</p>
+                <p className="text-gray-500 text-xs mt-2">Parents not yet notified</p>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+          </a>
           )}
 
         </div>

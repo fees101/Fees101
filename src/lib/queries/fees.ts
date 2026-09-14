@@ -751,6 +751,7 @@ export interface InvoiceDetail {
   dvaBankName: string | null
   lineItems: Array<{ name: string, amount: number, kind?: string }>
   subtotal: number
+  creditApplied: number
   discountAmount: number
   discountReason: string
   previousBalance: number
@@ -799,6 +800,7 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
       invoice_number,
       total_amount,
       subtotal,
+      credit_applied,
       discount_amount,
       discount_reason,
       previous_balance,
@@ -907,6 +909,7 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
     dvaBankName: invoice.students.provider_dva_bank_name || null,
     lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
     subtotal: Number(invoice.subtotal || 0),
+    creditApplied: Number(invoice.credit_applied || 0),
     discountAmount: Number(invoice.discount_amount || 0),
     discountReason: invoice.discount_reason || '',
     previousBalance: Number(invoice.previous_balance || 0),
@@ -954,6 +957,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
         invoice_number,
         total_amount,
         subtotal,
+        credit_applied,
         discount_amount,
         discount_reason,
         previous_balance,
@@ -1036,6 +1040,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       dvaBankName: invoice.students.provider_dva_bank_name || null,
       lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
       subtotal: Number(invoice.subtotal || 0),
+      creditApplied: Number(invoice.credit_applied || 0),
       discountAmount: Number(invoice.discount_amount || 0),
       discountReason: invoice.discount_reason || '',
       previousBalance: Number(invoice.previous_balance || 0),
@@ -1068,6 +1073,8 @@ export interface AllInvoiceRow {
   totalAmount: number
   paidAmount: number
   outstandingAmount: number
+  subtotal: number
+  creditApplied: number
   status: 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled'
   sentAt: string | null
   needsResend: boolean
@@ -1088,6 +1095,8 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
       total_amount,
       paid_amount,
       outstanding_amount,
+      subtotal,
+      credit_applied,
       status,
       sent_at,
       needs_resend,
@@ -1122,6 +1131,8 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
       totalAmount: total,
       paidAmount: paid,
       outstandingAmount: Number(inv.outstanding_amount ?? (total - paid)),
+      subtotal: Number(inv.subtotal || 0),
+      creditApplied: Number(inv.credit_applied || 0),
       status: inv.status,
       sentAt: inv.sent_at,
       needsResend: inv.needs_resend,

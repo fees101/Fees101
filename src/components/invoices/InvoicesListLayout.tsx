@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AllInvoiceRow } from '@/lib/queries/fees'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { useActiveJobs, useOnJobOpenRequested } from '@/lib/jobs/ActiveJobsProvider'
@@ -28,9 +28,18 @@ function statusBadge(inv: AllInvoiceRow) {
 
 export default function InvoicesListLayout({ invoices }: Props) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const canSeeInvoices = useCan('see-invoices')
   const canManageInvoices = useCan('manage-invoices')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // Pre-select a filter from a link elsewhere in the app (e.g. the dashboard's
+  // "invoices changed — not resent" KPI card) instead of always landing on
+  // 'all'.
+  const initialFilter = searchParams.get('filter')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+    initialFilter === 'needs_resend' || initialFilter === 'paid' || initialFilter === 'partial' || initialFilter === 'unpaid'
+      ? initialFilter
+      : 'all'
+  )
   const [termFilter, setTermFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
 
@@ -216,7 +225,14 @@ export default function InvoicesListLayout({ invoices }: Props) {
                             <span className="ml-1.5 text-xs text-gray-400">(closed)</span>
                           )}
                         </td>
-                        <td className="py-3 px-4 text-sm text-right text-navy">{formatNaira(inv.totalAmount)}</td>
+                        <td className="py-3 px-4 text-sm text-right text-navy">
+                          {formatNaira(inv.totalAmount)}
+                          {inv.creditApplied > 0 && (
+                            <p className="text-xs text-mint mt-0.5">
+                              − {formatNaira(inv.creditApplied)} credit
+                            </p>
+                          )}
+                        </td>
                         <td className="py-3 px-4 text-sm text-right">
                           <span className={inv.paidAmount > 0 ? 'text-mint font-medium' : 'text-gray-400'}>
                             {formatNaira(inv.paidAmount)}

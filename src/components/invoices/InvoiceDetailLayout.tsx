@@ -137,7 +137,13 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-500">Total</span>
-              <span className="text-sm font-bold text-navy">{formatNaira(invoice.totalAmount)}</span>
+              {invoice.creditApplied > 0 ? (
+                <span className="text-sm font-bold text-navy">
+                  {formatNaira(invoice.subtotal)} − {formatNaira(invoice.creditApplied)} credit = {formatNaira(invoice.totalAmount)}
+                </span>
+              ) : (
+                <span className="text-sm font-bold text-navy">{formatNaira(invoice.totalAmount)}</span>
+              )}
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-500">Paid</span>

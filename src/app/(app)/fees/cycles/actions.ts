@@ -422,6 +422,10 @@ interface CloseCarryForwardSummary {
   // per-invoice work finishes asynchronously and the job's own progress/
   // failures are what's authoritative once it completes.
   jobId: string | null
+  // Invoices in the term just closed that changed after being sent/paid and
+  // were never re-notified — recorded unconditionally, not gated on any
+  // confirm step, so closing with un-notified changes is always on record.
+  unnotifiedChangedCount: number
 }
 
 export async function closeTermAndCarryForward(
@@ -499,6 +503,13 @@ export async function closeTermAndCarryForward(
     }
   }
 
+  const { count: unnotifiedChangedCount } = await supabase
+    .from('invoices')
+    .select('id', { count: 'exact', head: true })
+    .eq('billing_cycle_id', cycleId)
+    .eq('school_id', schoolId)
+    .eq('needs_resend', true)
+
   // Fired now with the queued counts, not the job's eventual real counts —
   // matches term.closed/term.activated (the callers' own audit events),
   // which already log this same summary synchronously.
@@ -511,7 +522,7 @@ export async function closeTermAndCarryForward(
     summary: studentsWithOutstanding.length > 0
       ? `Closed term ${closedCycle?.name || cycleId} and carried forward outstanding balances for ${studentsWithOutstanding.length} student(s) (₦${totalOutstanding.toLocaleString()})`
       : `Closed term ${closedCycle?.name || cycleId} with no outstanding balances to carry forward`,
-    metadata: { studentsWithOutstanding: studentsWithOutstanding.length, totalOutstanding, invoicesUpdated, invoicesNeedingResend, jobId },
+    metadata: { studentsWithOutstanding: studentsWithOutstanding.length, totalOutstanding, invoicesUpdated, invoicesNeedingResend, jobId, unnotifiedChangedCount: unnotifiedChangedCount || 0 },
   })
 
   return {
@@ -520,6 +531,7 @@ export async function closeTermAndCarryForward(
     invoicesUpdated,
     invoicesNeedingResend,
     jobId,
+    unnotifiedChangedCount: unnotifiedChangedCount || 0,
   }
 }
 
@@ -633,6 +645,7 @@ type PreviewCloseTermResult =
       futureInvoicesToUpdateCount: number
       futureInvoicesNeedingResendCount: number
       hasFutureTerm: boolean
+      unnotifiedChangedCount: number
     }
 
 // Read-only preview shown in the close-term confirmation modal — no writes.
@@ -696,6 +709,17 @@ export async function previewCloseTerm(cycleId: string): Promise<PreviewCloseTer
     }
   }
 
+  // Invoices already changed and un-notified inside the term being closed —
+  // distinct from the future-term staleness above, which is about invoices
+  // this carry-forward write is *about to* make stale. This is the "did we
+  // leave someone in the dark before finalizing" check.
+  const { count: unnotifiedChangedCount } = await supabase
+    .from('invoices')
+    .select('id', { count: 'exact', head: true })
+    .eq('billing_cycle_id', cycleId)
+    .eq('school_id', schoolId)
+    .eq('needs_resend', true)
+
   return {
     success: true as const,
     hasOutstanding: studentsWithOutstanding.length > 0,
@@ -704,6 +728,7 @@ export async function previewCloseTerm(cycleId: string): Promise<PreviewCloseTer
     futureInvoicesToUpdateCount,
     futureInvoicesNeedingResendCount,
     hasFutureTerm,
+    unnotifiedChangedCount: unnotifiedChangedCount || 0,
   }
 }
 

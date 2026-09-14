@@ -12,6 +12,7 @@ export async function getDashboardKPIs() {
     { count: studentsCount },
     { count: pendingApprovalsCount },
     { count: myPendingRequestsCount },
+    { count: needsResendCount },
   ] = await Promise.all([
     supabase
       .from('billing_cycles')
@@ -41,6 +42,14 @@ export async function getDashboardKPIs() {
       .eq('school_id', schoolId)
       .eq('status', 'pending')
       .eq('requested_by', userId),
+    // School-wide, term-independent — a stale invoice in an older still-open
+    // term is exactly the kind of thing that gets missed if this were scoped
+    // to just the current cycle.
+    supabase
+      .from('invoices')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('needs_resend', true),
   ])
 
   // invoices + collected both depend on currentCycle, so they run after it.
@@ -78,6 +87,7 @@ export async function getDashboardKPIs() {
     collectionPercentage,
     pendingApprovalsCount: pendingApprovalsCount || 0,
     myPendingRequestsCount: myPendingRequestsCount || 0,
+    needsResendCount: needsResendCount || 0,
   }
 }
 
