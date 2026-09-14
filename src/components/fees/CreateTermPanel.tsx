@@ -17,6 +17,7 @@ interface Props {
     invoicesNeedingResend: number
     studentsWithCarryForward: number
     totalCarryForward: number
+    jobId: string | null
   } | null) => void
 }
 

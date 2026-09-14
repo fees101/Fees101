@@ -15,6 +15,7 @@ const JOB_PERMISSION: Record<JobType, string> = {
   csv_import: 'manage-students',
   bulk_dva: 'manage-payment-config',
   bulk_send: 'manage-invoices',
+  close_term: 'manage-fee-structure',
 }
 
 export async function POST(request: NextRequest) {

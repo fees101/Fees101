@@ -13,6 +13,7 @@ import { processCsvImportChunk, type ParsedRow } from '@/lib/students/csvImport'
 import { processBulkDVAChunk, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 import { processBulkSendChunk } from '@/lib/invoicing/sendInvoice'
+import { processCloseTermCarryForwardChunk, type CarryForwardInvoiceRow } from '@/lib/invoicing/closeTermCarryForward'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Advances one background_jobs row by as many chunks as fit in
@@ -36,6 +37,8 @@ export async function advanceJob(supabase: any, job: BackgroundJob): Promise<voi
     await advanceBulkDVA(supabase, job, started)
   } else if (job.job_type === 'bulk_send') {
     await advanceBulkSend(supabase, job, started)
+  } else if (job.job_type === 'close_term') {
+    await advanceCloseTerm(supabase, job, started)
   } else {
     throw new Error(`Unsupported job_type: ${job.job_type}`)
   }
@@ -260,6 +263,49 @@ async function advanceBulkSend(supabase: any, job: BackgroundJob, started: numbe
       metadata: { count: processed, failures: failed },
     })
 
+    revalidatePath('/invoices')
+
+    await completeJob(job.id)
+  }
+}
+
+async function advanceCloseTerm(supabase: any, job: BackgroundJob, started: number) {
+  const schoolId = job.school_id
+  const cycleId = job.payload.cycleId as string
+  const closedCycleName = (job.payload.closedCycleName as string) || cycleId
+  const studentsWithOutstanding = (job.payload.studentsWithOutstanding as number) || 0
+  const totalOutstanding = (job.payload.totalOutstanding as number) || 0
+  let invoices = (job.cursor.invoices as CarryForwardInvoiceRow[]) || []
+  let processed = job.processed
+  let failed = job.failed
+  const failures = [...job.failures]
+
+  while (invoices.length > 0 && Date.now() - started < JOB_TIME_BUDGET_MS) {
+    const slice = invoices.slice(0, CHUNK_SIZE)
+    const rest = invoices.slice(CHUNK_SIZE)
+
+    const result = await processCloseTermCarryForwardChunk(supabase, schoolId, slice)
+    processed += result.updated
+    failed += result.failures.length
+    failures.push(...result.failures)
+    invoices = rest
+
+    if (!(await updateJobProgress(job.id, { cursor: { invoices }, processed, failed, failures }))) return
+  }
+
+  if (invoices.length === 0) {
+    await logAuditEvent(supabase, {
+      schoolId,
+      actorId: job.created_by,
+      action: 'term.closed_carried_forward',
+      targetType: 'billing_cycle',
+      targetId: cycleId,
+      summary: `Finished carrying forward outstanding balances for ${studentsWithOutstanding} student(s) closing term ${closedCycleName} (₦${totalOutstanding.toLocaleString()}) — updated ${processed} invoice(s)${failed > 0 ? ` (${failed} failed)` : ''}`,
+      metadata: { studentsWithOutstanding, totalOutstanding, invoicesUpdated: processed, failed, errors: failures },
+    })
+
+    revalidatePath('/fees/cycles')
+    revalidatePath('/fees')
     revalidatePath('/invoices')
 
     await completeJob(job.id)

@@ -14,7 +14,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import Link from 'next/link'
 import { pollJob } from './pollJob'
 
-export type TrackedJobType = 'invoice_generation' | 'invoice_regeneration' | 'csv_import' | 'bulk_dva' | 'bulk_send'
+export type TrackedJobType = 'invoice_generation' | 'invoice_regeneration' | 'csv_import' | 'bulk_dva' | 'bulk_send' | 'close_term'
 
 export interface TrackedJob {
   jobId: string

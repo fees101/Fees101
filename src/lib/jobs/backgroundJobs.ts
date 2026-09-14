@@ -7,7 +7,7 @@ import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 // All writes go through the service-role client — see db/background_jobs.sql
 // for why the table has no client-facing INSERT/UPDATE policy.
 
-export type JobType = 'invoice_generation' | 'invoice_regeneration' | 'csv_import' | 'bulk_dva' | 'bulk_send'
+export type JobType = 'invoice_generation' | 'invoice_regeneration' | 'csv_import' | 'bulk_dva' | 'bulk_send' | 'close_term'
 export type JobStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface JobFailure {
@@ -37,7 +37,9 @@ export async function createJob(params: {
   jobType: JobType
   payload: Record<string, unknown>
   total: number
-  createdBy: string
+  // Null for a job kicked off with no session actor (e.g. the year-end
+  // rollover's server-driven continuation) — the column itself is nullable.
+  createdBy: string | null
   // Set the resume cursor at insert time instead of a separate update call
   // right after — halves the number of writes a flaky connection (corporate
   // proxy, dropped request) can silently eat between "job created" and

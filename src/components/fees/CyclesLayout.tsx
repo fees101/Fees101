@@ -9,6 +9,7 @@ import TermSelector from './TermSelector'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { activateTerm, deleteTermDraft, closeTerm, reopenTermAsDraft, previewCloseTerm } from '@/app/(app)/fees/cycles/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import { useActiveJobs } from '@/lib/jobs/ActiveJobsProvider'
 import { formatDate } from '@/lib/format/date'
 
 interface Props {
@@ -40,6 +41,18 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
   const searchParams = useSearchParams()
   const canRunYearEnd = useCan('run-year-end')
   const canManageFeeStructure = useCan('manage-fee-structure')
+  const { trackJob } = useActiveJobs()
+
+  // Carrying forward outstanding balances into future-term invoices can be
+  // handed off to a close_term background job (see closeTermAndCarryForward)
+  // when there's enough work to risk a timeout — track it so the floating
+  // chip shows live progress and a toast fires on completion, same as every
+  // other bulk job in the app.
+  function trackCloseTermJobIfAny(jobId: string | null | undefined, totalInvoices: number) {
+    if (!jobId) return
+    trackJob(jobId, 'close_term', 'Carrying forward balances', { total: totalInvoices }, undefined, { href: '/fees/cycles' })
+  }
+
 
   const [panelMode, setPanelMode] = useState<'create' | 'edit' | null>(null)
   const [editingCycle, setEditingCycle] = useState<CycleRow | null>(null)
@@ -195,6 +208,7 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
           setError(result.error)
         } else if (result.summary && result.summary.closedTermName) {
           setCarryForwardSummary({ mode: 'activated', ...result.summary })
+          trackCloseTermJobIfAny(result.summary.jobId, result.summary.invoicesUpdated)
           router.refresh()
         } else {
           router.refresh()
@@ -237,6 +251,7 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
         studentsWithCarryForward: result.summary.studentsWithOutstanding,
         totalCarryForward: result.summary.totalOutstanding,
       })
+      trackCloseTermJobIfAny(result.summary.jobId, result.summary.invoicesUpdated)
     }
     router.refresh()
   }
@@ -545,6 +560,7 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
               closePanel()
               if (summary && summary.closedTermName) {
                 setCarryForwardSummary({ mode: 'activated', ...summary })
+                trackCloseTermJobIfAny(summary.jobId, summary.invoicesUpdated)
               }
               router.refresh()
             }}

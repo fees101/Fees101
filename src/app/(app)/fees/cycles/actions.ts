@@ -184,6 +184,7 @@ type CreateTermResult =
         invoicesNeedingResend: number
         studentsWithCarryForward: number
         totalCarryForward: number
+        jobId: string | null
       } | null
       unmatchedAdjustments?: { studentId: string; feeItemName: string }[]
     }
@@ -322,6 +323,7 @@ export async function createTerm(form: {
       invoicesNeedingResend: closeSummary.invoicesNeedingResend,
       studentsWithCarryForward: closeSummary.studentsWithOutstanding,
       totalCarryForward: closeSummary.totalOutstanding,
+      jobId: closeSummary.jobId,
     } : null,
     unmatchedAdjustments,
   }
@@ -412,6 +414,14 @@ interface CloseCarryForwardSummary {
   totalOutstanding: number
   invoicesUpdated: number
   invoicesNeedingResend: number
+  // Set when the future-invoice recompute (the loop that risks a serverless
+  // timeout on a school with many outstanding students) was handed off to a
+  // background_jobs row instead of running inline. `invoicesUpdated`/
+  // `invoicesNeedingResend` above are the *queued* counts in that case (same
+  // numbers previewCloseTerm already shows before confirming) — the actual
+  // per-invoice work finishes asynchronously and the job's own progress/
+  // failures are what's authoritative once it completes.
+  jobId: string | null
 }
 
 export async function closeTermAndCarryForward(
@@ -449,6 +459,7 @@ export async function closeTermAndCarryForward(
 
   let invoicesUpdated = 0
   let invoicesNeedingResend = 0
+  let jobId: string | null = null
 
   if (studentsWithOutstanding.length > 0 && closedCycle) {
     const studentIds = studentsWithOutstanding.map((s: any) => s.studentId)
@@ -471,60 +482,26 @@ export async function closeTermAndCarryForward(
         .in('billing_cycle_id', futureCycleIds)
         .in('student_id', studentIds)
 
-      for (const inv of futureInvoices || []) {
-        // Undo whatever credit this invoice previously consumed before
-        // recomputing with the new carry-forward balance folded in.
-        const previouslyApplied = Number(inv.credit_applied || 0)
-        if (previouslyApplied > 0) {
-          await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, previouslyApplied)
-        }
+      if (futureInvoices && futureInvoices.length > 0) {
+        invoicesUpdated = futureInvoices.length
+        invoicesNeedingResend = futureInvoices.filter((i: any) => !!i.sent_at).length
 
-        const paid = Number(inv.paid_amount || 0)
-        // Pass inv.id so a manual one-off discount on this future-term invoice
-        // survives the recompute triggered by closing the current term.
-        const computed = await computeInvoiceForStudent(supabase, schoolId, inv.student_id, inv.billing_cycle_id, undefined, paid, inv.id)
-        if ('error' in computed) {
-          // Compute failed (e.g. the student was withdrawn/graduated before this
-          // close) — put back the credit we optimistically restored above, or it
-          // would be double-counted: sitting on the balance AND still marked
-          // credit_applied on this untouched invoice, duplicating every re-close.
-          if (previouslyApplied > 0) {
-            await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -previouslyApplied)
-          }
-          continue
-        }
-
-        let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
-        if (paid >= computed.total) newStatus = 'paid'
-        else if (paid > 0) newStatus = 'partial'
-
-        const wasSent = !!inv.sent_at
-
-        await supabase
-          .from('invoices')
-          .update({
-            line_items: computed.lineItems,
-            subtotal: computed.subtotal,
-            previous_balance: computed.previousBalance,
-            previous_balance_from_invoice_id: computed.previousInvoiceId,
-            credit_applied: computed.creditApplied,
-            total_amount: computed.total,
-            status: newStatus,
-            needs_resend: wasSent,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', inv.id)
-
-        if (computed.creditApplied > 0) {
-          await applyCreditBalanceDelta(supabase, schoolId, inv.student_id, -computed.creditApplied)
-        }
-
-        invoicesUpdated++
-        if (wasSent) invoicesNeedingResend++
+        const job = await createJob({
+          schoolId,
+          jobType: 'close_term',
+          payload: { cycleId, closedCycleName: closedCycle.name || cycleId, studentsWithOutstanding: studentsWithOutstanding.length, totalOutstanding },
+          total: futureInvoices.length,
+          createdBy: actorId || null,
+          cursor: { invoices: futureInvoices },
+        })
+        jobId = job.id
       }
     }
   }
 
+  // Fired now with the queued counts, not the job's eventual real counts —
+  // matches term.closed/term.activated (the callers' own audit events),
+  // which already log this same summary synchronously.
   await logAuditEvent(supabase, {
     schoolId,
     actorId: actorId || null,
@@ -534,7 +511,7 @@ export async function closeTermAndCarryForward(
     summary: studentsWithOutstanding.length > 0
       ? `Closed term ${closedCycle?.name || cycleId} and carried forward outstanding balances for ${studentsWithOutstanding.length} student(s) (₦${totalOutstanding.toLocaleString()})`
       : `Closed term ${closedCycle?.name || cycleId} with no outstanding balances to carry forward`,
-    metadata: { studentsWithOutstanding: studentsWithOutstanding.length, totalOutstanding, invoicesUpdated, invoicesNeedingResend },
+    metadata: { studentsWithOutstanding: studentsWithOutstanding.length, totalOutstanding, invoicesUpdated, invoicesNeedingResend, jobId },
   })
 
   return {
@@ -542,6 +519,7 @@ export async function closeTermAndCarryForward(
     totalOutstanding,
     invoicesUpdated,
     invoicesNeedingResend,
+    jobId,
   }
 }
 
@@ -640,6 +618,7 @@ export async function activateTerm(id: string) {
       invoicesNeedingResend: closeSummary?.invoicesNeedingResend || 0,
       studentsWithCarryForward: closeSummary?.studentsWithOutstanding || 0,
       totalCarryForward: closeSummary?.totalOutstanding || 0,
+      jobId: closeSummary?.jobId || null,
     },
   }
 }
