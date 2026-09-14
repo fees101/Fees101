@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { startInvoiceGenerationJob } from '@/app/(app)/fees/cycles/actions'
 import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
 
+
+
 interface Props {
   cycleId: string
   onClose: () => void
@@ -13,7 +15,7 @@ interface Props {
 
 export default function GenerateInvoicesPanel({ cycleId, onClose, onSuccess }: Props) {
   const router = useRouter()
-  const { trackJob, findRunningJob } = useActiveJobs()
+  const { trackJob, findRunningJob, cancelJob } = useActiveJobs()
   const existing = findRunningJob(j => j.jobType === 'invoice_generation' && j.meta?.cycleId === cycleId)
   const [jobId, setJobId] = useState<string | null>(existing?.jobId ?? null)
   const [startError, setStartError] = useState<string | null>(null)
@@ -84,6 +86,15 @@ export default function GenerateInvoicesPanel({ cycleId, onClose, onSuccess }: P
                   }}
                 />
               </div>
+              {jobId && (
+                <button
+                  onClick={() => cancelJob(jobId)}
+                  disabled={job?.cancelling}
+                  className="text-xs text-red-600 hover:underline disabled:opacity-50 disabled:no-underline"
+                >
+                  {job?.cancelling ? 'Cancelling...' : 'Cancel'}
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="mt-2 px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"

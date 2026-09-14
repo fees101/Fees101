@@ -29,7 +29,7 @@ type Step = 'upload' | 'review' | 'importing' | 'success'
 
 export default function CSVImportFlow() {
   const router = useRouter()
-  const { trackJob, findRunningJob } = useActiveJobs()
+  const { trackJob, findRunningJob, cancelJob } = useActiveJobs()
   const existingImportJob = findRunningJob(j => j.jobType === 'csv_import')
   const existingDvaJob = findRunningJob(j => j.jobType === 'bulk_dva')
   // Reopen straight to the progress view if either phase is already running
@@ -40,7 +40,7 @@ export default function CSVImportFlow() {
   const [summary, setSummary] = useState({ total: 0, valid: 0, invalid: 0 })
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [importResult, setImportResult] = useState<{ imported: number, failed: number, breakdown: Record<string, number>, accountsCreated: number } | null>(null)
+  const [importResult, setImportResult] = useState<{ imported: number, failed: number, breakdown: Record<string, number>, accountsCreated: number, dvaCancelled?: boolean } | null>(null)
   const [dragging, setDragging] = useState(false)
   const [jobId, setJobId] = useState<string | null>(existingImportJob?.jobId ?? null)
   const job = useTrackedJob(jobId)
@@ -65,6 +65,11 @@ export default function CSVImportFlow() {
     : dvaJob && dvaJob.status === 'running'
       ? { label: 'Creating payment accounts', done: dvaJob.processed, total: dvaJob.total }
       : null
+
+  // Whichever phase is currently running is the one Cancel should target —
+  // both are real background_jobs rows, so the same cancelJob works for
+  // either.
+  const activeJob = job?.status === 'running' ? job : dvaJob?.status === 'running' ? dvaJob : null
 
   async function handleFile(file: File) {
     setError(null)
@@ -162,6 +167,7 @@ export default function CSVImportFlow() {
       failed: prev?.failed ?? 0,
       breakdown: prev?.breakdown ?? {},
       accountsCreated: dvaJobFinished.status === 'failed' ? 0 : dvaJobFinished.processed,
+      dvaCancelled: dvaJobFinished.status === 'cancelled',
     }))
     setStep('success')
     router.refresh()
@@ -264,7 +270,11 @@ export default function CSVImportFlow() {
       )}
 
       {step === 'importing' && displayProgress && (
-        <ImportingStep progress={displayProgress} />
+        <ImportingStep
+          progress={displayProgress}
+          onCancel={activeJob ? () => cancelJob(activeJob.jobId) : undefined}
+          cancelling={!!activeJob?.cancelling}
+        />
       )}
 
         {step === 'success' && importResult && (
@@ -273,6 +283,7 @@ export default function CSVImportFlow() {
             failed={importResult.failed}
             breakdown={importResult.breakdown}
             accountsCreated={importResult.accountsCreated}
+            dvaCancelled={importResult.dvaCancelled}
             onViewStudents={() => router.push('/students')}
             onImportMore={handleStartOver}
         />
@@ -303,7 +314,11 @@ function StepIndicator({ number, label, status }: { number: number, label: strin
   )
 }
 
-function ImportingStep({ progress }: { progress: { label: string, done: number, total: number } }) {
+function ImportingStep({ progress, onCancel, cancelling }: {
+  progress: { label: string, done: number, total: number }
+  onCancel?: () => void
+  cancelling: boolean
+}) {
   const pct = progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0
   const isAccounts = progress.label.toLowerCase().includes('account')
 
@@ -354,6 +369,16 @@ function ImportingStep({ progress }: { progress: { label: string, done: number, 
         </div>
       </div>
       <p className="text-sm font-semibold text-navy mt-3">{progress.done} of {progress.total} · {pct}%</p>
+
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          disabled={cancelling}
+          className="mt-4 text-xs text-red-600 hover:underline disabled:opacity-50 disabled:no-underline"
+        >
+          {cancelling ? 'Cancelling...' : 'Cancel'}
+        </button>
+      )}
 
       {/* Two-phase stepper so they know where they are */}
       <div className="flex items-center justify-center gap-2 mt-6 text-xs">
@@ -651,11 +676,12 @@ function ReviewStep({ rows, summary, onConfirm, onCancel, loading, error }: {
   )
 }
 
-function SuccessStep({ imported, failed, breakdown, accountsCreated, onViewStudents, onImportMore }: {
+function SuccessStep({ imported, failed, breakdown, accountsCreated, dvaCancelled, onViewStudents, onImportMore }: {
   imported: number
   failed: number
   breakdown: Record<string, number>
   accountsCreated: number
+  dvaCancelled?: boolean
   onViewStudents: () => void
   onImportMore: () => void
 }) {
@@ -713,6 +739,12 @@ function SuccessStep({ imported, failed, breakdown, accountsCreated, onViewStude
       {failed > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-sm text-amber-800">
           {failed} {failed === 1 ? 'row' : 'rows'} could not be imported. Check your data and try again.
+        </div>
+      )}
+
+      {dvaCancelled && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-sm text-amber-800">
+          Payment account creation was cancelled — {accountsCreated} account{accountsCreated === 1 ? '' : 's'} created before stopping. You can create the rest from Students or Settings → Payments.
         </div>
       )}
 

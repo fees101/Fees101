@@ -96,12 +96,12 @@ export default function InvoicesListLayout({ invoices }: Props) {
           <h1 className="text-3xl font-bold text-navy">Invoices</h1>
           <p className="text-gray-500 mt-2 text-sm">Every invoice across every term</p>
         </div>
-        {canManageInvoices && counts.needsSend > 0 && (
+        {canManageInvoices && (counts.needsSend > 0 || sendRunning) && (
           <div className="text-right">
             <button
               onClick={() => setBulkSendOpen(true)}
-              disabled={bulkSendOpen || sendRunning}
-              title={sendRunning ? 'A send is already running — click to view its progress' : undefined}
+              disabled={bulkSendOpen && sendRunning}
+              title={sendRunning && !bulkSendOpen ? 'A send is already running — click to view its progress' : undefined}
               className="px-4 py-2 bg-mint text-navy rounded-lg text-sm font-semibold hover:bg-mint/90 disabled:opacity-50"
             >
               {sendRunning ? `Sending… (${existingJob.processed} sent)` : `Send all (${counts.needsSend})`}

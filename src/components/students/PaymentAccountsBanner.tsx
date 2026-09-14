@@ -42,8 +42,8 @@ export default function PaymentAccountsBanner({ studentsWithoutDvaCount }: Props
         </div>
         <button
           onClick={() => setPanelOpen(true)}
-          disabled={panelOpen || running}
-          title={running ? 'Account creation is already running — click to view progress' : undefined}
+          disabled={panelOpen && running}
+          title={running && !panelOpen ? 'Account creation is already running — click to view progress' : undefined}
           className="flex-shrink-0 px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50 text-center"
         >
           {running ? `Creating… (${existingJob.processed} done)` : 'Create accounts'}

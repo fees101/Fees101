@@ -110,14 +110,18 @@ export async function updateJobProgress(jobId: string, patch: {
     .from('background_jobs')
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', jobId)
-    // Only write while still 'running' — if a user cancelled mid-chunk, this
-    // update becomes a no-op (0 rows) instead of silently reviving a
-    // cancelled job with fresh progress. Callers check the return value and
-    // stop advancing (without calling completeJob) when it's false.
-    .eq('status', 'running')
-    .select('id')
+    // Write while 'running' OR 'cancelled' — a cancel can race in right after
+    // a chunk's work already happened (invoices/DVAs/students created in the
+    // DB), and dropping that chunk's count here would leave the displayed
+    // "processed" understating what's actually in the DB. The patch never
+    // includes `status`, so a cancelled row stays cancelled either way; only
+    // 'completed'/'failed' rows are excluded, so this can't revive those.
+    .in('status', ['running', 'cancelled'])
+    .select('status')
   if (error) throw new Error(error.message)
-  return (data?.length ?? 0) > 0
+  // Callers stop advancing (without calling completeJob) once this is false —
+  // true only when the row is still actually 'running' after the write.
+  return data?.[0]?.status === 'running'
 }
 
 export async function completeJob(jobId: string): Promise<void> {

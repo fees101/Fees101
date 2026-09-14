@@ -249,6 +249,11 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
   }, [])
 
   const runningJobs = Object.values(jobs).filter(j => j.status === 'running' && !hiddenChipIds.has(j.jobId))
+  const hiddenRunningJobs = Object.values(jobs).filter(j => j.status === 'running' && hiddenChipIds.has(j.jobId))
+
+  const restoreHiddenChips = useCallback(() => {
+    setHiddenChipIds(new Set())
+  }, [])
 
   // Memoized so a page that only reads trackJob/dismissJob/findRunningJob
   // (not jobs itself) doesn't re-render on every ~1.5s poll tick — jobs still
@@ -264,6 +269,15 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
     <ActiveJobsContext.Provider value={value}>
       {children}
       <div className="fixed bottom-6 right-6 z-[110] flex flex-col-reverse gap-3 items-end pointer-events-none max-w-[calc(100vw-3rem)]">
+        {hiddenRunningJobs.length > 0 && (
+          <button
+            onClick={restoreHiddenChips}
+            className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full shadow-lg border border-gray-200 bg-white text-xs font-medium text-gray-600 hover:bg-gray-50"
+          >
+            <div className="w-2.5 h-2.5 border-2 border-mint border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            {hiddenRunningJobs.length} hidden job{hiddenRunningJobs.length === 1 ? '' : 's'} running — Show
+          </button>
+        )}
         {runningJobs.map(j => {
           const pct = j.total > 0 ? Math.min(100, Math.round((j.processed / j.total) * 100)) : 0
           const inner = (
