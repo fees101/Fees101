@@ -14,7 +14,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import Link from 'next/link'
 import { pollJob } from './pollJob'
 
-export type TrackedJobType = 'invoice_generation' | 'invoice_regeneration' | 'csv_import' | 'bulk_dva'
+export type TrackedJobType = 'invoice_generation' | 'invoice_regeneration' | 'csv_import' | 'bulk_dva' | 'bulk_send'
 
 export interface TrackedJob {
   jobId: string
@@ -96,6 +96,12 @@ interface ToastEntry {
 export function ActiveJobsProvider({ children }: { children: React.ReactNode }) {
   const [jobs, setJobs] = useState<Record<string, TrackedJob>>({})
   const [toasts, setToasts] = useState<ToastEntry[]>([])
+  // Chips the user has hidden from the floating widget — the job underneath
+  // keeps running/polling either way. This is deliberately separate from
+  // cancelJob: hiding is "get this out of my way", cancel is "stop the job",
+  // and conflating them (the old single "x") made hiding a job look like it
+  // silently failed.
+  const [hiddenChipIds, setHiddenChipIds] = useState<Set<string>>(new Set())
   const polling = useRef<Set<string>>(new Set())
   // Per-job "notify me when this finishes" callback, invoked from the poll
   // promise's own resolution rather than a component effect watching state —
@@ -223,7 +229,11 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
     setToasts(t => t.filter(x => x.id !== id))
   }, [])
 
-  const runningJobs = Object.values(jobs).filter(j => j.status === 'running')
+  const hideChip = useCallback((jobId: string) => {
+    setHiddenChipIds(prev => new Set(prev).add(jobId))
+  }, [])
+
+  const runningJobs = Object.values(jobs).filter(j => j.status === 'running' && !hiddenChipIds.has(j.jobId))
 
   // Memoized so a page that only reads trackJob/dismissJob/findRunningJob
   // (not jobs itself) doesn't re-render on every ~1.5s poll tick — jobs still
@@ -252,12 +262,16 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
                   <div className="h-full bg-mint transition-all duration-500" style={{ width: `${pct}%` }} />
                 </div>
               </div>
+              {/* Hides the chip only — the job keeps running/polling in the
+                  background. Cancelling the actual job only happens from
+                  inside that job's own modal/panel, where it's an explicit,
+                  labelled action rather than a small corner "x" someone
+                  could mistake for "close this popup". */}
               <button
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelJob(j.jobId) }}
-                disabled={j.cancelling}
-                aria-label="Cancel"
-                title="Cancel"
-                className="p-1 -m-1 rounded-md text-gray-300 hover:text-gray-600 hover:bg-gray-50 flex-shrink-0 disabled:opacity-40"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); hideChip(j.jobId) }}
+                aria-label="Hide"
+                title="Hide (keeps running in the background)"
+                className="p-1 -m-1 rounded-md text-gray-300 hover:text-gray-600 hover:bg-gray-50 flex-shrink-0"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -266,8 +280,11 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
             </>
           )
           const cls = 'pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border border-gray-200 bg-white max-w-sm'
+          // Clicking the chip itself (not the hide "x") takes you back to the
+          // page that owns this job, so you can see full progress, failures
+          // so far, and the real Cancel button inside its modal/panel.
           return j.meta?.href ? (
-            <Link key={j.jobId} href={j.meta.href} className={`${cls} hover:bg-gray-50`}>
+            <Link key={j.jobId} href={j.meta.href} className={`${cls} hover:bg-gray-50 cursor-pointer`} title="View progress">
               {inner}
             </Link>
           ) : (

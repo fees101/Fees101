@@ -67,11 +67,11 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
     setSendResult(null)
     const r = await sendInvoice(invoice.id)
     setSending(false)
-    if (r.error) { setSendResult({ ok: false, message: r.error }); return }
+    if ('error' in r) { setSendResult({ ok: false, message: r.error }); return }
     const channelsUsed = r.channelsUsed || []
     setSendResult({
       ok: true,
-      message: `Sent to ${r.to} via ${channelsUsed.length ? channelsUsed.map((c) => CHANNEL_LABELS[c]).join(' + ') : 'unknown channel'}`,
+      message: `Sent to ${r.to} via ${channelsUsed.length ? channelsUsed.map((c: MessageChannel) => CHANNEL_LABELS[c]).join(' + ') : 'unknown channel'}`,
     })
     router.refresh()
   }

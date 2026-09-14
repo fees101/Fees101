@@ -44,10 +44,14 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
 
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
-  const [generatePanelOpen, setGeneratePanelOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { trackJob, findRunningJob } = useActiveJobs()
   const runningGeneration = findRunningJob(j => j.jobType === 'invoice_generation' && j.meta?.cycleId === cycle?.id)
+  // Reopen the panel automatically if generation is already running (e.g. the
+  // user navigated away with "Run in background" and came back via the
+  // floating progress chip) — the panel resumes tracking instead of
+  // re-starting.
+  const [generatePanelOpen, setGeneratePanelOpen] = useState(!!runningGeneration)
   const [regenerateJobId, setRegenerateJobId] = useState<string | null>(
     () => findRunningJob(j => j.jobType === 'invoice_regeneration' && j.meta?.cycleId === cycle?.id)?.jobId ?? null
   )
@@ -189,10 +193,13 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
           {!isClosed && canManageInvoices && (
             <button
               onClick={() => setGeneratePanelOpen(true)}
-              disabled={studentsWithoutInvoices.length === 0}
+              disabled={(studentsWithoutInvoices.length === 0 && !runningGeneration) || (generatePanelOpen && !!runningGeneration)}
+              title={runningGeneration && !generatePanelOpen ? 'Generation is already running — click to view its progress' : undefined}
               className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
             >
-              {hasInvoices ? `Generate for ${studentsWithoutInvoices.length} new` : `Generate invoices`}
+              {runningGeneration
+                ? `Generating… (${runningGeneration.processed}/${runningGeneration.total || '?'})`
+                : hasInvoices ? `Generate for ${studentsWithoutInvoices.length} new` : `Generate invoices`}
             </button>
           )}
         </div>
@@ -410,9 +417,13 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
           {!isClosed && canManageInvoices && (
             <button
               onClick={() => setGeneratePanelOpen(true)}
-              className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
+              disabled={generatePanelOpen && !!runningGeneration}
+              title={runningGeneration && !generatePanelOpen ? 'Generation is already running — click to view its progress' : undefined}
+              className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
             >
-              Generate invoices
+              {runningGeneration
+                ? `Generating… (${runningGeneration.processed}/${runningGeneration.total || '?'})`
+                : 'Generate invoices'}
             </button>
           )}
         </div>

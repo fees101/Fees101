@@ -7,7 +7,7 @@ import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 // All writes go through the service-role client — see db/background_jobs.sql
 // for why the table has no client-facing INSERT/UPDATE policy.
 
-export type JobType = 'invoice_generation' | 'invoice_regeneration' | 'csv_import' | 'bulk_dva'
+export type JobType = 'invoice_generation' | 'invoice_regeneration' | 'csv_import' | 'bulk_dva' | 'bulk_send'
 export type JobStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface JobFailure {

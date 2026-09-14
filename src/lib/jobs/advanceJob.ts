@@ -12,6 +12,7 @@ import {
 import { processCsvImportChunk, type ParsedRow } from '@/lib/students/csvImport'
 import { processBulkDVAChunk, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
+import { processBulkSendChunk } from '@/lib/invoicing/sendInvoice'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Advances one background_jobs row by as many chunks as fit in
@@ -33,6 +34,8 @@ export async function advanceJob(supabase: any, job: BackgroundJob): Promise<voi
     await advanceCsvImport(supabase, job, started)
   } else if (job.job_type === 'bulk_dva') {
     await advanceBulkDVA(supabase, job, started)
+  } else if (job.job_type === 'bulk_send') {
+    await advanceBulkSend(supabase, job, started)
   } else {
     throw new Error(`Unsupported job_type: ${job.job_type}`)
   }
@@ -218,6 +221,46 @@ async function advanceBulkDVA(supabase: any, job: BackgroundJob, started: number
 
     revalidatePath('/settings/payments')
     revalidatePath('/students')
+
+    await completeJob(job.id)
+  }
+}
+
+async function advanceBulkSend(supabase: any, job: BackgroundJob, started: number) {
+  const schoolId = job.school_id
+  let invoiceIds = (job.cursor.invoiceIds as string[]) || []
+  let processed = job.processed
+  let failed = job.failed
+  const failures = [...job.failures]
+
+  // Consume the cursor a chunk at a time, removing each slice whether or not
+  // its invoices succeeded — so the checklist always empties and the job
+  // ends, instead of the old bug where "remaining" was recomputed from a
+  // live query and a persistently-failing invoice kept it above zero forever.
+  while (invoiceIds.length > 0 && Date.now() - started < JOB_TIME_BUDGET_MS) {
+    const slice = invoiceIds.slice(0, CHUNK_SIZE)
+    const rest = invoiceIds.slice(CHUNK_SIZE)
+
+    const result = await processBulkSendChunk(supabase, schoolId, slice)
+    processed += result.sent
+    failed += result.failed
+    failures.push(...result.failures)
+    invoiceIds = rest
+
+    if (!(await updateJobProgress(job.id, { cursor: { invoiceIds }, processed, failed, failures }))) return
+  }
+
+  if (invoiceIds.length === 0) {
+    await logAuditEvent(supabase, {
+      schoolId,
+      actorId: job.created_by,
+      action: 'invoice.sent_bulk',
+      targetType: 'invoice',
+      summary: `Bulk-sent ${processed} invoice${processed === 1 ? '' : 's'}${failed ? ` (${failed} failed)` : ''}`,
+      metadata: { count: processed, failures: failed },
+    })
+
+    revalidatePath('/invoices')
 
     await completeJob(job.id)
   }

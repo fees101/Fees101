@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { savePaymentProvider, testPaymentConnection } from '@/app/(app)/settings/payments/actions'
 import { startBulkDVAJob } from '@/app/(app)/students/[id]/actions'
-import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
+import { useActiveJobs, useTrackedJob, type TrackedJob } from '@/lib/jobs/ActiveJobsProvider'
 import type { PaymentSettings } from '@/lib/queries/payments'
 
 interface Props {
@@ -29,10 +29,11 @@ export default function PaymentSettingsForm({ settings, webhookBase }: Props) {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const { trackJob } = useActiveJobs()
-  const [dvaJobId, setDvaJobId] = useState<string | null>(null)
+  const { trackJob, findRunningJob } = useActiveJobs()
+  const existingDvaJob = findRunningJob(j => j.jobType === 'bulk_dva')
+  const [dvaJobId, setDvaJobId] = useState<string | null>(existingDvaJob?.jobId ?? null)
   const dvaJob = useTrackedJob(dvaJobId)
-  const [creatingAll, setCreatingAll] = useState(false)
+  const [creatingAll, setCreatingAll] = useState(!!existingDvaJob)
   const [bulkResult, setBulkResult] = useState<
     { ok: false; message: string } | { ok: true; created: number; failed: number; failures: { name: string; error: string }[] } | null
   >(null)
@@ -89,6 +90,38 @@ export default function PaymentSettingsForm({ settings, webhookBase }: Props) {
     )
   }
 
+  function finalizeAfterDva(finished: TrackedJob) {
+    setCreatingAll(false)
+    if (finished.status === 'failed') {
+      setBulkResult({ ok: false, message: finished.error || 'Something went wrong' })
+      return
+    }
+    if (finished.status === 'cancelled') {
+      setBulkResult({ ok: false, message: `Cancelled — ${finished.processed} account${finished.processed === 1 ? '' : 's'} created before stopping.` })
+      router.refresh()
+      return
+    }
+    setBulkResult({
+      ok: true,
+      created: finished.processed,
+      failed: finished.failed ?? 0,
+      failures: (finished.failures ?? []).map(f => ({ name: f.label, error: f.error })),
+    })
+    router.refresh()
+  }
+
+  // If this instance resumed an already-running job instead of starting one
+  // itself, the trackJob onComplete below was registered by a previous, now
+  // unmounted instance and won't fire here — without this, a resumed page
+  // would sit on "Creating accounts..." forever once the job finishes.
+  const resumedDvaRef = useRef(!!existingDvaJob)
+  useEffect(() => {
+    if (!resumedDvaRef.current || !dvaJob || dvaJob.status === 'running') return
+    resumedDvaRef.current = false
+    finalizeAfterDva(dvaJob)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dvaJob])
+
   async function handleCreateAll() {
     setCreatingAll(true)
     setBulkResult(null)
@@ -106,25 +139,7 @@ export default function PaymentSettingsForm({ settings, webhookBase }: Props) {
     }
 
     setDvaJobId(start.jobId)
-    trackJob(start.jobId, 'bulk_dva', 'Creating payment accounts', { processed: start.processed, total: start.total }, (finished) => {
-      setCreatingAll(false)
-      if (finished.status === 'failed') {
-        setBulkResult({ ok: false, message: finished.error || 'Something went wrong' })
-        return
-      }
-      if (finished.status === 'cancelled') {
-        setBulkResult({ ok: false, message: `Cancelled — ${finished.processed} account${finished.processed === 1 ? '' : 's'} created before stopping.` })
-        router.refresh()
-        return
-      }
-      setBulkResult({
-        ok: true,
-        created: finished.processed,
-        failed: finished.failed ?? 0,
-        failures: (finished.failures ?? []).map(f => ({ name: f.label, error: f.error })),
-      })
-      router.refresh()
-    })
+    trackJob(start.jobId, 'bulk_dva', 'Creating payment accounts', { processed: start.processed, total: start.total }, (finished) => finalizeAfterDva(finished), { href: '/settings/payments' })
   }
 
   async function copyWebhook() {
@@ -280,6 +295,7 @@ export default function PaymentSettingsForm({ settings, webhookBase }: Props) {
             <button
               onClick={handleCreateAll}
               disabled={creatingAll || settings.studentsWithoutDvaCount === 0}
+              title={creatingAll ? 'Account creation is already running' : undefined}
               className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
             >
               {creatingAll

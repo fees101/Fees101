@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { parseAndValidateCSV, startCsvImportJob } from '@/app/(app)/students/import/actions'
 import { startBulkDVAJob } from '@/app/(app)/students/[id]/actions'
-import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
+import { useActiveJobs, useTrackedJob, type TrackedJob } from '@/lib/jobs/ActiveJobsProvider'
 
 interface ParsedRow {
   rowNumber: number
@@ -29,17 +29,22 @@ type Step = 'upload' | 'review' | 'importing' | 'success'
 
 export default function CSVImportFlow() {
   const router = useRouter()
-  const { trackJob } = useActiveJobs()
-  const [step, setStep] = useState<Step>('upload')
+  const { trackJob, findRunningJob } = useActiveJobs()
+  const existingImportJob = findRunningJob(j => j.jobType === 'csv_import')
+  const existingDvaJob = findRunningJob(j => j.jobType === 'bulk_dva')
+  // Reopen straight to the progress view if either phase is already running
+  // (e.g. the user navigated away with "Run in background" and came back) —
+  // otherwise the review step would resurface and look re-submittable.
+  const [step, setStep] = useState<Step>(existingImportJob || existingDvaJob ? 'importing' : 'upload')
   const [rows, setRows] = useState<ParsedRow[]>([])
   const [summary, setSummary] = useState({ total: 0, valid: 0, invalid: 0 })
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [importResult, setImportResult] = useState<{ imported: number, failed: number, breakdown: Record<string, number>, accountsCreated: number } | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobId, setJobId] = useState<string | null>(existingImportJob?.jobId ?? null)
   const job = useTrackedJob(jobId)
-  const [dvaJobId, setDvaJobId] = useState<string | null>(null)
+  const [dvaJobId, setDvaJobId] = useState<string | null>(existingDvaJob?.jobId ?? null)
   const dvaJob = useTrackedJob(dvaJobId)
   const validRowsRef = useRef<ParsedRow[]>([])
 
@@ -98,6 +103,87 @@ export default function CSVImportFlow() {
     }
   }
 
+  async function finalizeAfterImport(finishedJob: TrackedJob) {
+    if (finishedJob.status === 'failed') {
+      setError(finishedJob.error || 'Import failed')
+      setStep('review')
+      return
+    }
+    if (finishedJob.status === 'cancelled') {
+      setError(`Cancelled — ${finishedJob.processed} student${finishedJob.processed === 1 ? '' : 's'} imported before stopping.`)
+      setStep('review')
+      router.refresh()
+      return
+    }
+
+    const failedRowNumbers = new Set(
+      (finishedJob.failures || [])
+        .map(f => parseInt(f.label.replace('Row ', ''), 10))
+        .filter(n => !isNaN(n))
+    )
+    const breakdown: Record<string, number> = {}
+    for (const row of validRowsRef.current) {
+      if (!failedRowNumbers.has(row.rowNumber)) {
+        breakdown[row.className] = (breakdown[row.className] || 0) + 1
+      }
+    }
+
+    const finish = (accountsCreated: number) => {
+      setImportResult({ imported: finishedJob.processed, failed: finishedJob.failed ?? 0, breakdown, accountsCreated })
+      setStep('success')
+      router.refresh()
+    }
+
+    // Phase 2 — automatically provision payment accounts for the students who
+    // now need one (the just-imported ones, plus any earlier stragglers). If
+    // payments aren't configured, startBulkDVAJob returns an error and we
+    // simply skip this phase.
+    const dvaStart = await startBulkDVAJob()
+    if ('error' in dvaStart || !dvaStart.jobId) {
+      finish(0)
+      return
+    }
+
+    setDvaJobId(dvaStart.jobId)
+    trackJob(dvaStart.jobId, 'bulk_dva', 'Creating payment accounts', {
+      processed: dvaStart.processed,
+      total: dvaStart.total,
+    }, (dvaJobFinished) => finalizeAfterDva(dvaJobFinished), { href: '/students/import' })
+  }
+
+  function finalizeAfterDva(dvaJobFinished: TrackedJob) {
+    setImportResult(prev => ({
+      imported: prev?.imported ?? 0,
+      failed: prev?.failed ?? 0,
+      breakdown: prev?.breakdown ?? {},
+      accountsCreated: dvaJobFinished.status === 'failed' ? 0 : dvaJobFinished.processed,
+    }))
+    setStep('success')
+    router.refresh()
+  }
+
+  // If this instance resumed an already-running job (rather than starting
+  // one itself), the trackJob onComplete callbacks below were registered by
+  // a previous, now-unmounted instance of this component and won't fire
+  // here — without this, a resumed page would sit on the progress spinner
+  // forever once the job finishes, needing a manual refresh to notice.
+  const resumedImportRef = useRef(!!existingImportJob)
+  const resumedDvaRef = useRef(!!existingDvaJob)
+
+  useEffect(() => {
+    if (!resumedImportRef.current || !job || job.status === 'running') return
+    resumedImportRef.current = false
+    finalizeAfterImport(job)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job])
+
+  useEffect(() => {
+    if (!resumedDvaRef.current || !dvaJob || dvaJob.status === 'running') return
+    resumedDvaRef.current = false
+    finalizeAfterDva(dvaJob)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dvaJob])
+
   async function handleConfirmImport() {
     setError(null)
     setStep('importing')
@@ -116,55 +202,7 @@ export default function CSVImportFlow() {
     trackJob(start.jobId, 'csv_import', 'Importing students', {
       processed: start.processed ?? 0,
       total: start.total ?? validRows.length,
-    }, async (finishedJob) => {
-      if (finishedJob.status === 'failed') {
-        setError(finishedJob.error || 'Import failed')
-        setStep('review')
-        return
-      }
-      if (finishedJob.status === 'cancelled') {
-        setError(`Cancelled — ${finishedJob.processed} student${finishedJob.processed === 1 ? '' : 's'} imported before stopping.`)
-        setStep('review')
-        router.refresh()
-        return
-      }
-
-      const failedRowNumbers = new Set(
-        (finishedJob.failures || [])
-          .map(f => parseInt(f.label.replace('Row ', ''), 10))
-          .filter(n => !isNaN(n))
-      )
-      const breakdown: Record<string, number> = {}
-      for (const row of validRowsRef.current) {
-        if (!failedRowNumbers.has(row.rowNumber)) {
-          breakdown[row.className] = (breakdown[row.className] || 0) + 1
-        }
-      }
-
-      const finish = (accountsCreated: number) => {
-        setImportResult({ imported: finishedJob.processed, failed: finishedJob.failed ?? 0, breakdown, accountsCreated })
-        setStep('success')
-        router.refresh()
-      }
-
-      // Phase 2 — automatically provision payment accounts for the students who
-      // now need one (the just-imported ones, plus any earlier stragglers). If
-      // payments aren't configured, startBulkDVAJob returns an error and we
-      // simply skip this phase.
-      const dvaStart = await startBulkDVAJob()
-      if ('error' in dvaStart || !dvaStart.jobId) {
-        finish(0)
-        return
-      }
-
-      setDvaJobId(dvaStart.jobId)
-      trackJob(dvaStart.jobId, 'bulk_dva', 'Creating payment accounts', {
-        processed: dvaStart.processed,
-        total: dvaStart.total,
-      }, (dvaJobFinished) => {
-        finish(dvaJobFinished.status === 'failed' ? 0 : dvaJobFinished.processed)
-      })
-    })
+    }, (finishedJob) => finalizeAfterImport(finishedJob), { href: '/students/import' })
   }
 
   function handleStartOver() {

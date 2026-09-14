@@ -3,8 +3,9 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { AllInvoiceRow } from '@/lib/queries/fees'
-import { bulkSendInvoices } from '@/app/(app)/invoices/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
+import BulkSendInvoicesPanel from '@/components/invoices/BulkSendInvoicesPanel'
 
 interface Props {
   invoices: AllInvoiceRow[]
@@ -32,45 +33,16 @@ export default function InvoicesListLayout({ invoices }: Props) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [termFilter, setTermFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
-  const [sending, setSending] = useState(false)
-  const [sendProgress, setSendProgress] = useState<{ sent: number; failed: number } | null>(null)
-  const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null)
 
-  async function handleBulkSend() {
-    if (!confirm(`Send ${counts.needsSend} unsent/needs-resend invoice(s) now?`)) return
-    setSending(true)
-    setSendResult(null)
-    setSendProgress({ sent: 0, failed: 0 })
-
-    let totalSent = 0
-    let totalFailed = 0
-    const allErrors: string[] = []
-
-    // Loop in batches (rather than one giant request) so a large school
-    // never hits a serverless function timeout, and the bonus PDF emails get
-    // spread across multiple requests instead of firing all at once.
-    while (true) {
-      const r = await bulkSendInvoices()
-      if ('error' in r) { setSendResult({ ok: false, message: r.error }); break }
-      totalSent += r.sent
-      totalFailed += r.failed
-      allErrors.push(...r.errors.map(e => e.error))
-      setSendProgress({ sent: totalSent, failed: totalFailed })
-      if (r.remaining === 0) {
-        setSendResult({
-          ok: totalFailed === 0,
-          message: totalFailed === 0
-            ? `Sent ${totalSent} invoice(s).`
-            : `Sent ${totalSent}, failed ${totalFailed}: ${allErrors.join('; ')}`,
-        })
-        break
-      }
-    }
-
-    setSending(false)
-    setSendProgress(null)
-    router.refresh()
-  }
+  const { findRunningJob } = useActiveJobs()
+  const existingJob = findRunningJob(j => j.jobType === 'bulk_send')
+  const [jobId] = useState<string | null>(existingJob?.jobId ?? null)
+  // Reopen the modal automatically if a send is already running (e.g. the
+  // user navigated away with "Run in background" and came back) — the panel
+  // itself resumes tracking the existing job instead of starting a new one.
+  const [bulkSendOpen, setBulkSendOpen] = useState(!!existingJob)
+  const job = useTrackedJob(jobId)
+  const sendRunning = job?.status === 'running'
 
   const terms = useMemo(() => {
     const seen = new Map<string, string>()
@@ -121,18 +93,20 @@ export default function InvoicesListLayout({ invoices }: Props) {
         {canManageInvoices && counts.needsSend > 0 && (
           <div className="text-right">
             <button
-              onClick={handleBulkSend}
-              disabled={sending}
+              onClick={() => setBulkSendOpen(true)}
+              disabled={bulkSendOpen || sendRunning}
+              title={sendRunning ? 'A send is already running — click to view its progress' : undefined}
               className="px-4 py-2 bg-mint text-navy rounded-lg text-sm font-semibold hover:bg-mint/90 disabled:opacity-50"
             >
-              {sending ? `Sending… (${sendProgress?.sent ?? 0} sent)` : `Send all (${counts.needsSend})`}
+              {sendRunning ? `Sending… (${job.processed} sent)` : `Send all (${counts.needsSend})`}
             </button>
-            {sendResult && (
-              <p className={`text-xs mt-1 max-w-xs ${sendResult.ok ? 'text-mint' : 'text-red-600'}`}>{sendResult.message}</p>
-            )}
           </div>
         )}
       </header>
+
+      {bulkSendOpen && (
+        <BulkSendInvoicesPanel count={counts.needsSend} onClose={() => setBulkSendOpen(false)} />
+      )}
 
       {invoices.length === 0 ? (
         <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
