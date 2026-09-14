@@ -203,6 +203,25 @@ export async function processBulkSendChunk(
   const errorsByInvoiceId: Record<string, string> = {}
 
   for (const invoiceId of invoiceIds) {
+    // Resume-safety: this job's cursor can replay a slice after a mid-chunk
+    // kill (function timeout/crash before updateJobProgress advanced it), and
+    // sendInvoiceCore does NOT guard against re-sending (the single-invoice
+    // "resend" button deliberately relies on that). So re-read fresh here and
+    // skip anything already sent and not flagged for resend — otherwise a
+    // resumed slice would dispatch duplicate texts/emails for invoices already
+    // sent in the killed run. Count it as sent (it is), so the total stays
+    // honest across a resume.
+    const { data: cur } = await supabase
+      .from('invoices')
+      .select('sent_at, needs_resend')
+      .eq('id', invoiceId)
+      .eq('school_id', schoolId)
+      .maybeSingle()
+    if (cur && cur.sent_at && !cur.needs_resend) {
+      sent++
+      continue
+    }
+
     const result = await sendInvoiceCore(supabase, schoolId, invoiceId)
     if ('error' in result) {
       failedIds.push(invoiceId)
