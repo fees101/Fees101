@@ -1,11 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST() {
   const supabase = await createClient()
   await supabase.auth.signOut()
-  redirect('/login')
+  // Return a normal response — NOT redirect(). redirect() throws NEXT_REDIRECT,
+  // which aborts the response before signOut()'s cleared auth cookies are
+  // flushed as Set-Cookie headers, leaving the session cookie alive (the user
+  // stays signed in / can't switch accounts). The client (UserMenu.handleLogout)
+  // navigates to /login itself after this fetch resolves, so no redirect is needed.
+  return NextResponse.json({ ok: true })
 }
 
 // GET variant used by the (app) layout to bounce a deactivated / scheduled-for-
