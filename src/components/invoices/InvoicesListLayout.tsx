@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { AllInvoiceRow } from '@/lib/queries/fees'
 import { useCan } from '@/lib/auth/PermissionsProvider'
-import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
+import { useActiveJobs, useOnJobOpenRequested } from '@/lib/jobs/ActiveJobsProvider'
 import BulkSendInvoicesPanel from '@/components/invoices/BulkSendInvoicesPanel'
 
 interface Props {
@@ -35,14 +35,20 @@ export default function InvoicesListLayout({ invoices }: Props) {
   const [search, setSearch] = useState('')
 
   const { findRunningJob } = useActiveJobs()
+  // Re-derived every render (not frozen in useState) so the button stays
+  // disabled with a live "Sending..." label for as long as the job is
+  // actually running — including after the panel below has been closed via
+  // "Run in background", when this component is the only thing left tracking
+  // whether a send is still in flight.
   const existingJob = findRunningJob(j => j.jobType === 'bulk_send')
-  const [jobId] = useState<string | null>(existingJob?.jobId ?? null)
   // Reopen the modal automatically if a send is already running (e.g. the
   // user navigated away with "Run in background" and came back) — the panel
   // itself resumes tracking the existing job instead of starting a new one.
   const [bulkSendOpen, setBulkSendOpen] = useState(!!existingJob)
-  const job = useTrackedJob(jobId)
-  const sendRunning = job?.status === 'running'
+  const sendRunning = !!existingJob
+  // Clicking the chip while already on this page doesn't navigate anywhere,
+  // so force the panel open explicitly rather than relying on a remount.
+  useOnJobOpenRequested(existingJob?.jobId, () => setBulkSendOpen(true))
 
   const terms = useMemo(() => {
     const seen = new Map<string, string>()
@@ -98,7 +104,7 @@ export default function InvoicesListLayout({ invoices }: Props) {
               title={sendRunning ? 'A send is already running — click to view its progress' : undefined}
               className="px-4 py-2 bg-mint text-navy rounded-lg text-sm font-semibold hover:bg-mint/90 disabled:opacity-50"
             >
-              {sendRunning ? `Sending… (${job.processed} sent)` : `Send all (${counts.needsSend})`}
+              {sendRunning ? `Sending… (${existingJob.processed} sent)` : `Send all (${counts.needsSend})`}
             </button>
           </div>
         )}

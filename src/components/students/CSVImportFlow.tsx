@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { parseAndValidateCSV, startCsvImportJob } from '@/app/(app)/students/import/actions'
 import { startBulkDVAJob } from '@/app/(app)/students/[id]/actions'
-import { useActiveJobs, useTrackedJob, type TrackedJob } from '@/lib/jobs/ActiveJobsProvider'
+import { useActiveJobs, useTrackedJob, useOnJobOpenRequested, type TrackedJob } from '@/lib/jobs/ActiveJobsProvider'
 
 interface ParsedRow {
   rowNumber: number
@@ -46,6 +46,11 @@ export default function CSVImportFlow() {
   const job = useTrackedJob(jobId)
   const [dvaJobId, setDvaJobId] = useState<string | null>(existingDvaJob?.jobId ?? null)
   const dvaJob = useTrackedJob(dvaJobId)
+  // Clicking the chip while already on this page doesn't navigate anywhere,
+  // so force the progress view open explicitly rather than relying on a
+  // remount.
+  useOnJobOpenRequested(existingImportJob?.jobId, () => setStep('importing'))
+  useOnJobOpenRequested(existingDvaJob?.jobId, () => setStep('importing'))
   const validRowsRef = useRef<ParsedRow[]>([])
 
   // Phase 1 (student import) and phase 2 (account provisioning) both run as

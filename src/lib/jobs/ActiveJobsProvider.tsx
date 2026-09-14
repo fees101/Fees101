@@ -64,6 +64,14 @@ interface ActiveJobsValue {
   // TrackedJob.cancelling — the existing poll loop picks up the real
   // 'cancelled' status once the server applies it.
   cancelJob: (jobId: string) => void
+  // Set by the floating chip's click handler. Navigating to a different page
+  // (meta.href) already reopens that page's panel via its own
+  // findRunningJob-seeded initial state — but clicking a chip while already
+  // on the page that owns the job is not a navigation at all, so nothing
+  // would otherwise happen. Owning components call useOnJobOpenRequested to
+  // notice this and force their panel open explicitly.
+  openRequest: { jobId: string; nonce: number } | null
+  requestOpenJob: (jobId: string) => void
 }
 
 const ActiveJobsContext = createContext<ActiveJobsValue | null>(null)
@@ -102,6 +110,8 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
   // and conflating them (the old single "x") made hiding a job look like it
   // silently failed.
   const [hiddenChipIds, setHiddenChipIds] = useState<Set<string>>(new Set())
+  const [openRequest, setOpenRequest] = useState<{ jobId: string; nonce: number } | null>(null)
+  const openNonce = useRef(0)
   const polling = useRef<Set<string>>(new Set())
   // Per-job "notify me when this finishes" callback, invoked from the poll
   // promise's own resolution rather than a component effect watching state —
@@ -233,6 +243,11 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
     setHiddenChipIds(prev => new Set(prev).add(jobId))
   }, [])
 
+  const requestOpenJob = useCallback((jobId: string) => {
+    openNonce.current += 1
+    setOpenRequest({ jobId, nonce: openNonce.current })
+  }, [])
+
   const runningJobs = Object.values(jobs).filter(j => j.status === 'running' && !hiddenChipIds.has(j.jobId))
 
   // Memoized so a page that only reads trackJob/dismissJob/findRunningJob
@@ -241,8 +256,8 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
   // page cares about is running, but it stops the churn from bleeding into
   // every other mounted page in the app for jobs they don't track.
   const value = useMemo(
-    () => ({ jobs, trackJob, dismissJob, findRunningJob, cancelJob }),
-    [jobs, trackJob, dismissJob, findRunningJob, cancelJob]
+    () => ({ jobs, trackJob, dismissJob, findRunningJob, cancelJob, openRequest, requestOpenJob }),
+    [jobs, trackJob, dismissJob, findRunningJob, cancelJob, openRequest, requestOpenJob]
   )
 
   return (
@@ -283,8 +298,17 @@ export function ActiveJobsProvider({ children }: { children: React.ReactNode }) 
           // Clicking the chip itself (not the hide "x") takes you back to the
           // page that owns this job, so you can see full progress, failures
           // so far, and the real Cancel button inside its modal/panel.
+          // requestOpenJob also fires so a page that's already mounted (no
+          // navigation happens, or the owning panel was closed) forces its
+          // panel open in response, instead of the click doing nothing.
           return j.meta?.href ? (
-            <Link key={j.jobId} href={j.meta.href} className={`${cls} hover:bg-gray-50 cursor-pointer`} title="View progress">
+            <Link
+              key={j.jobId}
+              href={j.meta.href}
+              onClick={() => requestOpenJob(j.jobId)}
+              className={`${cls} hover:bg-gray-50 cursor-pointer`}
+              title="View progress"
+            >
               {inner}
             </Link>
           ) : (
@@ -330,4 +354,26 @@ export function useActiveJobs() {
 export function useTrackedJob(jobId: string | null | undefined): TrackedJob | undefined {
   const { jobs } = useActiveJobs()
   return jobId ? jobs[jobId] : undefined
+}
+
+// Lets a job's owning panel/modal force itself open when the floating chip
+// for that exact job is clicked. Navigating to a different page is already
+// handled by that page seeding its initial open-state from findRunningJob —
+// this hook only needs to fire for the case that isn't a navigation at all:
+// the chip's owning page is already mounted, so clicking it wouldn't
+// otherwise do anything.
+export function useOnJobOpenRequested(jobId: string | null | undefined, onOpen: () => void) {
+  const { openRequest } = useActiveJobs()
+  const handledNonce = useRef(0)
+  const onOpenRef = useRef(onOpen)
+  useEffect(() => {
+    onOpenRef.current = onOpen
+  })
+
+  useEffect(() => {
+    if (!jobId || !openRequest || openRequest.jobId !== jobId) return
+    if (openRequest.nonce === handledNonce.current) return
+    handledNonce.current = openRequest.nonce
+    onOpenRef.current()
+  }, [openRequest, jobId])
 }

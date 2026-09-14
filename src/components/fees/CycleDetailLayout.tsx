@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { CycleDetailData, InvoiceRow } from '@/lib/queries/fees'
 import GenerateInvoicesPanel from './GenerateInvoicesPanel'
 import { regenerateInvoice, startInvoiceRegenerationJob } from '@/app/(app)/fees/cycles/actions'
-import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
+import { useActiveJobs, useTrackedJob, useOnJobOpenRequested } from '@/lib/jobs/ActiveJobsProvider'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { formatDate } from '@/lib/format/date'
 
@@ -52,6 +52,10 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
   // floating progress chip) — the panel resumes tracking instead of
   // re-starting.
   const [generatePanelOpen, setGeneratePanelOpen] = useState(!!runningGeneration)
+  // Clicking the chip while already on this cycle's page doesn't navigate
+  // anywhere, so force the panel open explicitly rather than relying on a
+  // remount.
+  useOnJobOpenRequested(runningGeneration?.jobId, () => setGeneratePanelOpen(true))
   const [regenerateJobId, setRegenerateJobId] = useState<string | null>(
     () => findRunningJob(j => j.jobType === 'invoice_regeneration' && j.meta?.cycleId === cycle?.id)?.jobId ?? null
   )
