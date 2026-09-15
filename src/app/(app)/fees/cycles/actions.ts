@@ -276,7 +276,7 @@ export async function createTerm(form: {
   if (form.rollForwardFromCycleId && newCycle) {
     const { data: sourceFees } = await supabase
       .from('fee_items')
-      .select('class_id, name, amount, is_mandatory, is_optional_extra, display_order')
+      .select('class_id, name, amount, is_mandatory, is_optional_extra, is_discountable, is_recurring, display_order')
       .eq('billing_cycle_id', form.rollForwardFromCycleId)
       .eq('school_id', schoolId)
 
@@ -289,6 +289,8 @@ export async function createTerm(form: {
         amount: f.amount,
         is_mandatory: f.is_mandatory,
         is_optional_extra: f.is_optional_extra,
+        is_discountable: f.is_discountable,
+        is_recurring: f.is_recurring,
         display_order: f.display_order || 0,
       }))
       await supabase.from('fee_items').insert(newFees)
