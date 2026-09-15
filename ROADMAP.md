@@ -59,14 +59,14 @@ Legend: `[ ]` not started · `[~]` partial/in progress · `[x]` done
 
 **⬜ Still to test:**
 - [ ] **Opt-in/opt-out UX (toggle, confirm, toast, send-confirm)** — toggle switch, confirm dialog on opt-in, toast on both, confirm before parent-facing send (`6194d6f`). **Un-checked 2026-09-15, same reason — not yet actually run through the browser.**
-- [ ] **True clawback is hard-blocked** — set up a paid invoice where removing a fee would drop the total *below* what's already paid; opt-out/regenerate must be **blocked** with the "manual refund/credit reconciliation" message, and the invoice must NOT change. *(needs backend staging — ask me to set the state)* (`5e2b9a1`)
-- [ ] **Opt-out on a truly-locked PAID invoice → credit choice** — the locked case offers "defer to next term" + **[Credit it to their balance] / [Leave as-is — service was used]** dialog (`ed45f9f`). *(needs the same staged clawback state)*
+- [x] **True clawback is hard-blocked** — a paid invoice where removing a fee would drop the total below what's paid is blocked, invoice untouched (Test 5). **Verified in-browser 2026-09-15.** (`5e2b9a1`)
+- [x] **Opt-out on a truly-locked PAID invoice → credit choice** — the locked case defers to next term + offers **[Credit it to their balance] / [Leave as-is]** (Test 5, verified via Samuel Eze — his Second Term invoice shows the ₦20k credit applied). **Verified in-browser 2026-09-15.** (`ed45f9f`)
 - [ ] **Send a receipt on a fully-paid invoice** — on a `paid` invoice the button reads **"Send receipt"** (mint) and sends a real receipt, not a ₦0 invoice (`b4e6015`). *(Ifeoma must be fully paid first)*
 - [ ] **Recurring vs one-time optional fee** — mark an optional fee "one-time"; it must NOT reappear on the next term's invoice, while a "recurring" one does (`226b95b`, `2b8a5df`; `is_recurring` migration confirmed applied)
 - [ ] **Sibling/discountable opt-in recompute** — opt a student who has an active sibling/staff discount into a *discountable* optional fee; the new line must get its share of the discount, not bill at full price (`36b5167`)
-- [ ] **Close First Term → carry-forward** — close First Term with outstanding balances; each student's unpaid balance carries into Second Term's invoice; with enough students it runs as a `close_term` background job with live progress (`closeTermAndCarryForward` job; **confirm `db/add_close_term_job_type.sql` was run**)
-- [ ] **Closed-term resend / carry-forward display** — after close, a carried invoice with a successor **blocks** resend and shows the carry-forward destination; a no-successor closed invoice (graduated/withdrawn student) **stays** sendable and is picked up by bulk send + reminders (`b6fe6d1`, `dfdfbb8`)
-- [ ] **Request discount blocked on a superseded closed invoice** — "Request discount" is blocked (with successor named) on a carried closed-term invoice, but allowed on a no-successor closed invoice (`726d277`)
+- [x] **Close First Term → carry-forward** — closed First Term; each student's unpaid balance carried into Second Term's invoice (Adeyemi ₦100k = ₦50k tuition + ₦50k carry). **Verified in-browser 2026-09-15 (Test 6).** (`closeTermAndCarryForward` job)
+- [x] **Closed-term resend / carry-forward display** — carried invoice with a successor blocks resend and shows the carry-forward destination (Test 6). **Verified in-browser 2026-09-15.** (`b6fe6d1`, `dfdfbb8`)
+- [x] **Request discount blocked on a superseded closed invoice** — blocked with successor named on a carried closed-term invoice (Test 7). **Verified in-browser 2026-09-15.** (`726d277`)
 - [ ] **Regenerate-all progress accuracy** — "Regenerate all" targets only stale invoices and reports correct N/N (no more "regenerated 1/5" when only 1 was stale) (`b82dd01`)
 - [ ] **Logout / switch users** — after logout the session is actually cleared so a different user can sign in (`7d9ffcf`)
 
