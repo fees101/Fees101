@@ -4,6 +4,7 @@ import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 import { MessageChannel } from '@/lib/messaging/types'
 import { sendInvoiceCore } from '@/lib/invoicing/sendInvoice'
+import { sendReceiptCore } from '@/lib/invoicing/sendReceipt'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 
 async function getContext() {
@@ -34,6 +35,36 @@ export async function sendInvoice(
     targetId: invoiceId,
     summary: `Sent the invoice for ${result.studentName} via ${result.channelsUsed.join(', ') || 'no channel'}`,
     metadata: { studentId: result.studentId, channelsUsed: result.channelsUsed, outstanding: result.outstanding, channelOverride },
+  })
+
+  return {
+    success: true,
+    channelsUsed: result.channelsUsed,
+    to: result.to,
+    preview: result.preview,
+  }
+}
+
+export async function sendReceipt(
+  invoiceId: string
+): Promise<{ error: string } | { success: true; channelsUsed: MessageChannel[]; to: string; preview: string }> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const result = await sendReceiptCore(supabase, schoolId, invoiceId)
+  if ('error' in result) return result
+
+  revalidatePath(`/invoices/${invoiceId}`)
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.receipt_sent',
+    targetType: 'invoice',
+    targetId: invoiceId,
+    summary: `Sent a payment receipt via ${result.channelsUsed.join(', ') || 'no channel'}`,
+    metadata: { channelsUsed: result.channelsUsed },
   })
 
   return {

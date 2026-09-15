@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { InvoiceDetail } from '@/lib/queries/fees'
 import { formatPaymentMethod } from '@/lib/paymentMethod'
-import { sendInvoice } from '@/app/(app)/invoices/[id]/actions'
+import { sendInvoice, sendReceipt } from '@/app/(app)/invoices/[id]/actions'
 import { MessageChannel } from '@/lib/messaging/types'
 import RequestDiscountModal from '@/components/invoices/RequestDiscountModal'
 import Toast from '@/components/ui/Toast'
@@ -76,12 +76,26 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
     router.refresh()
   }
 
-  // The primary send button doubles as the resend affordance. If the invoice
-  // changed after it was last sent (e.g. a discount was approved), turn it
-  // amber so the admin can tell at a glance the parent is holding a stale
-  // figure and needs the updated one.
-  const sendLabel = invoice.sentAt ? 'Resend to parent' : 'Send to parent'
-  const sendBtnClass = invoice.needsResend
+  async function handleSendReceipt() {
+    setSending(true)
+    setSendResult(null)
+    const r = await sendReceipt(invoice.id)
+    setSending(false)
+    if ('error' in r) { setSendResult({ ok: false, message: r.error }); return }
+    const channelsUsed = r.channelsUsed || []
+    setSendResult({
+      ok: true,
+      message: `Receipt sent to ${r.to} via ${channelsUsed.length ? channelsUsed.map((c: MessageChannel) => CHANNEL_LABELS[c]).join(' + ') : 'unknown channel'}`,
+    })
+    router.refresh()
+  }
+
+  // A fully-paid invoice has nothing due, so "send the invoice" would read as
+  // a NGN0 bill — send a payment receipt instead. Balance-remaining invoices
+  // keep the normal invoice send.
+  const isFullyPaid = invoice.status === 'paid'
+  const sendLabel = isFullyPaid ? 'Send receipt' : invoice.sentAt ? 'Resend to parent' : 'Send to parent'
+  const sendBtnClass = !isFullyPaid && invoice.needsResend
     ? 'bg-amber-500 text-white hover:bg-amber-600'
     : 'bg-mint text-navy hover:bg-mint/90'
 
@@ -289,10 +303,10 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
 
             {canSendInvoice && !invoice.carriedForwardToCycleName && (
               <button
-                onClick={handleSend}
+                onClick={isFullyPaid ? handleSendReceipt : handleSend}
                 disabled={sending}
                 className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 ${sendBtnClass}`}
-                title={invoice.needsResend ? 'The invoice changed since it was last sent — resend to update the parent' : 'Sends via SMS'}
+                title={isFullyPaid ? 'Sends a payment receipt via SMS/email' : invoice.needsResend ? 'The invoice changed since it was last sent — resend to update the parent' : 'Sends via SMS'}
               >
                 <span className="flex items-center gap-2">
                   <ChannelIcons />
@@ -307,6 +321,8 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
               <p className="text-xs text-gray-500">
                 This balance carried forward to <span className="font-medium text-navy">{invoice.carriedForwardToCycleName}</span> automatically — send that invoice instead.
               </p>
+            ) : isFullyPaid ? (
+              <p className="text-xs text-gray-500">Fully paid — send a receipt any time, on request</p>
             ) : invoice.needsResend ? (
               <p className="text-xs text-amber-700">Invoice changed since it was last sent — resend to update the parent</p>
             ) : invoice.sentAt ? (
