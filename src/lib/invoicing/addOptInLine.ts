@@ -103,7 +103,11 @@ export async function applyOptInAdditionToLiveInvoice(
       discount_amount: newDiscountAmount,
       discount_reason: discountReason,
       total_amount: newTotal,
-      outstanding_amount: Number(invoice.outstanding_amount) + amount - discountDelta,
+      // NOTE: outstanding_amount is a GENERATED column (total_amount - paid_amount).
+      // Writing it directly makes Postgres reject the ENTIRE update, which the
+      // swallowed `if (error) return { applied: false }` below turned into a silent
+      // no-op — the reason additive opt-in never actually applied. It recomputes
+      // itself from the new total_amount, so it must NOT be set here.
       status: newStatus,
       // Only a genuine "update" if it was already sent — an invoice that
       // hasn't gone out yet has nothing to resend.
