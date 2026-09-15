@@ -74,3 +74,55 @@ export async function sendReceipt(
     preview: result.preview,
   }
 }
+
+export async function cancelInvoice(
+  invoiceId: string
+): Promise<{ error: string } | { success: true }> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: invoice } = await supabase
+    .from('invoices')
+    .select('id, invoice_number, status, total_amount, paid_amount, credit_applied, student_id, students(first_name, last_name)')
+    .eq('id', invoiceId)
+    .eq('school_id', schoolId)
+    .single()
+
+  if (!invoice) return { error: 'Invoice not found.' }
+  if (invoice.status === 'cancelled') return { error: 'This invoice is already cancelled.' }
+  if (invoice.status === 'paid') return { error: 'A fully paid invoice cannot be cancelled.' }
+  // Money already landed on this invoice (part-payment or credit) — cancelling
+  // it outright would silently orphan that money. The admin needs to sort out
+  // a refund or credit adjustment first, not have this button do it for them.
+  if (Number(invoice.paid_amount || 0) > 0 || Number(invoice.credit_applied || 0) > 0) {
+    return { error: 'This invoice has a payment or credit applied — resolve that first (refund or credit adjustment) before cancelling.' }
+  }
+
+  const { error } = await supabase
+    .from('invoices')
+    .update({ status: 'cancelled' })
+    .eq('id', invoiceId)
+    .eq('school_id', schoolId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath(`/invoices/${invoiceId}`)
+  revalidatePath('/invoices')
+  revalidatePath(`/students/${invoice.student_id}`)
+
+  const student = invoice.students as unknown as { first_name: string; last_name: string } | null
+  const studentName = student ? `${student.first_name} ${student.last_name}`.trim() : invoice.student_id
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.cancelled',
+    targetType: 'invoice',
+    targetId: invoiceId,
+    summary: `Cancelled ${invoice.invoice_number ? `invoice ${invoice.invoice_number}` : 'an invoice'} for ${studentName} (₦${Number(invoice.total_amount).toLocaleString()}, unpaid)`,
+    metadata: { studentId: invoice.student_id, totalAmount: Number(invoice.total_amount) },
+  })
+
+  return { success: true }
+}
+

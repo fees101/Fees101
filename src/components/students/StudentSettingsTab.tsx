@@ -9,6 +9,7 @@ import {
   updateStudentStatus,
   getClassesList
 } from '@/app/(app)/students/[id]/actions'
+import { cancelInvoice } from '@/app/(app)/invoices/[id]/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface Student {
@@ -562,17 +563,84 @@ function ConfirmStatusModal({ studentId, studentName, action, onClose, onConfirm
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [outcome, setOutcome] = useState<{
+    openInvoices: { id: string; invoiceNumber: string | null; totalAmount: number; outstandingAmount: number }[]
+    invoicesNeedingReview: { id: string; invoiceNumber: string | null }[]
+  } | null>(null)
+  const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set())
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
 
   async function handleConfirm() {
     setError(null)
     setLoading(true)
     const result = await updateStudentStatus(studentId, action)
-    if (result.error) {
+    setLoading(false)
+    if ('error' in result) {
       setError(result.error)
-      setLoading(false)
+      return
+    }
+    if (result.openInvoices.length > 0 || result.invoicesNeedingReview.length > 0) {
+      setOutcome({ openInvoices: result.openInvoices, invoicesNeedingReview: result.invoicesNeedingReview })
       return
     }
     onConfirmed()
+  }
+
+  async function handleCancelInvoice(invoiceId: string) {
+    setCancellingId(invoiceId)
+    const result = await cancelInvoice(invoiceId)
+    setCancellingId(null)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setCancelledIds(prev => new Set(prev).add(invoiceId))
+  }
+
+  if (outcome) {
+    return (
+      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold text-navy mb-2">{studentName} marked as {action}</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              This student has an invoice for the current term. Decide what to do with it — leave it open if the parent may still finish paying, or cancel it if not.
+            </p>
+            {error && <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
+            {outcome.openInvoices.map(inv => {
+              const isCancelled = cancelledIds.has(inv.id)
+              return (
+                <div key={inv.id} className="mb-3 p-3 border border-gray-200 rounded-lg flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-navy">{inv.invoiceNumber || 'Invoice'}</p>
+                    <p className="text-xs text-gray-500">₦{inv.outstandingAmount.toLocaleString()} outstanding of ₦{inv.totalAmount.toLocaleString()}</p>
+                  </div>
+                  {isCancelled ? (
+                    <span className="text-xs font-medium text-red-700 shrink-0">Cancelled</span>
+                  ) : (
+                    <button
+                      onClick={() => handleCancelInvoice(inv.id)}
+                      disabled={cancellingId === inv.id}
+                      className="px-3 py-1.5 border border-red-300 text-red-700 text-xs font-medium rounded-lg hover:bg-red-50 disabled:opacity-50 shrink-0"
+                    >
+                      {cancellingId === inv.id ? 'Cancelling...' : 'Cancel invoice'}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+            {outcome.invoicesNeedingReview.length > 0 && (
+              <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                {outcome.invoicesNeedingReview.length === 1 ? 'This student has an invoice' : `This student has ${outcome.invoicesNeedingReview.length} invoices`} for this term with a payment or credit already applied, so it can&apos;t be cancelled here. Review it and issue a refund or credit if needed.
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2 mt-2">
+              <button onClick={onConfirmed} className="px-4 py-2 bg-navy text-white text-sm font-semibold rounded-lg hover:bg-navy/90">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -583,8 +651,8 @@ function ConfirmStatusModal({ studentId, studentName, action, onClose, onConfirm
             Mark {studentName} as {action}?
           </h3>
           <p className="text-sm text-gray-600 mb-4">
-            {action === 'withdrawn' 
-              ? 'This student will no longer appear in active lists. You can reverse this from the Settings tab later.' 
+            {action === 'withdrawn'
+              ? 'This student will no longer appear in active lists. You can reverse this from the Settings tab later.'
               : 'This student will be moved to the graduates archive. You can reverse this from the Settings tab later.'}
           </p>
           {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}

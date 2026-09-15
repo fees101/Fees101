@@ -88,7 +88,7 @@ export async function getFeesOverview(cycleId?: string) {
     const [{ data: invoices }, collected] = await Promise.all([
       supabase
         .from('invoices')
-        .select('total_amount, paid_amount, credit_applied, student_id')
+        .select('total_amount, paid_amount, credit_applied, student_id, status')
         .eq('billing_cycle_id', cycle.id),
       // Collected = real money received while this term was active, by
       // payment date — not what's allocated to this term's invoices. See
@@ -96,14 +96,18 @@ export async function getFeesOverview(cycleId?: string) {
       getCollectedForDateRange(supabase, schoolId, cycle.start_date, cycle.end_date),
     ])
 
+    // A cancelled invoice (e.g. a withdrawn student's stray term invoice)
+    // owes nothing and was never really billed — exclude it from both
+    // sums rather than let it inflate expected/outstanding forever.
+    const liveInvoices = (invoices || []).filter((inv: any) => inv.status !== 'cancelled')
     // Expected = gross fees for the term = net total plus whatever credit
     // covered part of it (total_amount is already net of credit_applied).
-    totalExpectedThisTerm = invoices?.reduce((sum: number, inv: any) => sum + Number(inv.total_amount) + Number(inv.credit_applied || 0), 0) || 0
+    totalExpectedThisTerm = liveInvoices.reduce((sum: number, inv: any) => sum + Number(inv.total_amount) + Number(inv.credit_applied || 0), 0)
     // Outstanding = what's still owed on these invoices (net total minus
     // direct payments). Always invoice-derived — NEVER expected minus
     // collected, which goes negative once date-based collected exceeds
     // what's been billed so far.
-    totalOutstanding = invoices?.reduce((sum: number, inv: any) => sum + Math.max(0, Number(inv.total_amount) - Number(inv.paid_amount || 0)), 0) || 0
+    totalOutstanding = liveInvoices.reduce((sum: number, inv: any) => sum + Math.max(0, Number(inv.total_amount) - Number(inv.paid_amount || 0)), 0)
     studentsWithInvoices = invoices?.length || 0
     totalCollected = collected
   }
@@ -402,7 +406,7 @@ export async function getAllCycles(): Promise<CycleRow[]> {
     // Get invoice stats per cycle (expected/count/outstanding — collected is payment-date-based, below)
     supabase
       .from('invoices')
-      .select('billing_cycle_id, total_amount, paid_amount, credit_applied')
+      .select('billing_cycle_id, total_amount, paid_amount, credit_applied, status')
       .in('billing_cycle_id', cycleIds),
     // Collected is attributed by payment date, not invoice allocation — fetch
     // every matched payment once and bucket into whichever cycle's date range
@@ -423,6 +427,10 @@ export async function getAllCycles(): Promise<CycleRow[]> {
   invoices?.forEach((inv: any) => {
     const stat = invoiceStats[inv.billing_cycle_id] ||= { count: 0, expected: 0, outstanding: 0, studentsWithOutstanding: 0 }
     stat.count++
+    // A cancelled invoice (e.g. a withdrawn student's stray term invoice)
+    // still counts toward "invoiced" but owes nothing — kept out of the
+    // financial totals below.
+    if (inv.status === 'cancelled') return
     // total_amount is already net of credit_applied (computeInvoiceForStudent
     // sets total = amountDue - creditApplied) — add it back so "expected"
     // reflects the gross fee actually due, not the post-credit remainder.
@@ -717,8 +725,11 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
 
   // Reuse the getAllCycles shape for cycle stats. totalAmount is already net
   // of creditApplied, so expected (the gross fee due) has to add it back.
-  const totalExpected = invoices.reduce((s, i) => s + i.totalAmount + i.creditApplied, 0)
-  const totalOutstanding = invoices.reduce((s, i) => s + Math.max(0, i.totalAmount - i.paidAmount), 0)
+  // A cancelled invoice (e.g. a withdrawn student's stray term invoice)
+  // owes nothing — excluded here so it doesn't inflate either figure.
+  const liveInvoices = invoices.filter(i => i.status !== 'cancelled')
+  const totalExpected = liveInvoices.reduce((s, i) => s + i.totalAmount + i.creditApplied, 0)
+  const totalOutstanding = liveInvoices.reduce((s, i) => s + Math.max(0, i.totalAmount - i.paidAmount), 0)
   // totalCollected was fetched in parallel above.
 
   const cycle: CycleRow = {

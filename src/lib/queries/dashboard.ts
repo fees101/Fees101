@@ -70,10 +70,13 @@ export async function getDashboardKPIs() {
   // Must match the definition used by getCollectionByClass / getAllCycles /
   // getCycleDetailById / getFeesOverview, or this KPI tile silently disagrees
   // with the collection-by-class chart on the same dashboard.
-  const totalExpected = invoices?.reduce((sum, inv) => sum + Number(inv.total_amount) + Number(inv.credit_applied || 0), 0) || 0
+  // A cancelled invoice (e.g. a withdrawn student's stray term invoice)
+  // owes nothing — excluded so it doesn't inflate either figure.
+  const liveInvoices = (invoices || []).filter(inv => inv.status !== 'cancelled')
+  const totalExpected = liveInvoices.reduce((sum, inv) => sum + Number(inv.total_amount) + Number(inv.credit_applied || 0), 0)
   // Outstanding is what's still genuinely owed on these invoices — an
   // allocation concept, independent of when any of it was actually paid.
-  const totalOutstanding = invoices?.reduce((sum, inv) => sum + Number(inv.outstanding_amount ?? (Number(inv.total_amount) - Number(inv.paid_amount))), 0) || 0
+  const totalOutstanding = liveInvoices.reduce((sum, inv) => sum + Number(inv.outstanding_amount ?? (Number(inv.total_amount) - Number(inv.paid_amount))), 0)
   const collectionPercentage = totalExpected > 0
     ? Math.round((totalCollected / totalExpected) * 100)
     : 0
@@ -137,7 +140,7 @@ export async function getCollectionByClass() {
   const [{ data: invoices }, { data: payments }] = await Promise.all([
     supabase
       .from('invoices')
-      .select('total_amount, paid_amount, credit_applied, students(class_id)')
+      .select('total_amount, paid_amount, credit_applied, status, students(class_id)')
       .eq('school_id', schoolId)
       .eq('billing_cycle_id', currentCycle.id),
     supabase
@@ -150,10 +153,10 @@ export async function getCollectionByClass() {
   ])
 
   const classData = classes.map(cls => {
-    const classInvoices = invoices?.filter(
+    const classInvoices = (invoices?.filter(
       // @ts-expect-error — students is joined object
       (inv) => inv.students?.class_id === cls.id
-    ) || []
+    ) || []).filter(inv => inv.status !== 'cancelled')
     const classPayments = payments?.filter(
       // @ts-expect-error — students is joined object
       (p) => p.students?.class_id === cls.id

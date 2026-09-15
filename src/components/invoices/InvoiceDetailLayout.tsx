@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { InvoiceDetail } from '@/lib/queries/fees'
 import { formatPaymentMethod } from '@/lib/paymentMethod'
-import { sendInvoice, sendReceipt } from '@/app/(app)/invoices/[id]/actions'
+import { sendInvoice, sendReceipt, cancelInvoice } from '@/app/(app)/invoices/[id]/actions'
 import { MessageChannel } from '@/lib/messaging/types'
 import RequestDiscountModal from '@/components/invoices/RequestDiscountModal'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
@@ -60,6 +60,9 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
   const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [discountModalOpen, setDiscountModalOpen] = useState(false)
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const pendingDiscount = invoice.pendingDiscount
   const canSendInvoice = useCan('manage-invoices')
   const canRequestDiscount = useCan('request-discounts')
@@ -93,6 +96,23 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
     })
     router.refresh()
   }
+
+  async function handleCancelInvoice() {
+    setCancelling(true)
+    setCancelError(null)
+    const r = await cancelInvoice(invoice.id)
+    setCancelling(false)
+    setCancelConfirmOpen(false)
+    if ('error' in r) { setCancelError(r.error); return }
+    router.refresh()
+  }
+
+  // An untouched, unpaid invoice can be cancelled outright — e.g. a stray
+  // term invoice left over after a student was withdrawn. Anything with a
+  // payment or credit already applied needs a refund/credit decision first,
+  // so it's not offered here (cancelInvoice enforces the same rule server-side).
+  const canCancelInvoice = canSendInvoice && invoice.status !== 'cancelled' && invoice.status !== 'paid'
+    && invoice.paidAmount <= 0 && invoice.creditApplied <= 0
 
   // A fully-paid invoice has nothing due, so "send the invoice" would read as
   // a NGN0 bill — send a payment receipt instead. Balance-remaining invoices
@@ -413,10 +433,35 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
                 Discount requested{pendingDiscount.requestedByName ? ` by ${pendingDiscount.requestedByName}` : ''} on {formatDate(pendingDiscount.requestedAt)} — awaiting admin approval
               </p>
             )}
+            {canCancelInvoice && (
+              <button
+                onClick={() => setCancelConfirmOpen(true)}
+                className="w-full flex items-center justify-between px-4 py-2.5 border border-red-200 rounded-lg text-sm text-red-700 font-medium hover:bg-red-50"
+              >
+                Cancel invoice
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+            {cancelError && (
+              <Toast message={cancelError} ok={false} onDismiss={() => setCancelError(null)} />
+            )}
           </div>
 
         </div>
       </div>
+
+      {cancelConfirmOpen && (
+        <ConfirmDialog
+          title="Cancel this invoice?"
+          message={`This voids the ${formatNaira(invoice.totalAmount)} invoice for ${invoice.studentFirstName} ${invoice.studentLastName} — it's excluded from outstanding/expected totals from then on. Use this when the student won't be paying it (e.g. withdrawn). This cannot be undone from here.`}
+          confirmLabel={cancelling ? 'Cancelling...' : 'Cancel invoice'}
+          onConfirm={handleCancelInvoice}
+          onCancel={() => setCancelConfirmOpen(false)}
+          destructive
+        />
+      )}
 
       {discountModalOpen && (
         <RequestDiscountModal

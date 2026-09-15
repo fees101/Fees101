@@ -149,7 +149,17 @@ export async function updateFamilyNotes(familyId: string, studentId: string, not
   return { success: true }
 }
 
-export async function updateStudentStatus(studentId: string, status: 'withdrawn' | 'graduated') {
+export async function updateStudentStatus(
+  studentId: string,
+  status: 'withdrawn' | 'graduated'
+): Promise<
+  | { error: string }
+  | {
+      success: true
+      openInvoices: { id: string; invoiceNumber: string | null; totalAmount: number; outstandingAmount: number }[]
+      invoicesNeedingReview: { id: string; invoiceNumber: string | null }[]
+    }
+> {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -173,6 +183,39 @@ export async function updateStudentStatus(studentId: string, status: 'withdrawn'
 
   if (error) return { error: error.message }
 
+  // A student marked withdrawn/graduated mid-term may already have an
+  // invoice on the current active cycle — generated before the admin got
+  // round to updating their status. They won't be billed again going
+  // forward (invoice generation only pulls active students), but that
+  // invoice doesn't get touched automatically: the school may still want
+  // the parent to finish paying what's owed for the term. Surface it so
+  // the admin decides — cancel it, or leave it open and collectible.
+  const { data: openInvoicesRaw } = await supabase
+    .from('invoices')
+    .select('id, invoice_number, total_amount, paid_amount, credit_applied, billing_cycles!inner(status)')
+    .eq('student_id', studentId)
+    .eq('school_id', schoolId)
+    .eq('billing_cycles.status', 'active')
+    .in('status', ['pending', 'partial', 'overdue'])
+
+  const openInvoices: { id: string; invoiceNumber: string | null; totalAmount: number; outstandingAmount: number }[] = []
+  const invoicesNeedingReview: { id: string; invoiceNumber: string | null }[] = []
+  for (const inv of openInvoicesRaw || []) {
+    const untouched = Number(inv.paid_amount || 0) <= 0 && Number(inv.credit_applied || 0) <= 0
+    if (untouched) {
+      openInvoices.push({
+        id: inv.id,
+        invoiceNumber: inv.invoice_number,
+        totalAmount: Number(inv.total_amount),
+        outstandingAmount: Number(inv.total_amount) - Number(inv.paid_amount || 0),
+      })
+    } else {
+      // Payment or credit already applied — cancelling isn't a clean option
+      // here (see cancelInvoice's guard), just flag it for manual review.
+      invoicesNeedingReview.push({ id: inv.id, invoiceNumber: inv.invoice_number })
+    }
+  }
+
   const studentName = currentStudent ? `${currentStudent.first_name} ${currentStudent.last_name}`.trim() : studentId
   await logAuditEvent(supabase, {
     schoolId,
@@ -181,13 +224,19 @@ export async function updateStudentStatus(studentId: string, status: 'withdrawn'
     targetType: 'student',
     targetId: studentId,
     summary: `Changed ${studentName}'s status from ${currentStudent?.status || 'unknown'} to ${status}`,
-    metadata: { oldStatus: currentStudent?.status || null, newStatus: status },
+    metadata: {
+      oldStatus: currentStudent?.status || null,
+      newStatus: status,
+      openInvoiceIds: openInvoices.map(i => i.id),
+      invoicesNeedingReview: invoicesNeedingReview.map(i => i.id),
+    },
   })
 
   revalidatePath(`/students/${studentId}`)
   revalidatePath('/students')
+  revalidatePath('/fees/cycles')
 
-  return { success: true }
+  return { success: true, openInvoices, invoicesNeedingReview }
 }
 
 export async function getClassesList() {
