@@ -47,6 +47,31 @@ Legend: `[ ]` not started · `[~]` partial/in progress · `[x]` done
 
 ---
 
+## 🧪 Testing checklist — pull & verify (fee-change / invoicing work, Sep 2026)
+
+> Running list of what to browser-test after a pull, so nothing built goes unverified. Test data: two test schools (Paystack + Monnify), fresh current-dated terms (First Term active, Second/Third draft), 6 students each with DVAs. Check items off as you confirm them; note any that break.
+
+**✅ Verified working (this cycle):**
+- [x] **Generate First Term invoices** — 6 students × ₦50k, per-cycle generation via background job (Test 1)
+- [x] **Bulk "Send all" + resume** — send job runs, cancel/resume mid-way, no loop-on-failure (Test 2)
+- [x] **Opt-in on a paid invoice** — additive engine appends the fee to a live/paid invoice instantly, recomputes outstanding/status; no clawback (Test 3 · `004f4e3`, `c4ab1b8`)
+- [x] **Undo a mistaken opt-in on a paid invoice (safe removal)** — opt-out then "Update invoice" allowed because the new total still covers what's paid (clawback-only lock); banner + toast correct (Test 4 · `5e2b9a1`)
+- [x] **Opt-in/opt-out UX** — toggle switch, confirm dialog on opt-in, toast on both, confirm before parent-facing send (`6194d6f`)
+
+**⬜ Still to test:**
+- [ ] **True clawback is hard-blocked** — set up a paid invoice where removing a fee would drop the total *below* what's already paid; opt-out/regenerate must be **blocked** with the "manual refund/credit reconciliation" message, and the invoice must NOT change. *(needs backend staging — ask me to set the state)* (`5e2b9a1`)
+- [ ] **Opt-out on a truly-locked PAID invoice → credit choice** — the locked case offers "defer to next term" + **[Credit it to their balance] / [Leave as-is — service was used]** dialog (`ed45f9f`). *(needs the same staged clawback state)*
+- [ ] **Send a receipt on a fully-paid invoice** — on a `paid` invoice the button reads **"Send receipt"** (mint) and sends a real receipt, not a ₦0 invoice (`b4e6015`). *(Ifeoma must be fully paid first)*
+- [ ] **Recurring vs one-time optional fee** — mark an optional fee "one-time"; it must NOT reappear on the next term's invoice, while a "recurring" one does (`226b95b`, `2b8a5df`; `is_recurring` migration confirmed applied)
+- [ ] **Sibling/discountable opt-in recompute** — opt a student who has an active sibling/staff discount into a *discountable* optional fee; the new line must get its share of the discount, not bill at full price (`36b5167`)
+- [ ] **Close First Term → carry-forward** — close First Term with outstanding balances; each student's unpaid balance carries into Second Term's invoice; with enough students it runs as a `close_term` background job with live progress (`closeTermAndCarryForward` job; **confirm `db/add_close_term_job_type.sql` was run**)
+- [ ] **Closed-term resend / carry-forward display** — after close, a carried invoice with a successor **blocks** resend and shows the carry-forward destination; a no-successor closed invoice (graduated/withdrawn student) **stays** sendable and is picked up by bulk send + reminders (`b6fe6d1`, `dfdfbb8`)
+- [ ] **Request discount blocked on a superseded closed invoice** — "Request discount" is blocked (with successor named) on a carried closed-term invoice, but allowed on a no-successor closed invoice (`726d277`)
+- [ ] **Regenerate-all progress accuracy** — "Regenerate all" targets only stale invoices and reports correct N/N (no more "regenerated 1/5" when only 1 was stale) (`b82dd01`)
+- [ ] **Logout / switch users** — after logout the session is actually cleared so a different user can sign in (`7d9ffcf`)
+
+---
+
 ## 🧱 Pre-production rebuild (foundational — do before launch, some can start early)
 
 The app has evolved a lot; the foundations need a clean pass before onboarding real data.
