@@ -221,7 +221,10 @@ type FeeContext = NonNullable<Awaited<ReturnType<typeof getStudentFeeContext>>>
 
 // Opt-in/exemption edits key off a fee_item_id — resolve its owning term first
 // so a closed (read-only) term can't be mutated through the student page.
-async function getCycleForFeeItemOrError(supabase: FeeContext['supabase'], schoolId: string, feeItemId: string) {
+async function getCycleForFeeItemOrError(supabase: FeeContext['supabase'], schoolId: string, feeItemId: string): Promise<
+  | { error: string }
+  | { cycle: { id: string; status: string }; feeItemName: string }
+> {
   const { data: feeItem } = await supabase
     .from('fee_items')
     .select('name, billing_cycle_id')
@@ -251,7 +254,11 @@ async function assertStudentInSchool(supabase: FeeContext['supabase'], schoolId:
   return !!student
 }
 
-export async function toggleStudentOptIn(studentId: string, feeItemId: string) {
+export async function toggleStudentOptIn(studentId: string, feeItemId: string): Promise<
+  | { error: string }
+  | { success: true }
+  | { success: true; deferredToNextTerm: true; overage: number; feeItemName: string }
+> {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -276,6 +283,60 @@ export async function toggleStudentOptIn(studentId: string, feeItemId: string) {
       .eq('id', existing.id)
       .eq('school_id', schoolId)
     if (error) return { error: error.message }
+
+    // If this fee is already invoiced and paid for this cycle, removing it
+    // outright could claw back money the family already paid. Check before
+    // treating the opt-out as fully in effect — the paid invoice itself is
+    // never touched either way.
+    const { data: existingInvoice } = await supabase
+      .from('invoices')
+      .select('id, paid_amount, credit_applied, students!inner(credit_balance)')
+      .eq('student_id', studentId)
+      .eq('billing_cycle_id', cycleResult.cycle.id)
+      .eq('school_id', schoolId)
+      .maybeSingle()
+
+    const paid = Number(existingInvoice?.paid_amount || 0)
+    if (existingInvoice && paid > 0) {
+      const previouslyApplied = Number(existingInvoice.credit_applied || 0)
+      // @ts-expect-error — joined
+      const liveCreditBalance = Number(existingInvoice.students?.credit_balance || 0)
+      const computed = await computeInvoiceForStudent(
+        supabase, schoolId, studentId, cycleResult.cycle.id,
+        liveCreditBalance + previouslyApplied, paid, existingInvoice.id
+      )
+      if (!('error' in computed) && computed.total < paid) {
+        // A true clawback. Don't touch the paid invoice — put the opt-in row
+        // back exactly as it was (so this term's invoice stays an accurate
+        // record of what was charged and paid), but flag it so the fee
+        // simply won't recur next term.
+        const { error: reinsertError } = await supabase
+          .from('student_fee_adjustments')
+          .insert({
+            school_id: schoolId,
+            student_id: studentId,
+            fee_item_id: feeItemId,
+            adjustment_type: 'opt_in',
+            created_by: userId,
+            carry_forward: false,
+          })
+        if (reinsertError) return { error: reinsertError.message }
+
+        const overage = paid - computed.total
+        await logAuditEvent(supabase, {
+          schoolId,
+          actorId: userId,
+          action: 'student.opt_out_deferred_paid_invoice',
+          targetType: 'student',
+          targetId: studentId,
+          summary: `Deferred opt-out of ${cycleResult.feeItemName} to next term (already paid this term)`,
+          metadata: { feeItemId, feeItemName: cycleResult.feeItemName, overage },
+        })
+
+        revalidatePath(`/students/${studentId}`)
+        return { success: true, deferredToNextTerm: true, overage, feeItemName: cycleResult.feeItemName }
+      }
+    }
   } else {
     // Remove any conflicting exemption first
     await supabase
@@ -313,6 +374,44 @@ export async function toggleStudentOptIn(studentId: string, feeItemId: string) {
     targetId: studentId,
     summary: `${existing ? 'Removed opt-in for' : 'Opted student in to'} ${cycleResult.feeItemName}`,
     metadata: { feeItemId, feeItemName: cycleResult.feeItemName, newState },
+  })
+
+  revalidatePath(`/students/${studentId}`)
+  return { success: true }
+}
+
+// Follow-up to a deferred opt-out (toggleStudentOptIn's `deferredToNextTerm`
+// branch): the fee already stopped recurring from next term, this only
+// decides what happens to the amount the family already paid for it this
+// term. Crediting is self-serve and safe (offsets future invoices, no money
+// leaves); leaving it as-is takes no action. Actual cash refunds stay
+// manual — contact support to reconcile, same as any other clawback.
+export async function resolveDeferredOptOutOverage(
+  studentId: string,
+  feeItemId: string,
+  decision: 'credit' | 'leave',
+  overage: number
+) {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+  if (!(await assertStudentInSchool(supabase, schoolId, studentId))) return { error: 'Student not found' }
+
+  const roundedOverage = Math.max(0, Number(overage) || 0)
+  if (decision === 'credit' && roundedOverage > 0) {
+    await applyCreditBalanceDelta(supabase, schoolId, studentId, roundedOverage)
+  }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.opt_out_overage_resolved',
+    targetType: 'student',
+    targetId: studentId,
+    summary: decision === 'credit'
+      ? `Credited ₦${roundedOverage.toLocaleString()} to balance for a fee opted out after payment`
+      : `Left the already-paid amount as-is for a fee opted out after payment`,
+    metadata: { feeItemId, decision, overage: roundedOverage },
   })
 
   revalidatePath(`/students/${studentId}`)

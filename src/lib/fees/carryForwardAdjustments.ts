@@ -10,7 +10,7 @@ export async function carryForwardFeeAdjustments(
 ): Promise<{ carried: number; unmatched: { studentId: string; feeItemName: string }[] }> {
   const { data: sourceAdjustments } = await supabase
     .from('student_fee_adjustments')
-    .select('student_id, adjustment_type, fee_items!inner(name, billing_cycle_id, is_recurring)')
+    .select('student_id, adjustment_type, carry_forward, fee_items!inner(name, billing_cycle_id, is_recurring)')
     .eq('school_id', schoolId)
     .eq('fee_items.billing_cycle_id', sourceCycleId)
 
@@ -65,6 +65,10 @@ export async function carryForwardFeeAdjustments(
     // explicitly opted out. Exemptions (on mandatory fees) are unaffected;
     // "recurring" only has meaning for optional fees.
     if (adj.adjustment_type === 'opt_in' && adj.fee_items?.is_recurring === false) continue
+    // A student opted out of a fee they'd already paid for this term keeps
+    // their opt-in row in place (the paid invoice stays untouched) but is
+    // flagged not to carry forward — the deferred opt-out takes effect here.
+    if (adj.carry_forward === false) continue
     const feeItemName = adj.fee_items?.name
     const targetItem = feeItemName ? findTargetFeeItem(adj.student_id, feeItemName) : null
     if (!targetItem) {

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { StudentFeesData, StudentFeeItem } from '@/lib/queries/students'
 import {
   toggleStudentOptIn,
+  resolveDeferredOptOutOverage,
   setStudentExemption,
   removeStudentExemption
 } from '@/app/(app)/students/[id]/actions'
@@ -36,6 +37,8 @@ export default function StudentFeesTab({ data }: Props) {
   } | null>(null)
   const [removeExemptionConfirm, setRemoveExemptionConfirm] = useState<StudentFeeItem | null>(null)
   const [optInConfirm, setOptInConfirm] = useState<StudentFeeItem | null>(null)
+  const [overageChoice, setOverageChoice] = useState<{ feeItemId: string; feeItemName: string; overage: number } | null>(null)
+  const [resolvingOverage, setResolvingOverage] = useState(false)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const previewIframeRef = useRef<HTMLIFrameElement>(null)
@@ -103,6 +106,9 @@ export default function StudentFeesTab({ data }: Props) {
     const result = await toggleStudentOptIn(data.student.id, fee.id)
     if ('error' in result && result.error) {
       setError(result.error)
+    } else if ('deferredToNextTerm' in result && result.deferredToNextTerm) {
+      setOverageChoice({ feeItemId: fee.id, feeItemName: result.feeItemName, overage: result.overage })
+      router.refresh()
     } else {
       setToast({
         message: `Opted out of ${fee.name} — click "Update invoice" to remove it from this invoice.`,
@@ -111,6 +117,30 @@ export default function StudentFeesTab({ data }: Props) {
       router.refresh()
     }
     setPendingId(null)
+  }
+
+  async function handleResolveOverage(decision: 'credit' | 'leave') {
+    if (!overageChoice) return
+    setResolvingOverage(true)
+    const result = await resolveDeferredOptOutOverage(
+      data.student.id,
+      overageChoice.feeItemId,
+      decision,
+      overageChoice.overage
+    )
+    if ('error' in result && result.error) {
+      setToast({ message: result.error, ok: false })
+    } else {
+      setToast({
+        message: decision === 'credit'
+          ? `Credited ${formatNaira(overageChoice.overage)} to ${data.student.firstName}'s balance.`
+          : `Left the ${formatNaira(overageChoice.overage)} already paid as-is.`,
+        ok: true,
+      })
+      router.refresh()
+    }
+    setResolvingOverage(false)
+    setOverageChoice(null)
   }
 
   async function handleConfirmOptIn() {
@@ -542,6 +572,44 @@ export default function StudentFeesTab({ data }: Props) {
           onConfirm={handleConfirmOptIn}
           onCancel={() => setOptInConfirm(null)}
         />
+      )}
+
+      {/* Opt-out on a paid invoice: the invoice itself isn't touched, this
+          only decides what happens to the amount already paid for the fee */}
+      {overageChoice && (
+        <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <h3 className="text-base font-semibold text-navy mb-2">
+                {overageChoice.feeItemName} was already paid for this term
+              </h3>
+              <p className="text-sm text-gray-600">
+                {data.student.firstName} won&apos;t be charged {overageChoice.feeItemName} from next term —
+                this term&apos;s invoice stays exactly as it was paid. What should happen to the{' '}
+                {formatNaira(overageChoice.overage)} already paid for it?
+              </p>
+              <p className="text-xs text-gray-400 mt-2">
+                Cash refunds aren&apos;t handled here — contact support to reconcile those.
+              </p>
+            </div>
+            <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => handleResolveOverage('leave')}
+                disabled={resolvingOverage}
+                className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg disabled:opacity-50"
+              >
+                Leave as-is
+              </button>
+              <button
+                onClick={() => handleResolveOverage('credit')}
+                disabled={resolvingOverage}
+                className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+              >
+                {resolvingOverage ? 'Saving...' : `Credit ${formatNaira(overageChoice.overage)} to balance`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Exemption dialog */}
