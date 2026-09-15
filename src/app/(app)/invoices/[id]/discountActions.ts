@@ -39,7 +39,7 @@ export async function requestDiscount(invoiceId: string, input: RequestDiscountI
 
   const { data: invoice } = await supabase
     .from('invoices')
-    .select('id, student_id, status, paid_amount, students(first_name, last_name)')
+    .select('id, student_id, status, paid_amount, billing_cycles(status), students(first_name, last_name)')
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
     .single()
@@ -47,6 +47,21 @@ export async function requestDiscount(invoiceId: string, input: RequestDiscountI
   if (invoice.status === 'cancelled') return { error: 'This invoice is cancelled.' }
   if (Number(invoice.paid_amount || 0) > 0) {
     return { error: 'This invoice already has a payment against it, so discounts can no longer be applied to it.' }
+  }
+
+  if ((invoice.billing_cycles as any)?.status === 'closed') {
+    const { data: successor } = await supabase
+      .from('invoices')
+      .select('id, billing_cycles(name)')
+      .eq('previous_balance_from_invoice_id', invoiceId)
+      .eq('school_id', schoolId)
+      .maybeSingle()
+    if (successor) {
+      const cycleName = (successor.billing_cycles as any)?.name
+      return {
+        error: `This balance carried forward to ${cycleName || 'a later term'} — request the discount on that invoice instead. A discount here won't reduce what's actually owed.`,
+      }
+    }
   }
 
   const { data: existingPending } = await supabase
