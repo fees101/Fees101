@@ -55,10 +55,10 @@ Legend: `[ ]` not started · `[~]` partial/in progress · `[x]` done
 - [x] **Generate First Term invoices** — 6 students × ₦50k, per-cycle generation via background job (Test 1)
 - [x] **Bulk "Send all" + resume** — send job runs, cancel/resume mid-way, no loop-on-failure (Test 2)
 - [x] **Opt-in on a paid invoice** — additive engine appends the fee to a live/paid invoice instantly, recomputes outstanding/status; no clawback (Test 3 · `004f4e3`, `c4ab1b8`)
-- [x] **Undo a mistaken opt-in on a paid invoice (safe removal)** — opt-out then "Update invoice" allowed because the new total still covers what's paid (clawback-only lock); banner + toast correct (Test 4 · `5e2b9a1`)
-- [x] **Opt-in/opt-out UX** — toggle switch, confirm dialog on opt-in, toast on both, confirm before parent-facing send (`6194d6f`)
 
 **⬜ Still to test:**
+- [ ] **Undo a mistaken opt-in on a paid invoice (safe removal)** — opt-out then "Update invoice" allowed because the new total still covers what's paid (clawback-only lock); banner + toast correct (Test 4 · `5e2b9a1`). **Un-checked 2026-09-15: was marked done without actually being tested — picking this up now.**
+- [ ] **Opt-in/opt-out UX (toggle, confirm, toast, send-confirm)** — toggle switch, confirm dialog on opt-in, toast on both, confirm before parent-facing send (`6194d6f`). **Un-checked 2026-09-15, same reason — not yet actually run through the browser.**
 - [ ] **True clawback is hard-blocked** — set up a paid invoice where removing a fee would drop the total *below* what's already paid; opt-out/regenerate must be **blocked** with the "manual refund/credit reconciliation" message, and the invoice must NOT change. *(needs backend staging — ask me to set the state)* (`5e2b9a1`)
 - [ ] **Opt-out on a truly-locked PAID invoice → credit choice** — the locked case offers "defer to next term" + **[Credit it to their balance] / [Leave as-is — service was used]** dialog (`ed45f9f`). *(needs the same staged clawback state)*
 - [ ] **Send a receipt on a fully-paid invoice** — on a `paid` invoice the button reads **"Send receipt"** (mint) and sends a real receipt, not a ₦0 invoice (`b4e6015`). *(Ifeoma must be fully paid first)*
