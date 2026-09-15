@@ -45,7 +45,7 @@ export async function sendDueRemindersForSchool(schoolId: string, supabase: any)
   const settings = mergeReminderSettings(schoolId, school?.settings?.reminders)
   if (!settings.enabled) return result
 
-  const { data: invoices } = await supabase
+  const { data: allInvoices } = await supabase
     .from('invoices')
     .select(`
       id, outstanding_amount,
@@ -56,10 +56,30 @@ export async function sendDueRemindersForSchool(schoolId: string, supabase: any)
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
     .gt('outstanding_amount', 0)
-    .neq('billing_cycles.status', 'closed')
     .not('billing_cycles.due_date', 'is', null)
 
-  if (!invoices || invoices.length === 0) return result
+  if (!allInvoices || allInvoices.length === 0) return result
+
+  // A closed-term invoice is excluded unless it's a graduated/withdrawn
+  // student's last invoice with no successor — the real balance already
+  // moved to the successor invoice for anyone whose term rolled forward.
+  const closedInvoiceIds = allInvoices
+    .filter((inv: any) => inv.billing_cycles?.status === 'closed')
+    .map((inv: any) => inv.id)
+  let supersededIds = new Set<string>()
+  if (closedInvoiceIds.length > 0) {
+    const { data: successors } = await supabase
+      .from('invoices')
+      .select('previous_balance_from_invoice_id')
+      .eq('school_id', schoolId)
+      .in('previous_balance_from_invoice_id', closedInvoiceIds)
+    supersededIds = new Set((successors || []).map((s: any) => s.previous_balance_from_invoice_id))
+  }
+  const invoices = allInvoices.filter((inv: any) =>
+    inv.billing_cycles?.status !== 'closed' || !supersededIds.has(inv.id)
+  )
+
+  if (invoices.length === 0) return result
 
   // One query for every prior reminder already logged for these invoices —
   // avoids an N+1 lookup per invoice.

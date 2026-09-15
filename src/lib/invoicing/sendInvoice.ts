@@ -179,17 +179,36 @@ export async function startBulkSendInvoicesJob(
   schoolId: string,
   createdBy: string
 ): Promise<{ error: string } | { jobId: string | null; total: number; processed: number }> {
-  const { data: invoices, error } = await supabase
+  const { data: allInvoices, error } = await supabase
     .from('invoices')
     .select('id, billing_cycles!inner(status)')
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
     .gt('outstanding_amount', 0)
-    .neq('billing_cycles.status', 'closed')
     .or('sent_at.is.null,needs_resend.eq.true')
 
   if (error) return { error: error.message }
-  const invoiceIds = (invoices || []).map((i: any) => i.id)
+
+  // A closed-term invoice is a dead end only if its balance already carried
+  // forward to a successor invoice — otherwise (graduated/withdrawn student,
+  // no successor) it's still the live record and belongs in the sweep.
+  const closedInvoiceIds = (allInvoices || [])
+    .filter((i: any) => i.billing_cycles?.status === 'closed')
+    .map((i: any) => i.id)
+  let supersededIds = new Set<string>()
+  if (closedInvoiceIds.length > 0) {
+    const { data: successors } = await supabase
+      .from('invoices')
+      .select('previous_balance_from_invoice_id')
+      .eq('school_id', schoolId)
+      .in('previous_balance_from_invoice_id', closedInvoiceIds)
+    supersededIds = new Set((successors || []).map((s: any) => s.previous_balance_from_invoice_id))
+  }
+  const invoices = (allInvoices || []).filter((i: any) =>
+    i.billing_cycles?.status !== 'closed' || !supersededIds.has(i.id)
+  )
+
+  const invoiceIds = invoices.map((i: any) => i.id)
 
   if (invoiceIds.length === 0) return { jobId: null, total: 0, processed: 0 }
 
