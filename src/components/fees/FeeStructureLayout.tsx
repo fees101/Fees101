@@ -19,6 +19,7 @@ interface FeeItem {
   isOptional: boolean
   isSchoolWide: boolean
   isDiscountable?: boolean
+  isRecurring?: boolean
   optInCount: number
 }
 interface Cycle { id: string, name: string, status: string }

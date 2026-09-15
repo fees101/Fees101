@@ -14,6 +14,7 @@ interface FeeItem {
   isOptional: boolean
   isSchoolWide: boolean
   isDiscountable?: boolean
+  isRecurring?: boolean
 }
 
 interface Props {
@@ -33,6 +34,7 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
   const [amount, setAmount] = useState(editItem ? String(editItem.amount) : '')
   const [isRequired, setIsRequired] = useState(editItem ? editItem.isRequired : true)
   const [isDiscountable, setIsDiscountable] = useState(editItem ? editItem.isDiscountable !== false : true)
+  const [isRecurring, setIsRecurring] = useState(editItem ? editItem.isRecurring !== false : true)
   const [scope, setScope] = useState<'one' | 'multiple' | 'all-school'>(
     editItem
       ? (editItem.isSchoolWide ? 'all-school' : 'one')
@@ -72,7 +74,12 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
 
     let result
     if (isEdit) {
-      result = await updateFeeItem(editItem!.id, { name, amount: amt, isDiscountable })
+      result = await updateFeeItem(editItem!.id, {
+        name,
+        amount: amt,
+        isDiscountable,
+        ...(editItem!.isOptional ? { isRecurring } : {}),
+      })
     } else {
       result = await addFeeItem(cycleId, {
         name,
@@ -81,6 +88,7 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
         scope,
         classIds: scope === 'all-school' ? [] : Array.from(selectedClassIds),
         isDiscountable,
+        ...(!isRequired ? { isRecurring } : {}),
       })
     }
 
@@ -180,6 +188,41 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
             <p className="text-xs text-gray-500">Sibling/staff discounts reduce this item's share of the invoice. Turn off for fees like exams or uniforms that shouldn't be discounted.</p>
           </div>
         </label>
+
+        {(isEdit ? editItem?.isOptional : !isRequired) && (
+          <div>
+            <label className="block text-xs text-gray-500 mb-1.5">Once a student opts in *</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsRecurring(true)}
+                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  isRecurring
+                    ? 'bg-mint-light text-navy border-mint'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                Recurring
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsRecurring(false)}
+                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  !isRecurring
+                    ? 'bg-amber-50 text-amber-900 border-amber-400'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                One-time
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1.5">
+              {isRecurring
+                ? 'Stays on their invoice every term until they opt out'
+                : 'Billed once, then automatically drops off future terms (e.g. uniform)'}
+            </p>
+          </div>
+        )}
 
         {!isEdit && (
           <div>

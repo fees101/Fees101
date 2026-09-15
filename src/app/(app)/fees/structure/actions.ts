@@ -51,6 +51,7 @@ export async function addFeeItem(cycleId: string, form: {
   scope: 'one' | 'multiple' | 'all-school'
   classIds: string[]
   isDiscountable?: boolean
+  isRecurring?: boolean
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -62,6 +63,7 @@ export async function addFeeItem(cycleId: string, form: {
   if (!form.name.trim()) return { error: 'Name is required' }
   if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
   const isDiscountable = form.isDiscountable ?? true
+  const isRecurring = form.isRecurring ?? true
   const name = form.name.trim()
 
   let scopeSummary = 'school-wide'
@@ -77,6 +79,7 @@ export async function addFeeItem(cycleId: string, form: {
       is_mandatory: form.isRequired,
       is_optional_extra: !form.isRequired,
       is_discountable: isDiscountable,
+      is_recurring: isRecurring,
     }).select('id')
     if (error) return { error: error.message }
     insertedIds = (inserted || []).map(r => r.id)
@@ -92,6 +95,7 @@ export async function addFeeItem(cycleId: string, form: {
       is_mandatory: form.isRequired,
       is_optional_extra: !form.isRequired,
       is_discountable: isDiscountable,
+      is_recurring: isRecurring,
     }))
 
     const { data: inserted, error } = await supabase.from('fee_items').insert(rows).select('id')
@@ -170,6 +174,7 @@ export async function addOptionalFeeItem(cycleId: string, form: {
   name: string
   amount: number
   isDiscountable?: boolean
+  isRecurring?: boolean
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -191,6 +196,7 @@ export async function addOptionalFeeItem(cycleId: string, form: {
     is_mandatory: false,
     is_optional_extra: true,
     is_discountable: form.isDiscountable ?? true,
+    is_recurring: form.isRecurring ?? true,
   }).select('id').single()
 
   if (error) return { error: error.message }
@@ -214,6 +220,7 @@ export async function updateFeeItem(id: string, form: {
   name: string
   amount: number
   isDiscountable?: boolean
+  isRecurring?: boolean
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -240,6 +247,7 @@ export async function updateFeeItem(id: string, form: {
       name,
       amount: form.amount,
       ...(form.isDiscountable !== undefined ? { is_discountable: form.isDiscountable } : {}),
+      ...(form.isRecurring !== undefined ? { is_recurring: form.isRecurring } : {}),
     })
     .eq('id', id)
 
@@ -476,6 +484,7 @@ export async function editFeeGroup(cycleId: string, form: {
   perClassAmounts?: Record<string, number>  // classId → amount (overrides uniformAmount)
   selectedClassIds: string[]  // Only for per-class groups
   isDiscountable?: boolean
+  isRecurring?: boolean
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -532,6 +541,7 @@ export async function editFeeGroup(cycleId: string, form: {
         name: newName,
         amount: form.uniformAmount,
         ...(form.isDiscountable !== undefined ? { is_discountable: form.isDiscountable } : {}),
+        ...(form.isRecurring !== undefined ? { is_recurring: form.isRecurring } : {}),
       })
       .in('id', existingRows.map(r => r.id))
 
@@ -576,7 +586,7 @@ export async function editFeeGroup(cycleId: string, form: {
   // Load existing rows for this group
   const { data: existingRows } = await supabase
     .from('fee_items')
-    .select('id, class_id, amount, is_discountable')
+    .select('id, class_id, amount, is_discountable, is_recurring')
     .eq('school_id', schoolId)
     .eq('billing_cycle_id', cycle.id)
     .eq('name', form.currentName)
@@ -584,10 +594,10 @@ export async function editFeeGroup(cycleId: string, form: {
     .eq('is_optional_extra', form.isOptional)
     .eq('is_mandatory', !form.isOptional)
 
-  const existingByClass = new Map<string, { id: string, amount: number, isDiscountable: boolean }>()
+  const existingByClass = new Map<string, { id: string, amount: number, isDiscountable: boolean, isRecurring: boolean }>()
   existingRows?.forEach(r => {
     if (r.class_id) {
-      existingByClass.set(r.class_id, { id: r.id, amount: Number(r.amount), isDiscountable: r.is_discountable !== false })
+      existingByClass.set(r.class_id, { id: r.id, amount: Number(r.amount), isDiscountable: r.is_discountable !== false, isRecurring: r.is_recurring !== false })
     }
   })
 
@@ -641,10 +651,11 @@ export async function editFeeGroup(cycleId: string, form: {
     const existing = existingByClass.get(classId)!
     const newAmount = amountForClass(classId)
     const newIsDiscountable = form.isDiscountable ?? existing.isDiscountable
-    if (newName !== form.currentName || newAmount !== existing.amount || newIsDiscountable !== existing.isDiscountable) {
+    const newIsRecurring = form.isRecurring ?? existing.isRecurring
+    if (newName !== form.currentName || newAmount !== existing.amount || newIsDiscountable !== existing.isDiscountable || newIsRecurring !== existing.isRecurring) {
       const { error: upErr } = await supabase
         .from('fee_items')
-        .update({ name: newName, amount: newAmount, is_discountable: newIsDiscountable })
+        .update({ name: newName, amount: newAmount, is_discountable: newIsDiscountable, is_recurring: newIsRecurring })
         .eq('id', existing.id)
       if (upErr) return { error: upErr.message }
       updated++
@@ -662,6 +673,7 @@ export async function editFeeGroup(cycleId: string, form: {
       is_mandatory: !form.isOptional,
       is_optional_extra: form.isOptional,
       is_discountable: form.isDiscountable ?? true,
+      is_recurring: form.isRecurring ?? true,
     }))
     const { error: addErr } = await supabase
       .from('fee_items')
@@ -697,6 +709,7 @@ export async function getFeeGroupDetails(cycleId: string, currentName: string, i
       class_id,
       amount,
       is_discountable,
+      is_recurring,
       classes(id, name, display_order)
     `)
     .eq('school_id', schoolId)
@@ -738,6 +751,7 @@ export async function getFeeGroupDetails(cycleId: string, currentName: string, i
       classDisplayOrder: d.classes?.display_order || 0,
       amount: Number(d.amount),
       isDiscountable: d.is_discountable !== false,
+      isRecurring: d.is_recurring !== false,
       optInCount: optInCounts[d.id] || 0,
     })),
   }

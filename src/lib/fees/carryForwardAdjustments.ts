@@ -10,7 +10,7 @@ export async function carryForwardFeeAdjustments(
 ): Promise<{ carried: number; unmatched: { studentId: string; feeItemName: string }[] }> {
   const { data: sourceAdjustments } = await supabase
     .from('student_fee_adjustments')
-    .select('student_id, adjustment_type, fee_items!inner(name, billing_cycle_id)')
+    .select('student_id, adjustment_type, fee_items!inner(name, billing_cycle_id, is_recurring)')
     .eq('school_id', schoolId)
     .eq('fee_items.billing_cycle_id', sourceCycleId)
 
@@ -60,6 +60,11 @@ export async function carryForwardFeeAdjustments(
 
   for (const adj of sourceAdjustments) {
     if (!activeStudentIds.has(adj.student_id)) continue
+    // A one-time opt-in (e.g. a uniform purchase) is only meant to bill once —
+    // it should not resurface on the new term just because the student never
+    // explicitly opted out. Exemptions (on mandatory fees) are unaffected;
+    // "recurring" only has meaning for optional fees.
+    if (adj.adjustment_type === 'opt_in' && adj.fee_items?.is_recurring === false) continue
     const feeItemName = adj.fee_items?.name
     const targetItem = feeItemName ? findTargetFeeItem(adj.student_id, feeItemName) : null
     if (!targetItem) {

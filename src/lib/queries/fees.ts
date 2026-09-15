@@ -242,7 +242,7 @@ export async function getFeeStructure(billingCycleId?: string) {
       .order('display_order'),
     supabase
       .from('fee_items')
-      .select('id, class_id, name, amount, is_mandatory, is_optional_extra, is_discountable')
+      .select('id, class_id, name, amount, is_mandatory, is_optional_extra, is_discountable, is_recurring')
       .eq('school_id', schoolId)
       .eq('billing_cycle_id', cycle.id),
     // Get active students per class (for revenue calculation)
@@ -294,6 +294,7 @@ export async function getFeeStructure(billingCycleId?: string) {
       isOptional: f.is_optional_extra,
       isSchoolWide: f.class_id === null,
       isDiscountable: f.is_discountable !== false,
+      isRecurring: f.is_recurring !== false,
       optInCount: optInCountMap[f.id] || 0,
     })),
     studentCountByClass,

@@ -14,6 +14,7 @@ interface ExistingItem {
   amount: number
   optInCount: number
   isDiscountable?: boolean
+  isRecurring?: boolean
 }
 
 interface Props {
@@ -45,6 +46,7 @@ export default function EditFeeGroupPanel({
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set())
   const [perClassAmounts, setPerClassAmounts] = useState<Record<string, string>>({})
   const [isDiscountable, setIsDiscountable] = useState(true)
+  const [isRecurring, setIsRecurring] = useState(true)
 
   // Confirmation
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -65,6 +67,7 @@ export default function EditFeeGroupPanel({
       const items = result.items as ExistingItem[]
       setExisting(items)
       if (items.length > 0) setIsDiscountable(items[0].isDiscountable !== false)
+      if (items.length > 0) setIsRecurring(items[0].isRecurring !== false)
 
       if (isSchoolWide) {
         // Single row for school-wide
@@ -208,6 +211,7 @@ export default function EditFeeGroupPanel({
         uniformAmount: parseInt(uniformAmount),
         selectedClassIds: [],
         isDiscountable,
+        isRecurring: isOptional ? isRecurring : undefined,
       })
     } else {
       const perClass: Record<string, number> = {}
@@ -228,6 +232,7 @@ export default function EditFeeGroupPanel({
         perClassAmounts: pricingMode === 'per-class' ? perClass : undefined,
         selectedClassIds: Array.from(selectedClassIds),
         isDiscountable,
+        isRecurring: isOptional ? isRecurring : undefined,
       })
     }
 
@@ -265,6 +270,7 @@ export default function EditFeeGroupPanel({
   const hasChanges = useMemo(() => {
     if (name.trim() !== currentName) return true
     if (existing.length > 0 && isDiscountable !== (existing[0].isDiscountable !== false)) return true
+    if (isOptional && existing.length > 0 && isRecurring !== (existing[0].isRecurring !== false)) return true
     if (isSchoolWide) {
       const newAmt = parseInt(uniformAmount)
       return !isNaN(newAmt) && newAmt !== existing[0]?.amount
@@ -285,7 +291,7 @@ export default function EditFeeGroupPanel({
       }
     }
     return false
-  }, [name, currentName, uniformAmount, pricingMode, selectedClassIds, perClassAmounts, existing, isSchoolWide, summary, isDiscountable])
+  }, [name, currentName, uniformAmount, pricingMode, selectedClassIds, perClassAmounts, existing, isSchoolWide, summary, isDiscountable, isRecurring, isOptional])
 
   return (
     <>
@@ -335,6 +341,21 @@ export default function EditFeeGroupPanel({
                   <p className="text-xs text-gray-500">Sibling/staff discounts reduce this item's share of the invoice.</p>
                 </div>
               </label>
+
+              {isOptional && (
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isRecurring}
+                    onChange={(e) => setIsRecurring(e.target.checked)}
+                    className="mt-0.5 text-mint"
+                  />
+                  <div>
+                    <span className="text-sm text-navy">Recurring</span>
+                    <p className="text-xs text-gray-500">Stays on a student&apos;s invoice every term after they opt in. Turn off for a one-time charge (e.g. uniform) that shouldn&apos;t carry into future terms.</p>
+                  </div>
+                </label>
+              )}
 
               {isSchoolWide ? (
                 <div>
