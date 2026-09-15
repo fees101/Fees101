@@ -294,7 +294,9 @@ export default function StudentFeesTab({ data }: Props) {
                   <p className="text-xs text-amber-700 mt-2">
                     Adjustments have been made. Current invoice ({formatNaira(existingInvoice.totalAmount)})
                     differs from expected ({formatNaira(data.expectedBill)}).
-                    Click &quot;Update invoice&quot; to apply.
+                    {isLocked
+                      ? ' This invoice has already been sent or paid, so these changes apply from the next term’s invoice. (A new fee opt-in still applies to this invoice instantly.)'
+                      : ' Click “Update invoice” to apply.'}
                   </p>
                 )}
               </div>
