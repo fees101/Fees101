@@ -499,6 +499,7 @@ export interface InvoiceRow {
   creditApplied: number
   generatedAt: string
   lineItems: Array<{ name: string, amount: number, kind?: string }>
+  carriedForwardToCycleName: string | null
 }
 
 export interface CycleDetailData {
@@ -624,7 +625,25 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     creditApplied: Number(inv.credit_applied || 0),
     generatedAt: inv.generated_at,
     lineItems: (inv.line_items as InvoiceRow['lineItems']) || [],
+    carriedForwardToCycleName: null,
   }))
+
+  if (invoices.length > 0) {
+    const { data: successors } = await supabase
+      .from('invoices')
+      .select('previous_balance_from_invoice_id, billing_cycles(name)')
+      .eq('school_id', schoolId)
+      .not('previous_balance_from_invoice_id', 'is', null)
+      .in('previous_balance_from_invoice_id', invoices.map(i => i.id))
+
+    const carriedForwardByInvoiceId: Record<string, string> = {}
+    for (const s of successors || []) {
+      carriedForwardByInvoiceId[s.previous_balance_from_invoice_id] = (s.billing_cycles as any)?.name || ''
+    }
+    invoices.forEach(inv => {
+      inv.carriedForwardToCycleName = carriedForwardByInvoiceId[inv.id] || null
+    })
+  }
 
   // Closed terms are frozen (fee edits are blocked), so an invoice generated
   // there can never drift — skip the recompute pass entirely.
@@ -739,6 +758,7 @@ export interface InvoiceDetail {
   cycleId: string
   cycleName: string
   cycleDueDate: string | null
+  cycleStatus: 'draft' | 'active' | 'closed'
   schoolName: string
   schoolLogoUrl: string | null
   schoolAddress: string | null
@@ -763,6 +783,10 @@ export interface InvoiceDetail {
   needsResend: boolean
   generatedAt: string
   fullyPaidAt: string | null
+  // Name of the term whose invoice this balance carried forward onto, if any
+  // — lets a closed, still-"overdue"-looking old invoice point forward
+  // instead of reading as unresolved debt.
+  carriedForwardToCycleName: string | null
   // The single most-recent pending discount request against this invoice, if
   // any — persisted from the `discounts` table so the "awaiting approval"
   // state survives navigation/refresh and other staff can see it's already
@@ -821,7 +845,7 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
         classes(name),
         families(primary_parent_name, primary_parent_phone)
       ),
-      billing_cycles!inner(id, name, due_date)
+      billing_cycles!inner(id, name, due_date, status)
     `)
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
@@ -831,7 +855,7 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
 
   // School info, this invoice's payments, and any pending discount request are
   // all independent of one another.
-  const [{ data: school }, { data: payments }, { data: pendingDiscountRow }] = await Promise.all([
+  const [{ data: school }, { data: payments }, { data: pendingDiscountRow }, { data: successor }] = await Promise.all([
     supabase
       .from('schools')
       .select('name, logo_url, address_street, address_city, address_state, phone, email, proprietress_title, proprietress_first_name, proprietress_last_name')
@@ -850,6 +874,12 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
       .eq('status', 'pending')
       .order('requested_at', { ascending: false })
       .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('invoices')
+      .select('id, billing_cycles(name)')
+      .eq('previous_balance_from_invoice_id', invoiceId)
+      .eq('school_id', schoolId)
       .maybeSingle(),
   ])
 
@@ -897,6 +927,7 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
     cycleId: invoice.billing_cycles.id,
     cycleName: invoice.billing_cycles.name,
     cycleDueDate: invoice.billing_cycles.due_date,
+    cycleStatus: invoice.billing_cycles.status,
     schoolName: school?.name || '',
     schoolLogoUrl: school?.logo_url || null,
     schoolAddress: composeAddress(school?.address_street, school?.address_city, school?.address_state),
@@ -921,6 +952,7 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
     needsResend: invoice.needs_resend,
     generatedAt: invoice.generated_at,
     fullyPaidAt: invoice.fully_paid_at,
+    carriedForwardToCycleName: successor?.billing_cycles?.name || null,
     pendingDiscount: pendingDiscountRow ? {
       id: pendingDiscountRow.id,
       requestedByName: pendingDiscountRow.users?.name || null,
@@ -978,7 +1010,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
           classes(name, display_order),
           families(primary_parent_name, primary_parent_phone)
         ),
-        billing_cycles!inner(id, name, due_date)
+        billing_cycles!inner(id, name, due_date, status)
       `)
       .eq('billing_cycle_id', cycleId)
       .eq('school_id', schoolId),
@@ -990,6 +1022,19 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
   ])
 
   if (!invoices) return []
+
+  const { data: successors } = await supabase
+    .from('invoices')
+    .select('previous_balance_from_invoice_id, billing_cycles(name)')
+    .eq('school_id', schoolId)
+    .not('previous_balance_from_invoice_id', 'is', null)
+    .in('previous_balance_from_invoice_id', invoices.map((i: any) => i.id))
+
+  const carriedForwardByInvoiceId: Record<string, string> = {}
+  for (const s of successors || []) {
+    // @ts-expect-error — joined
+    carriedForwardByInvoiceId[s.previous_balance_from_invoice_id] = s.billing_cycles?.name || ''
+  }
 
   // Print order: class display_order (Play Pen → Year 11), then last name within each class.
   const sorted = [...invoices].sort((a, b) => {
@@ -1024,6 +1069,8 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       cycleName: invoice.billing_cycles.name,
       // @ts-expect-error
       cycleDueDate: invoice.billing_cycles.due_date,
+      // @ts-expect-error
+      cycleStatus: invoice.billing_cycles.status,
       schoolName: school?.name || '',
       schoolLogoUrl: school?.logo_url || null,
       schoolAddress: composeAddress(school?.address_street, school?.address_city, school?.address_state),
@@ -1052,6 +1099,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       needsResend: invoice.needs_resend,
       generatedAt: invoice.generated_at,
       fullyPaidAt: invoice.fully_paid_at,
+      carriedForwardToCycleName: carriedForwardByInvoiceId[invoice.id] || null,
       pendingDiscount: null,
     }
   })
@@ -1079,6 +1127,10 @@ export interface AllInvoiceRow {
   sentAt: string | null
   needsResend: boolean
   generatedAt: string
+  // Name of the term whose invoice this balance carried forward onto, if any
+  // — lets a closed, still-"overdue"-looking old invoice point forward
+  // instead of reading as unresolved debt.
+  carriedForwardToCycleName: string | null
 }
 
 export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
@@ -1106,6 +1158,18 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
     `)
     .eq('school_id', schoolId)
     .order('generated_at', { ascending: false })
+
+  const { data: successors } = await supabase
+    .from('invoices')
+    .select('previous_balance_from_invoice_id, billing_cycles(name)')
+    .eq('school_id', schoolId)
+    .not('previous_balance_from_invoice_id', 'is', null)
+
+  const carriedForwardByInvoiceId: Record<string, string> = {}
+  for (const s of successors || []) {
+    // @ts-expect-error — joined
+    carriedForwardByInvoiceId[s.previous_balance_from_invoice_id] = s.billing_cycles?.name || ''
+  }
 
   return (invoiceData || []).map(inv => {
     const total = Number(inv.total_amount)
@@ -1137,6 +1201,7 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
       sentAt: inv.sent_at,
       needsResend: inv.needs_resend,
       generatedAt: inv.generated_at,
+      carriedForwardToCycleName: carriedForwardByInvoiceId[inv.id] || null,
     }
   })
 }

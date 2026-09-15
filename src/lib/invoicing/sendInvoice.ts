@@ -61,7 +61,7 @@ export async function sendInvoiceCore(
       id, total_amount, paid_amount, outstanding_amount, status, sent_at, credit_applied,
       students!inner(id, first_name, last_name, provider_dva_account_number, provider_dva_bank_name, credit_balance,
         families(primary_parent_name, primary_parent_phone, primary_parent_email)),
-      billing_cycles!inner(name, due_date)
+      billing_cycles!inner(name, due_date, status)
     `)
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
@@ -69,6 +69,26 @@ export async function sendInvoiceCore(
 
   if (!inv) return { error: 'Invoice not found' }
   if (inv.status === 'cancelled') return { error: 'This invoice is cancelled.' }
+
+  // A closed term's invoice is only a dead end when its balance actually made
+  // it onto a newer invoice — a student who withdrew/graduated (or wasn't
+  // re-enrolled) before the next term's invoices were generated has no
+  // successor, so this old invoice remains the only real record of what's
+  // owed and must stay sendable.
+  if ((inv.billing_cycles as any)?.status === 'closed') {
+    const { data: successor } = await supabase
+      .from('invoices')
+      .select('id, billing_cycles(name)')
+      .eq('previous_balance_from_invoice_id', invoiceId)
+      .eq('school_id', schoolId)
+      .maybeSingle()
+    if (successor) {
+      const successorCycleName = (successor.billing_cycles as any)?.name
+      return {
+        error: `This term is closed — the balance carried forward to ${successorCycleName ? `the ${successorCycleName} invoice` : 'a newer invoice'} automatically, so send that one instead.`,
+      }
+    }
+  }
 
   const student: any = inv.students
   const family: any = student?.families
@@ -161,10 +181,11 @@ export async function startBulkSendInvoicesJob(
 ): Promise<{ error: string } | { jobId: string | null; total: number; processed: number }> {
   const { data: invoices, error } = await supabase
     .from('invoices')
-    .select('id')
+    .select('id, billing_cycles!inner(status)')
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
     .gt('outstanding_amount', 0)
+    .neq('billing_cycles.status', 'closed')
     .or('sent_at.is.null,needs_resend.eq.true')
 
   if (error) return { error: error.message }

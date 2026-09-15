@@ -73,7 +73,7 @@ export default function InvoicesListLayout({ invoices }: Props) {
     partial: invoices.filter(i => i.status === 'partial').length,
     unpaid: invoices.filter(i => i.status !== 'paid' && i.status !== 'partial').length,
     needsResend: invoices.filter(i => i.needsResend).length,
-    needsSend: invoices.filter(i => i.status !== 'cancelled' && i.outstandingAmount > 0 && (!i.sentAt || i.needsResend)).length,
+    needsSend: invoices.filter(i => i.status !== 'cancelled' && i.cycleStatus !== 'closed' && i.outstandingAmount > 0 && (!i.sentAt || i.needsResend)).length,
   }), [invoices])
 
   const filtered = useMemo(() => {
@@ -242,6 +242,9 @@ export default function InvoicesListLayout({ invoices }: Props) {
                           <span className={inv.outstandingAmount > 0 ? 'text-amber-600 font-medium' : 'text-gray-400'}>
                             {formatNaira(inv.outstandingAmount)}
                           </span>
+                          {inv.carriedForwardToCycleName && (
+                            <p className="text-xs text-gray-400 mt-0.5">→ {inv.carriedForwardToCycleName}</p>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${b.cls}`}>

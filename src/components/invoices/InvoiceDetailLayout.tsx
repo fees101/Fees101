@@ -287,7 +287,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-2">
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Actions</p>
 
-            {canSendInvoice && (
+            {canSendInvoice && !invoice.carriedForwardToCycleName && (
               <button
                 onClick={handleSend}
                 disabled={sending}
@@ -303,7 +303,11 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
                 </svg>
               </button>
             )}
-            {invoice.needsResend ? (
+            {invoice.carriedForwardToCycleName ? (
+              <p className="text-xs text-gray-500">
+                This balance carried forward to <span className="font-medium text-navy">{invoice.carriedForwardToCycleName}</span> automatically — send that invoice instead.
+              </p>
+            ) : invoice.needsResend ? (
               <p className="text-xs text-amber-700">Invoice changed since it was last sent — resend to update the parent</p>
             ) : invoice.sentAt ? (
               <p className="text-xs text-gray-500">Last sent {formatDate(invoice.sentAt)}</p>

@@ -572,6 +572,10 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
                         {inv.needsResend && canManageInvoices && (
                           notifiedIds.has(inv.id) ? (
                             <span className="text-xs text-mint font-medium">Notified</span>
+                          ) : inv.carriedForwardToCycleName ? (
+                            <span className="text-xs text-gray-400" title={`This balance carried forward to ${inv.carriedForwardToCycleName}`}>
+                              Carried forward to {inv.carriedForwardToCycleName}
+                            </span>
                           ) : (
                             <button
                               onClick={(e) => {
