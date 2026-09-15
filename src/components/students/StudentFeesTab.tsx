@@ -75,6 +75,13 @@ export default function StudentFeesTab({ data }: Props) {
     && existingInvoice.creditApplied === data.expectedCreditApplied
   const diffAmount = existingInvoice ? data.expectedBill - existingInvoice.totalAmount : 0
   const newOutstanding = existingInvoice ? data.expectedBill - existingInvoice.paidAmount : 0
+  // A full regenerate can't safely touch an invoice that's already gone out
+  // or has a payment against it. A new opt-in still applies instantly on its
+  // own (the additive engine in students/[id]/actions.ts) — this only locks
+  // out the "Update invoice" full-recompute button for everything else
+  // (fee-amount edits, opt-outs waiting to be reflected, etc.), which now
+  // waits for the next invoice generation instead.
+  const isLocked = !!existingInvoice && (!!existingInvoice.sentAt || existingInvoice.paidAmount > 0)
 
   async function handleToggleOptIn(fee: StudentFeeItem) {
     setError(null)
@@ -200,7 +207,7 @@ export default function StudentFeesTab({ data }: Props) {
                 Generate invoice
               </button>
             )}
-            {canManageInvoices && existingInvoice && !isInvoiceUpToDate && (
+            {canManageInvoices && existingInvoice && !isInvoiceUpToDate && !isLocked && (
               <button
                 onClick={() => setUpdateConfirm(true)}
                 disabled={generating}
@@ -208,6 +215,14 @@ export default function StudentFeesTab({ data }: Props) {
               >
                 Update invoice
               </button>
+            )}
+            {existingInvoice && !isInvoiceUpToDate && isLocked && (
+              <span
+                className="px-3 py-2 text-sm text-gray-500 italic"
+                title="Already sent or paid against — this waits for the next invoice instead of a full regenerate."
+              >
+                Locked — applies next invoice
+              </span>
             )}
             {existingInvoice && isInvoiceUpToDate && (
               <span className="px-3 py-2 text-sm text-gray-500 italic">
@@ -621,12 +636,6 @@ export default function StudentFeesTab({ data }: Props) {
                   </span>
                 </div>
               </div>
-
-              {existingInvoice.sentAt && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 mb-4">
-                  ⚠️ This invoice was already sent to parents. Updating will flag it for resending.
-                </div>
-              )}
 
               {newOutstanding < 0 && (
                 <div className="p-3 bg-mint-light border border-mint/30 rounded-lg text-xs text-navy mb-4">

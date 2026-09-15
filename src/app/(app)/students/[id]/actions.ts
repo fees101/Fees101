@@ -11,6 +11,7 @@ import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 import { logAuditEvent } from '@/lib/audit/logAudit'
+import { applyOptInAdditionToLiveInvoice } from '@/lib/invoicing/addOptInLine'
 
 export async function updateStudentDetails(studentId: string, formData: {
   firstName: string
@@ -295,6 +296,12 @@ export async function toggleStudentOptIn(studentId: string, feeItemId: string) {
         created_by: userId,
       })
     if (error) return { error: error.message }
+
+    // Opting in is an addition — apply it to the current live invoice
+    // immediately if one exists (safe regardless of sent/paid, since nothing
+    // existing is touched). Opting out deliberately does NOT get a mirror
+    // call here: a deduction only ever affects the next invoice generation.
+    await applyOptInAdditionToLiveInvoice(supabase, schoolId, userId, studentId, feeItemId)
   }
 
   const newState = existing ? 'opted_out' : 'opted_in'

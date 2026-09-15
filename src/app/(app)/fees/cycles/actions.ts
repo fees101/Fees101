@@ -1100,9 +1100,18 @@ export async function generateInvoiceForStudent(studentId: string, cycleId: stri
 }
 
 // REGENERATE existing invoice (recompute line items, keep payments)
+//
+// Hard-blocked once the invoice has been sent or has any payment against it —
+// a full recompute touches every line at once (discounts, previous balance,
+// credit) and could silently claw back or alter something the parent already
+// paid for. Fee ADDITIONS (mid-term opt-ins) don't need this path at all —
+// they go through the additive-only engine (addOptInLine.ts) instead, which
+// is safe regardless of sent/paid. This gate only affects everything else
+// (fee amount edits, opt-outs an admin wants reflected immediately, etc.) —
+// those now wait for the next invoice generation once an invoice is
+// sent/paid, same as an opt-out always has.
 export async function regenerateInvoice(invoiceId: string, confirmed: boolean = false): Promise<
   | { error: string }
-  | { needsConfirmation: true; current: { total: number; creditApplied: number }; updated: { total: number; creditApplied: number } }
   | { success: true; newTotal: number; wasOverpaid: boolean }
 > {
   const ctx = await getContext('manage-invoices')
@@ -1122,10 +1131,16 @@ export async function regenerateInvoice(invoiceId: string, confirmed: boolean = 
     return { error: 'This term is closed. Invoices cannot be regenerated.' }
   }
 
+  const paid = Number(existing.paid_amount || 0)
+  if (existing.sent_at || paid > 0) {
+    return {
+      error: 'This invoice has already been sent or paid against, so it can no longer be fully regenerated — a new fee opt-in still applies instantly, everything else waits for the next invoice.',
+    }
+  }
+
   const previouslyApplied = Number(existing.credit_applied || 0)
   // @ts-expect-error — joined
   const liveCreditBalance = Number(existing.students?.credit_balance || 0)
-  const paid = Number(existing.paid_amount || 0)
 
   // See this invoice's own previously-applied credit as already given back
   // (liveCreditBalance + previouslyApplied) without an actual DB write, then
@@ -1142,15 +1157,6 @@ export async function regenerateInvoice(invoiceId: string, confirmed: boolean = 
     invoiceId
   )
   if ('error' in computed) return { error: computed.error }
-
-  const wasSentOrPaid = !!existing.sent_at || paid > 0
-  if (wasSentOrPaid && !confirmed) {
-    return {
-      needsConfirmation: true,
-      current: { total: Number(existing.total_amount), creditApplied: previouslyApplied },
-      updated: { total: computed.total, creditApplied: computed.creditApplied },
-    }
-  }
 
   // Determine new status
   let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
@@ -1193,34 +1199,21 @@ export async function regenerateInvoice(invoiceId: string, confirmed: boolean = 
   return { success: true, newTotal: computed.total, wasOverpaid: paid > computed.total }
 }
 
-// REGENERATE every out-of-date invoice in a cycle (skips ones already matching current fees)
-export async function startInvoiceRegenerationJob(cycleId: string, confirmed: boolean = false): Promise<
+// REGENERATE every out-of-date invoice in a cycle (skips ones already matching current fees,
+// and skips — never overwrites — any invoice already sent or paid against)
+export async function startInvoiceRegenerationJob(cycleId: string): Promise<
   | { error: string }
-  | { needsConfirmation: true; sentOrPaidCount: number; totalCount: number }
-  | { success: true; jobId: string }
+  | { success: true; jobId: string; lockedCount: number }
 > {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
 
   const existingJob = await findRunningJob(schoolId, 'invoice_regeneration', { cycleId })
-  if (existingJob) return { success: true, jobId: existingJob.id }
+  if (existingJob) return { success: true, jobId: existingJob.id, lockedCount: 0 }
 
   const prep = await prepareInvoiceRegeneration(supabase, schoolId, cycleId)
   if ('error' in prep) return { error: prep.error }
-
-  if (!confirmed) {
-    const { count } = await supabase
-      .from('invoices')
-      .select('id', { count: 'exact', head: true })
-      .eq('billing_cycle_id', cycleId)
-      .eq('school_id', schoolId)
-      .or('sent_at.not.is.null,paid_amount.gt.0')
-    const sentOrPaidCount = count || 0
-    if (sentOrPaidCount > 0) {
-      return { needsConfirmation: true, sentOrPaidCount, totalCount: prep.invoiceIds.length }
-    }
-  }
 
   const job = await createJob({
     schoolId,
@@ -1232,7 +1225,7 @@ export async function startInvoiceRegenerationJob(cycleId: string, confirmed: bo
 
   await updateJobProgress(job.id, { cursor: { invoiceIds: prep.invoiceIds } })
 
-  return { success: true, jobId: job.id }
+  return { success: true, jobId: job.id, lockedCount: prep.lockedCount }
 }
 
 // Shared poller for both job types — the panel/layout components read

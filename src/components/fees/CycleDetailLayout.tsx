@@ -10,7 +10,6 @@ import { sendInvoiceUpdateNotice } from '@/app/(app)/invoices/actions'
 import { useActiveJobs, useTrackedJob, useOnJobOpenRequested } from '@/lib/jobs/ActiveJobsProvider'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { formatDate } from '@/lib/format/date'
-import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 interface Props {
   data: CycleDetailData
@@ -65,12 +64,6 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
   const [regenerateSummary, setRegenerateSummary] = useState<string | null>(null)
   const regeneratingAll = !!regenerateJob && regenerateJob.status === 'running'
-  const [regenerateAllConfirm, setRegenerateAllConfirm] = useState<{ sentOrPaidCount: number; totalCount: number } | null>(null)
-  const [regenerateOneConfirm, setRegenerateOneConfirm] = useState<{
-    invoiceId: string
-    current: { total: number; creditApplied: number }
-    updated: { total: number; creditApplied: number }
-  } | null>(null)
   const [notifyingId, setNotifyingId] = useState<string | null>(null)
   const [notifiedIds, setNotifiedIds] = useState<Set<string>>(new Set())
 
@@ -107,80 +100,43 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
     setRegenerateSummary(null)
 
     const started = await startInvoiceRegenerationJob(cycle.id)
-    if ('needsConfirmation' in started) {
-      setRegenerateAllConfirm({ sentOrPaidCount: started.sentOrPaidCount, totalCount: started.totalCount })
-      return
-    }
     if ('error' in started) {
       setError(started.error ?? 'Something went wrong')
       return
     }
-    runRegenerateAllJob(started.jobId)
+    runRegenerateAllJob(started.jobId, started.lockedCount)
   }
 
-  function runRegenerateAllJob(jobId: string) {
+  function runRegenerateAllJob(jobId: string, lockedCount: number = 0) {
     if (!cycle) return
     setRegenerateJobId(jobId)
+    const lockedNote = lockedCount > 0
+      ? ` (${lockedCount} already sent/paid ${lockedCount === 1 ? 'invoice was' : 'invoices were'} left untouched)`
+      : ''
     trackJob(jobId, 'invoice_regeneration', 'Invoice regeneration', undefined, (job) => {
       if (job.status === 'failed') {
         setError(job.error || 'Something went wrong')
       } else if (job.status === 'cancelled') {
         setRegenerateSummary(
-          `Cancelled — ${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated before stopping.`
+          `Cancelled — ${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated before stopping.${lockedNote}`
         )
         router.refresh()
       } else {
         setRegenerateSummary(
-          `${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated to current fees.`
+          `${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated to current fees.${lockedNote}`
         )
         router.refresh()
       }
     }, { cycleId: cycle.id, href: `/fees/cycles/${cycle.id}` })
   }
 
-  async function handleConfirmRegenerateAll() {
-    if (!cycle || !regenerateAllConfirm) return
-    setRegenerateAllConfirm(null)
-    const started = await startInvoiceRegenerationJob(cycle.id, true)
-    if ('error' in started) {
-      setError(started.error ?? 'Something went wrong')
-      return
-    }
-    if ('needsConfirmation' in started) return
-    runRegenerateAllJob(started.jobId)
-  }
-
-
-
   async function handleRegenerateOne(invoiceId: string) {
     setError(null)
     setRegeneratingId(invoiceId)
     const result = await regenerateInvoice(invoiceId)
-    if ('needsConfirmation' in result) {
-      setRegenerateOneConfirm({ invoiceId, current: result.current, updated: result.updated })
-      setRegeneratingId(null)
-      return
-    }
     if ('error' in result) {
       setError(result.error)
     } else {
-      if (result.wasOverpaid) {
-        setError('Invoice updated — the new total is now less than what the student has already paid. Review for a possible refund or credit.')
-      }
-      router.refresh()
-    }
-    setRegeneratingId(null)
-  }
-
-  async function handleConfirmRegenerateOne() {
-    if (!regenerateOneConfirm) return
-    const { invoiceId } = regenerateOneConfirm
-    setRegenerateOneConfirm(null)
-    setRegeneratingId(invoiceId)
-    const result = await regenerateInvoice(invoiceId, true)
-    if ('error' in result) {
-      setError(result.error)
-    } else if (!('needsConfirmation' in result)) {
       if (result.wasOverpaid) {
         setError('Invoice updated — the new total is now less than what the student has already paid. Review for a possible refund or credit.')
       }
@@ -595,16 +551,25 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
                               out of date
                             </span>
                             {canManageInvoices && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleRegenerateOne(inv.id)
-                              }}
-                              disabled={regeneratingId === inv.id}
-                              className="text-xs text-mint font-medium hover:underline disabled:opacity-50"
-                            >
-                              {regeneratingId === inv.id ? 'Regenerating...' : 'Regenerate'}
-                            </button>
+                              (inv.sentAt || inv.paidAmount > 0) ? (
+                                <span
+                                  className="text-xs text-gray-400"
+                                  title="Already sent or paid against — a full regenerate is no longer available. New fee opt-ins still apply instantly; other changes take effect on the next invoice."
+                                >
+                                  Locked
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleRegenerateOne(inv.id)
+                                  }}
+                                  disabled={regeneratingId === inv.id}
+                                  className="text-xs text-mint font-medium hover:underline disabled:opacity-50"
+                                >
+                                  {regeneratingId === inv.id ? 'Regenerating...' : 'Regenerate'}
+                                </button>
+                              )
                             )}
                           </>
                         )}
@@ -650,26 +615,6 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
             setGeneratePanelOpen(false)
             router.refresh()
           }}
-        />
-      )}
-
-      {regenerateAllConfirm && (
-        <ConfirmDialog
-          title="Regenerate invoices?"
-          message={`${regenerateAllConfirm.sentOrPaidCount} of ${regenerateAllConfirm.totalCount} invoices in this term have already been sent or paid. Regenerating may change their totals. Parents will not be notified automatically.`}
-          confirmLabel="Regenerate all"
-          onConfirm={handleConfirmRegenerateAll}
-          onCancel={() => setRegenerateAllConfirm(null)}
-        />
-      )}
-
-      {regenerateOneConfirm && (
-        <ConfirmDialog
-          title="This invoice has already been sent or paid"
-          message={`Regenerating will change the total from ${formatNaira(regenerateOneConfirm.current.total)} to ${formatNaira(regenerateOneConfirm.updated.total)}${regenerateOneConfirm.updated.creditApplied !== regenerateOneConfirm.current.creditApplied ? ` (credit applied: ${formatNaira(regenerateOneConfirm.current.creditApplied)} → ${formatNaira(regenerateOneConfirm.updated.creditApplied)})` : ''}. The parent will not be notified automatically — you can send an update notice afterward.`}
-          confirmLabel="Regenerate"
-          onConfirm={handleConfirmRegenerateOne}
-          onCancel={() => setRegenerateOneConfirm(null)}
         />
       )}
     </>

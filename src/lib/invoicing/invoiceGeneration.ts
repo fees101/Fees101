@@ -185,7 +185,7 @@ export async function processInvoiceGenerationChunk(
 // ---------------------------------------------------------------------------
 
 export async function prepareInvoiceRegeneration(supabase: any, schoolId: string, cycleId: string): Promise<
-  { error: string } | { cycle: { id: string; status: string; name: string }; invoiceIds: string[] }
+  { error: string } | { cycle: { id: string; status: string; name: string }; invoiceIds: string[]; lockedCount: number }
 > {
   const { data: cycle } = await supabase
     .from('billing_cycles')
@@ -198,11 +198,19 @@ export async function prepareInvoiceRegeneration(supabase: any, schoolId: string
 
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('id')
+    .select('id, sent_at, paid_amount')
     .eq('billing_cycle_id', cycleId)
     .eq('school_id', schoolId)
 
-  return { cycle, invoiceIds: (invoices || []).map((i: any) => i.id) }
+  // A full regenerate can't safely touch an invoice that's already been sent
+  // or has a payment against it — that's a hard rule (regenerateInvoice
+  // enforces it too, one invoice at a time). "Regenerate all" just quietly
+  // skips those and reports how many were skipped, rather than asking for
+  // confirmation to overwrite them — there's no safe "confirmed: true" path
+  // for a sent/paid invoice anymore.
+  const eligible = (invoices || []).filter((i: any) => !i.sent_at && Number(i.paid_amount || 0) === 0)
+
+  return { cycle, invoiceIds: eligible.map((i: any) => i.id), lockedCount: (invoices || []).length - eligible.length }
 }
 
 // One-shot (non-chunked) regeneration for call sites with a small, bounded
