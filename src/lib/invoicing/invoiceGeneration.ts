@@ -198,7 +198,7 @@ export async function prepareInvoiceRegeneration(supabase: any, schoolId: string
 
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('id, sent_at, paid_amount')
+    .select('id, student_id, sent_at, paid_amount, total_amount, credit_applied')
     .eq('billing_cycle_id', cycleId)
     .eq('school_id', schoolId)
 
@@ -208,9 +208,38 @@ export async function prepareInvoiceRegeneration(supabase: any, schoolId: string
   // skips those and reports how many were skipped, rather than asking for
   // confirmation to overwrite them — there's no safe "confirmed: true" path
   // for a sent/paid invoice anymore.
-  const eligible = (invoices || []).filter((i: any) => !i.sent_at && Number(i.paid_amount || 0) === 0)
+  const unlocked = (invoices || []).filter((i: any) => !i.sent_at && Number(i.paid_amount || 0) === 0)
 
-  return { cycle, invoiceIds: eligible.map((i: any) => i.id), lockedCount: (invoices || []).length - eligible.length }
+  // Pre-filter to invoices that are actually stale (same needsRegeneration
+  // check the cycle-detail page runs) so the job's total only counts real
+  // work — otherwise 1 stale invoice among 5 unlocked-but-current ones shows
+  // a misleading "1/5" that looks stuck when it's actually done.
+  let eligible = unlocked
+  if (unlocked.length > 0) {
+    const preload = await buildInvoiceComputePreload(
+      supabase,
+      schoolId,
+      cycleId,
+      unlocked.map((i: any) => i.student_id),
+      unlocked.map((i: any) => i.id)
+    )
+    const staleChecks = await Promise.all(
+      unlocked.map(async (inv: any) => {
+        const previouslyApplied = Number(inv.credit_applied || 0)
+        const liveCreditBalance = Number(preload.studentsById.get(inv.student_id)?.credit_balance || 0)
+        const paid = Number(inv.paid_amount || 0)
+        const computed = await computeInvoiceForStudent(
+          supabase, schoolId, inv.student_id, cycleId,
+          liveCreditBalance + previouslyApplied, paid, inv.id, preload
+        )
+        if ('error' in computed) return true // let the chunk processor surface the error
+        return computed.total !== Number(inv.total_amount) || computed.creditApplied !== previouslyApplied
+      })
+    )
+    eligible = unlocked.filter((_: any, idx: number) => staleChecks[idx])
+  }
+
+  return { cycle, invoiceIds: eligible.map((i: any) => i.id), lockedCount: (invoices || []).length - unlocked.length }
 }
 
 // One-shot (non-chunked) regeneration for call sites with a small, bounded
