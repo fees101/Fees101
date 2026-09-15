@@ -673,6 +673,9 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     )
 
     for (const inv of invoices) {
+      // A cancelled invoice is a dead record — never worth recomputing, and
+      // never eligible for regeneration (which would silently un-cancel it).
+      if (inv.status === 'cancelled') continue
       // Simulate "what if this invoice's own credit were restored, then
       // recomputed" — the same restore-then-compare logic regeneration
       // actually performs — without mutating anything. Comparing against

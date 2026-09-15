@@ -201,6 +201,11 @@ export async function prepareInvoiceRegeneration(supabase: any, schoolId: string
     .select('id, student_id, sent_at, paid_amount, total_amount, credit_applied')
     .eq('billing_cycle_id', cycleId)
     .eq('school_id', schoolId)
+    // A cancelled invoice is a dead record — regenerating it would silently
+    // un-cancel it (write a new total/status via apply_invoice_recompute)
+    // the moment the fee structure it references drifts, with no admin
+    // intent behind that. Never eligible.
+    .neq('status', 'cancelled')
 
   // A full regenerate can't safely touch an invoice where the recomputed
   // total would drop below what's already been paid — that's the one real
@@ -267,8 +272,12 @@ export async function processInvoiceRegenerationChunk(
 ): Promise<{ regenerated: number; alreadyUpToDate: number; errors: { label: string; error: string }[] }> {
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('id, student_id, total_amount, paid_amount, sent_at, credit_applied')
+    .select('id, student_id, status, total_amount, paid_amount, sent_at, credit_applied')
     .in('id', invoiceIds)
+    // Defense in depth: prepareInvoiceRegeneration already excludes cancelled
+    // invoices from invoiceIds, but this is the actual write path, so it
+    // never trusts that alone — a cancelled invoice must never be resurrected.
+    .neq('status', 'cancelled')
 
   let regenerated = 0
   let alreadyUpToDate = 0

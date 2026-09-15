@@ -72,11 +72,17 @@ export default function StudentFeesTab({ data }: Props) {
 
   // Smart button state
   const existingInvoice = data.existingInvoice
+  // A cancelled invoice is a dead record — it still occupies the one row the
+  // (student, cycle) unique constraint allows, so it stays the "existing
+  // invoice" here, but it must never read as live/current. See the roadmap
+  // gap: reissuing a fresh invoice after cancelling isn't supported yet.
+  const isCancelled = existingInvoice?.status === 'cancelled'
   // Comparing totalAmount alone misses the case where credit fully covers
   // the bill both before and after a fee change (e.g. a new opt-in) — the
   // total coincidentally stays the same while credit_applied (what's
   // actually owed and drawn from credit) differs.
-  const isInvoiceUpToDate = existingInvoice
+  const isInvoiceUpToDate = !!existingInvoice
+    && !isCancelled
     && existingInvoice.totalAmount === data.expectedBill
     && existingInvoice.creditApplied === data.expectedCreditApplied
   const diffAmount = existingInvoice ? data.expectedBill - existingInvoice.totalAmount : 0
@@ -89,6 +95,7 @@ export default function StudentFeesTab({ data }: Props) {
   // needs_resend so the admin knows to tell the parent. Mirrors the backend
   // guard in regenerateInvoice (fees/cycles/actions.ts).
   const isLocked = !!existingInvoice
+    && !isCancelled
     && existingInvoice.paidAmount > 0
     && data.expectedBill < existingInvoice.paidAmount
 
@@ -272,7 +279,7 @@ export default function StudentFeesTab({ data }: Props) {
                 Generate invoice
               </button>
             )}
-            {canManageInvoices && existingInvoice && !isInvoiceUpToDate && !isLocked && (
+            {canManageInvoices && existingInvoice && !isCancelled && !isInvoiceUpToDate && !isLocked && (
               <button
                 onClick={() => setUpdateConfirm(true)}
                 disabled={generating}
@@ -281,7 +288,7 @@ export default function StudentFeesTab({ data }: Props) {
                 Update invoice
               </button>
             )}
-            {existingInvoice && !isInvoiceUpToDate && isLocked && (
+            {existingInvoice && !isCancelled && !isInvoiceUpToDate && isLocked && (
               <span
                 className="px-3 py-2 text-sm text-gray-500 italic"
                 title="This change would drop the total below what's already been paid — that needs a manual refund/credit reconciliation, not a regenerate."
@@ -289,16 +296,35 @@ export default function StudentFeesTab({ data }: Props) {
                 Locked — needs refund reconciliation
               </span>
             )}
-            {existingInvoice && isInvoiceUpToDate && (
+            {existingInvoice && !isCancelled && isInvoiceUpToDate && (
               <span className="px-3 py-2 text-sm text-gray-500 italic">
                 Invoice up to date
+              </span>
+            )}
+            {isCancelled && (
+              <span
+                className="px-3 py-2 text-sm text-gray-500 italic"
+                title="Reissuing a fresh invoice for this student and term isn't supported yet — see roadmap."
+              >
+                Cancelled — reissuing not yet supported
               </span>
             )}
           </div>
         </div>
 
         {/* Existing invoice info */}
-        {existingInvoice && (
+        {existingInvoice && isCancelled && (
+          <div className="p-4 rounded-xl border bg-gray-50 border-gray-200">
+            <p className="text-xs text-gray-600 uppercase tracking-wider mb-1">Current invoice</p>
+            <span className="text-sm font-semibold text-gray-500">
+              Cancelled — {formatNaira(existingInvoice.totalAmount)}
+            </span>
+            <p className="text-xs text-gray-500 mt-2">
+              This invoice was cancelled. Reissuing a fresh invoice for this student and term isn&apos;t supported yet.
+            </p>
+          </div>
+        )}
+        {existingInvoice && !isCancelled && (
           <div className={`p-4 rounded-xl border ${
             isInvoiceUpToDate
               ? 'bg-mint-light/30 border-mint/30'

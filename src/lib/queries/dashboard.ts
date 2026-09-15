@@ -49,7 +49,10 @@ export async function getDashboardKPIs() {
       .from('invoices')
       .select('id', { count: 'exact', head: true })
       .eq('school_id', schoolId)
-      .eq('needs_resend', true),
+      .eq('needs_resend', true)
+      // A cancelled invoice can carry a stale needs_resend flag from before
+      // it was cancelled — it's a dead record, never worth resending.
+      .neq('status', 'cancelled'),
   ])
 
   // invoices + collected both depend on currentCycle, so they run after it.

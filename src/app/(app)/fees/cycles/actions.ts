@@ -1124,7 +1124,7 @@ export async function regenerateInvoice(invoiceId: string, confirmed: boolean = 
 
   const { data: existing } = await supabase
     .from('invoices')
-    .select('id, student_id, billing_cycle_id, paid_amount, sent_at, credit_applied, total_amount, invoice_number, billing_cycles(status), students!inner(credit_balance)')
+    .select('id, student_id, billing_cycle_id, status, paid_amount, sent_at, credit_applied, total_amount, invoice_number, billing_cycles(status), students!inner(credit_balance)')
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
     .single()
@@ -1133,6 +1133,11 @@ export async function regenerateInvoice(invoiceId: string, confirmed: boolean = 
   // @ts-expect-error — joined
   if (existing.billing_cycles?.status === 'closed') {
     return { error: 'This term is closed. Invoices cannot be regenerated.' }
+  }
+  // A cancelled invoice is a dead record — regenerating it would silently
+  // un-cancel it the moment fees drift, with no admin intent behind that.
+  if (existing.status === 'cancelled') {
+    return { error: 'This invoice was cancelled and cannot be regenerated.' }
   }
 
   const paid = Number(existing.paid_amount || 0)

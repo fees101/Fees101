@@ -42,11 +42,13 @@ function formatDate(dateStr: string | null): string {
 }
 
 function statusBadge(invoice: InvoiceDetail) {
+  // Cancelled overrides everything — a dead invoice never reads as "needs
+  // resend" just because that flag happened to be set at cancellation time.
+  if (invoice.status === 'cancelled') return { cls: 'bg-gray-100 text-gray-500', label: 'cancelled' }
   if (invoice.needsResend) return { cls: 'bg-amber-50 text-amber-700', label: 'needs resend' }
   if (invoice.status === 'paid') return { cls: 'bg-mint-light text-mint', label: 'paid' }
   if (invoice.status === 'partial') return { cls: 'bg-amber-50 text-amber-700', label: 'partial' }
   if (invoice.status === 'overdue') return { cls: 'bg-red-50 text-red-700', label: 'overdue' }
-  if (invoice.status === 'cancelled') return { cls: 'bg-gray-100 text-gray-500', label: 'cancelled' }
   return { cls: 'bg-gray-100 text-gray-600', label: 'pending' }
 }
 
@@ -295,7 +297,11 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           {/* Payment instructions */}
           <div className="bg-mint-light/40 border border-mint/30 rounded-xl p-6">
             <p className="text-xs text-mint font-semibold uppercase tracking-wider mb-3">Payment instructions</p>
-            {invoice.status === 'paid' ? (
+            {invoice.status === 'cancelled' ? (
+              <div className="bg-white border border-gray-200 rounded-lg py-3 px-3 text-center">
+                <p className="text-sm font-semibold text-gray-500">Cancelled — no payment due</p>
+              </div>
+            ) : invoice.status === 'paid' ? (
               <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
                 <p className="text-sm font-semibold text-mint">Paid in full — no further action needed</p>
               </div>
@@ -325,7 +331,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-2">
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Actions</p>
 
-            {canSendInvoice && !invoice.carriedForwardToCycleName && (
+            {canSendInvoice && invoice.status !== 'cancelled' && !invoice.carriedForwardToCycleName && (
               <button
                 onClick={() => setSendConfirmOpen(true)}
                 disabled={sending}
@@ -345,6 +351,8 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
               <p className="text-xs text-gray-500">
                 This balance carried forward to <span className="font-medium text-navy">{invoice.carriedForwardToCycleName}</span> automatically — send that invoice instead.
               </p>
+            ) : invoice.status === 'cancelled' ? (
+              <p className="text-xs text-gray-500">Cancelled — nothing to send</p>
             ) : isFullyPaid ? (
               <p className="text-xs text-gray-500">Fully paid — send a receipt any time, on request</p>
             ) : invoice.needsResend ? (

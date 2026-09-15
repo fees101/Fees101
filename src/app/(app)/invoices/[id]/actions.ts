@@ -101,7 +101,7 @@ export async function cancelInvoice(
 
   const { error } = await supabase
     .from('invoices')
-    .update({ status: 'cancelled' })
+    .update({ status: 'cancelled', needs_resend: false })
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
 

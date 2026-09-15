@@ -23,11 +23,13 @@ function formatNaira(amount: number): string {
 }
 
 function statusBadge(inv: InvoiceRow) {
+  // Cancelled overrides everything — a dead invoice never reads as "needs
+  // resend" just because that flag happened to be set at cancellation time.
+  if (inv.status === 'cancelled') return { cls: 'bg-gray-100 text-gray-500', label: 'cancelled' }
   if (inv.needsResend) return { cls: 'bg-amber-50 text-amber-700', label: 'needs resend' }
   if (inv.status === 'paid') return { cls: 'bg-mint-light text-mint', label: 'paid' }
   if (inv.status === 'partial') return { cls: 'bg-amber-50 text-amber-700', label: 'partial' }
   if (inv.status === 'overdue') return { cls: 'bg-red-50 text-red-700', label: 'overdue' }
-  if (inv.status === 'cancelled') return { cls: 'bg-gray-100 text-gray-500', label: 'cancelled' }
   return { cls: 'bg-gray-100 text-gray-600', label: 'unpaid' }
 }
 

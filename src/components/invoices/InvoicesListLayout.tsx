@@ -18,11 +18,13 @@ function formatNaira(amount: number): string {
 }
 
 function statusBadge(inv: AllInvoiceRow) {
+  // Cancelled overrides everything — a dead invoice never reads as "needs
+  // resend" just because that flag happened to be set at cancellation time.
+  if (inv.status === 'cancelled') return { cls: 'bg-gray-100 text-gray-500', label: 'cancelled' }
   if (inv.needsResend) return { cls: 'bg-amber-50 text-amber-700', label: 'needs resend' }
   if (inv.status === 'paid') return { cls: 'bg-mint-light text-mint', label: 'paid' }
   if (inv.status === 'partial') return { cls: 'bg-amber-50 text-amber-700', label: 'partial' }
   if (inv.status === 'overdue') return { cls: 'bg-red-50 text-red-700', label: 'overdue' }
-  if (inv.status === 'cancelled') return { cls: 'bg-gray-100 text-gray-500', label: 'cancelled' }
   return { cls: 'bg-gray-100 text-gray-600', label: 'unpaid' }
 }
 
@@ -71,8 +73,8 @@ export default function InvoicesListLayout({ invoices }: Props) {
     all: invoices.length,
     paid: invoices.filter(i => i.status === 'paid').length,
     partial: invoices.filter(i => i.status === 'partial').length,
-    unpaid: invoices.filter(i => i.status !== 'paid' && i.status !== 'partial').length,
-    needsResend: invoices.filter(i => i.needsResend).length,
+    unpaid: invoices.filter(i => i.status !== 'paid' && i.status !== 'partial' && i.status !== 'cancelled').length,
+    needsResend: invoices.filter(i => i.needsResend && i.status !== 'cancelled').length,
     needsSend: invoices.filter(i => i.status !== 'cancelled' && (i.cycleStatus !== 'closed' || !i.carriedForwardToCycleName) && i.outstandingAmount > 0 && (!i.sentAt || i.needsResend)).length,
   }), [invoices])
 
@@ -82,8 +84,8 @@ export default function InvoicesListLayout({ invoices }: Props) {
       if (termFilter !== 'all' && inv.cycleId !== termFilter) return false
       if (statusFilter === 'paid' && inv.status !== 'paid') return false
       if (statusFilter === 'partial' && inv.status !== 'partial') return false
-      if (statusFilter === 'unpaid' && (inv.status === 'paid' || inv.status === 'partial')) return false
-      if (statusFilter === 'needs_resend' && !inv.needsResend) return false
+      if (statusFilter === 'unpaid' && (inv.status === 'paid' || inv.status === 'partial' || inv.status === 'cancelled')) return false
+      if (statusFilter === 'needs_resend' && (!inv.needsResend || inv.status === 'cancelled')) return false
       if (term) {
         const fullName = `${inv.studentFirstName} ${inv.studentLastName}`.toLowerCase()
         return (
