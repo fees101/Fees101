@@ -8,6 +8,7 @@ import { formatPaymentMethod } from '@/lib/paymentMethod'
 import { sendInvoice, sendReceipt } from '@/app/(app)/invoices/[id]/actions'
 import { MessageChannel } from '@/lib/messaging/types'
 import RequestDiscountModal from '@/components/invoices/RequestDiscountModal'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import Toast from '@/components/ui/Toast'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 
@@ -58,6 +59,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
   const [sending, setSending] = useState(false)
   const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [discountModalOpen, setDiscountModalOpen] = useState(false)
+  const [sendConfirmOpen, setSendConfirmOpen] = useState(false)
   const pendingDiscount = invoice.pendingDiscount
   const canSendInvoice = useCan('manage-invoices')
   const canRequestDiscount = useCan('request-discounts')
@@ -67,6 +69,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
     setSendResult(null)
     const r = await sendInvoice(invoice.id)
     setSending(false)
+    setSendConfirmOpen(false)
     if ('error' in r) { setSendResult({ ok: false, message: r.error }); return }
     const channelsUsed = r.channelsUsed || []
     setSendResult({
@@ -81,6 +84,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
     setSendResult(null)
     const r = await sendReceipt(invoice.id)
     setSending(false)
+    setSendConfirmOpen(false)
     if ('error' in r) { setSendResult({ ok: false, message: r.error }); return }
     const channelsUsed = r.channelsUsed || []
     setSendResult({
@@ -303,7 +307,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
 
             {canSendInvoice && !invoice.carriedForwardToCycleName && (
               <button
-                onClick={isFullyPaid ? handleSendReceipt : handleSend}
+                onClick={() => setSendConfirmOpen(true)}
                 disabled={sending}
                 className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 ${sendBtnClass}`}
                 title={isFullyPaid ? 'Sends a payment receipt via SMS/email' : invoice.needsResend ? 'The invoice changed since it was last sent — resend to update the parent' : 'Sends via SMS'}
@@ -422,6 +426,20 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
             setDiscountModalOpen(false)
             router.refresh()
           }}
+        />
+      )}
+
+      {sendConfirmOpen && (
+        <ConfirmDialog
+          title={isFullyPaid ? 'Send this receipt to the parent now?' : `${invoice.sentAt ? 'Resend' : 'Send'} this invoice to the parent now?`}
+          message={
+            isFullyPaid
+              ? `Sends a payment receipt to ${invoice.primaryParentName || 'the parent'} for ${invoice.studentFirstName} ${invoice.studentLastName}.`
+              : `Sends the current invoice (${formatNaira(invoice.totalAmount)} due) to ${invoice.primaryParentName || 'the parent'} for ${invoice.studentFirstName} ${invoice.studentLastName}.`
+          }
+          confirmLabel={isFullyPaid ? 'Send receipt' : invoice.sentAt ? 'Resend' : 'Send'}
+          onConfirm={isFullyPaid ? handleSendReceipt : handleSend}
+          onCancel={() => setSendConfirmOpen(false)}
         />
       )}
 

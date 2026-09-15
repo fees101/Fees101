@@ -15,6 +15,7 @@ import {
 } from '@/app/(app)/fees/cycles/actions'
 import { sendInvoiceUpdateNotice } from '@/app/(app)/invoices/actions'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import Toast from '@/components/ui/Toast'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface Props {
@@ -34,6 +35,8 @@ export default function StudentFeesTab({ data }: Props) {
     notes: string
   } | null>(null)
   const [removeExemptionConfirm, setRemoveExemptionConfirm] = useState<StudentFeeItem | null>(null)
+  const [optInConfirm, setOptInConfirm] = useState<StudentFeeItem | null>(null)
+  const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const previewIframeRef = useRef<HTMLIFrameElement>(null)
   const [generating, setGenerating] = useState(false)
@@ -86,15 +89,44 @@ export default function StudentFeesTab({ data }: Props) {
     && existingInvoice.paidAmount > 0
     && data.expectedBill < existingInvoice.paidAmount
 
-  async function handleToggleOptIn(fee: StudentFeeItem) {
+  function handleToggleClick(fee: StudentFeeItem) {
+    if (fee.isOptedIn) {
+      handleOptOut(fee)
+    } else {
+      setOptInConfirm(fee)
+    }
+  }
+
+  async function handleOptOut(fee: StudentFeeItem) {
     setError(null)
     setPendingId(fee.id)
     const result = await toggleStudentOptIn(data.student.id, fee.id)
     if ('error' in result && result.error) {
       setError(result.error)
     } else {
+      setToast({
+        message: `Opted out of ${fee.name} — click "Update invoice" to remove it from this invoice.`,
+        ok: true,
+      })
       router.refresh()
     }
+    setPendingId(null)
+  }
+
+  async function handleConfirmOptIn() {
+    if (!optInConfirm) return
+    const fee = optInConfirm
+    setError(null)
+    setPendingId(fee.id)
+    const result = await toggleStudentOptIn(data.student.id, fee.id)
+    if ('error' in result && result.error) {
+      setError(result.error)
+      setToast({ message: result.error, ok: false })
+    } else {
+      setToast({ message: `Added ${fee.name} (${formatNaira(fee.amount)}) to ${data.student.firstName}'s invoice.`, ok: true })
+      router.refresh()
+    }
+    setOptInConfirm(null)
     setPendingId(null)
   }
 
@@ -300,7 +332,7 @@ export default function StudentFeesTab({ data }: Props) {
                     Adjustments have been made. Current invoice ({formatNaira(existingInvoice.totalAmount)})
                     differs from expected ({formatNaira(data.expectedBill)}).
                     {isLocked
-                      ? ' This invoice has already been sent or paid, so these changes apply from the next term’s invoice. (A new fee opt-in still applies to this invoice instantly.)'
+                      ? ' Applying this would drop the invoice below what’s already been paid, which needs a manual refund/credit reconciliation. (A new fee opt-in still applies to this invoice instantly.)'
                       : ' Click “Update invoice” to apply.'}
                   </p>
                 )}
@@ -424,13 +456,22 @@ export default function StudentFeesTab({ data }: Props) {
                   <tr key={fee.id}>
                     <td className="py-3">
                       {canManageStudents && (
-                        <input
-                          type="checkbox"
-                          checked={fee.isOptedIn}
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={fee.isOptedIn}
+                          onClick={() => handleToggleClick(fee)}
                           disabled={pendingId === fee.id}
-                          onChange={() => handleToggleOptIn(fee)}
-                          className="text-mint cursor-pointer disabled:opacity-50"
-                        />
+                          className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                            fee.isOptedIn ? 'bg-mint' : 'bg-gray-200'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                              fee.isOptedIn ? 'translate-x-[18px]' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
                       )}
                     </td>
                     <td className="py-3">
@@ -487,6 +528,21 @@ export default function StudentFeesTab({ data }: Props) {
           </div>
         </div>
       </div>
+
+      {toast && (
+        <Toast message={toast.message} ok={toast.ok} onDismiss={() => setToast(null)} />
+      )}
+
+      {/* Opt-in confirm dialog */}
+      {optInConfirm && (
+        <ConfirmDialog
+          title={`Add ${optInConfirm.name} to ${data.student.firstName}'s invoice?`}
+          message={`Increases what ${data.student.firstName} owes by ${formatNaira(optInConfirm.amount)}.`}
+          confirmLabel="Add fee"
+          onConfirm={handleConfirmOptIn}
+          onCancel={() => setOptInConfirm(null)}
+        />
+      )}
 
       {/* Exemption dialog */}
       {exemptionDialog && (
