@@ -235,9 +235,11 @@ export default function StudentFeesTab({ data }: Props) {
         {/* Existing invoice info */}
         {existingInvoice && (
           <div className={`p-4 rounded-xl border ${
-            isInvoiceUpToDate 
-              ? 'bg-mint-light/30 border-mint/30' 
-              : 'bg-amber-50 border-amber-200'
+            isInvoiceUpToDate
+              ? 'bg-mint-light/30 border-mint/30'
+              : isLocked
+                ? 'bg-gray-50 border-gray-200'
+                : 'bg-amber-50 border-amber-200'
           }`}>
             <div className="flex items-start justify-between">
               <div>
@@ -291,7 +293,7 @@ export default function StudentFeesTab({ data }: Props) {
                   )}
                 </div>
                 {!isInvoiceUpToDate && (
-                  <p className="text-xs text-amber-700 mt-2">
+                  <p className={`text-xs mt-2 ${isLocked ? 'text-gray-500' : 'text-amber-700'}`}>
                     Adjustments have been made. Current invoice ({formatNaira(existingInvoice.totalAmount)})
                     differs from expected ({formatNaira(data.expectedBill)}).
                     {isLocked
