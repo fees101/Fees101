@@ -151,14 +151,25 @@ export function ActiveJobsProvider({ children, interruptedJobs = [] }: { childre
     polling.current.add(jobId)
 
     pollJob(jobId, (s) => {
-      setJobs(prev => ({
-        ...prev,
-        [jobId]: {
-          jobId, jobType, label, processed: s.processed, total: s.total, status: 'running',
-          meta: meta ?? prev[jobId]?.meta,
-          cancelling: prev[jobId]?.cancelling,
-        },
-      }))
+      setJobs(prev => {
+        // A status-reader fetch already in flight when the driver loop
+        // completes resolves AFTER .then() has set the terminal status —
+        // and this callback hardcodes 'running'. Left unguarded, that late
+        // tick clobbers a completed/failed/cancelled job back to 'running',
+        // so its chip (and the "N hidden jobs running" pill, both filtered on
+        // status==='running') stay up until a page reload. Never downgrade a
+        // job that's already terminal.
+        const existing = prev[jobId]
+        if (existing && existing.status !== 'running') return prev
+        return {
+          ...prev,
+          [jobId]: {
+            jobId, jobType, label, processed: s.processed, total: s.total, status: 'running',
+            meta: meta ?? existing?.meta,
+            cancelling: existing?.cancelling,
+          },
+        }
+      })
     })
       .then((final) => {
         polling.current.delete(jobId)
