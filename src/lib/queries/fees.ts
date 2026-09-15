@@ -496,6 +496,7 @@ export interface InvoiceRow {
   sentAt: string | null
   needsResend: boolean
   needsRegeneration: boolean
+  regenerationBlocked: boolean
   previousBalance: number
   creditApplied: number
   generatedAt: string
@@ -622,6 +623,7 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     sentAt: inv.sent_at,
     needsResend: inv.needs_resend,
     needsRegeneration: false,
+    regenerationBlocked: false,
     previousBalance: Number(inv.previous_balance || 0),
     creditApplied: Number(inv.credit_applied || 0),
     generatedAt: inv.generated_at,
@@ -681,6 +683,9 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
       // while what's actually owed and drawn from credit still differs.
       if (!('error' in computed) && (computed.total !== inv.totalAmount || computed.creditApplied !== inv.creditApplied)) {
         inv.needsRegeneration = true
+        // Mirrors regenerateInvoice's clawback guard — only actually blocked
+        // when the recomputed total would drop below what's already paid.
+        inv.regenerationBlocked = computed.total < inv.paidAmount
       }
     }
   }

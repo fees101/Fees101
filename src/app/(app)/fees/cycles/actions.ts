@@ -1103,18 +1103,20 @@ export async function generateInvoiceForStudent(studentId: string, cycleId: stri
 
 // REGENERATE existing invoice (recompute line items, keep payments)
 //
-// Hard-blocked once the invoice has been sent or has any payment against it —
-// a full recompute touches every line at once (discounts, previous balance,
-// credit) and could silently claw back or alter something the parent already
-// paid for. Fee ADDITIONS (mid-term opt-ins) don't need this path at all —
-// they go through the additive-only engine (addOptInLine.ts) instead, which
-// is safe regardless of sent/paid. This gate only affects everything else
-// (fee amount edits, opt-outs an admin wants reflected immediately, etc.) —
-// those now wait for the next invoice generation once an invoice is
-// sent/paid, same as an opt-out always has.
+// A full recompute touches every line at once (discounts, previous balance,
+// credit) so it's blocked once it would actually claw back money already
+// paid — i.e. the recomputed total would drop below paid_amount. That's the
+// only real risk: a sent-but-unpaid invoice, or a paid invoice where removing
+// an unpaid mistaken opt-in still leaves total >= paid (no refund implied),
+// can regenerate safely — the invoice is just flagged needs_resend so the
+// admin knows to tell the parent the numbers changed. Fee ADDITIONS (mid-term
+// opt-ins) don't go through this path at all — they use the additive-only
+// engine (addOptInLine.ts) instead, safe regardless of sent/paid. A true
+// clawback (recomputed total < paid_amount) still can't be regenerated here —
+// that's the real refund case, deferred to manual reconciliation (Scenario B).
 export async function regenerateInvoice(invoiceId: string, confirmed: boolean = false): Promise<
   | { error: string }
-  | { success: true; newTotal: number; wasOverpaid: boolean }
+  | { success: true; newTotal: number }
 > {
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
@@ -1134,12 +1136,6 @@ export async function regenerateInvoice(invoiceId: string, confirmed: boolean = 
   }
 
   const paid = Number(existing.paid_amount || 0)
-  if (existing.sent_at || paid > 0) {
-    return {
-      error: 'This invoice has already been sent or paid against, so it can no longer be fully regenerated — a new fee opt-in still applies instantly, everything else waits for the next invoice.',
-    }
-  }
-
   const previouslyApplied = Number(existing.credit_applied || 0)
   // @ts-expect-error — joined
   const liveCreditBalance = Number(existing.students?.credit_balance || 0)
@@ -1159,6 +1155,17 @@ export async function regenerateInvoice(invoiceId: string, confirmed: boolean = 
     invoiceId
   )
   if ('error' in computed) return { error: computed.error }
+
+  // The only real risk in a full regenerate: dropping the total below what's
+  // already been paid, i.e. an actual clawback. Anything else (sent-but-
+  // unpaid, or a paid invoice where the recompute still covers paid_amount —
+  // e.g. undoing a mistaken opt-in) is safe to persist; needs_resend below
+  // flags it for the admin to tell the parent.
+  if (computed.total < paid) {
+    return {
+      error: 'This change would drop the invoice below what has already been paid, which needs a manual refund/credit reconciliation rather than a regenerate. Contact support to reconcile.',
+    }
+  }
 
   // Determine new status
   let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
@@ -1198,7 +1205,7 @@ export async function regenerateInvoice(invoiceId: string, confirmed: boolean = 
 
   revalidatePath(`/students/${existing.student_id}`)
   revalidatePath(`/fees/cycles/${existing.billing_cycle_id}`)
-  return { success: true, newTotal: computed.total, wasOverpaid: paid > computed.total }
+  return { success: true, newTotal: computed.total }
 }
 
 // REGENERATE every out-of-date invoice in a cycle (skips ones already matching current fees,

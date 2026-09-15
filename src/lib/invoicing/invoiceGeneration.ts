@@ -202,29 +202,32 @@ export async function prepareInvoiceRegeneration(supabase: any, schoolId: string
     .eq('billing_cycle_id', cycleId)
     .eq('school_id', schoolId)
 
-  // A full regenerate can't safely touch an invoice that's already been sent
-  // or has a payment against it — that's a hard rule (regenerateInvoice
-  // enforces it too, one invoice at a time). "Regenerate all" just quietly
-  // skips those and reports how many were skipped, rather than asking for
+  // A full regenerate can't safely touch an invoice where the recomputed
+  // total would drop below what's already been paid — that's the one real
+  // clawback risk (mirrors regenerateInvoice's single-invoice guard). A
+  // sent-but-unpaid invoice, or a paid invoice that's still safe to reduce
+  // (e.g. undoing a mistaken opt-in), regenerates like any other and gets
+  // flagged needs_resend. "Regenerate all" quietly skips the true clawback
+  // cases and reports how many were skipped, rather than asking for
   // confirmation to overwrite them — there's no safe "confirmed: true" path
-  // for a sent/paid invoice anymore.
-  const unlocked = (invoices || []).filter((i: any) => !i.sent_at && Number(i.paid_amount || 0) === 0)
-
-  // Pre-filter to invoices that are actually stale (same needsRegeneration
-  // check the cycle-detail page runs) so the job's total only counts real
-  // work — otherwise 1 stale invoice among 5 unlocked-but-current ones shows
-  // a misleading "1/5" that looks stuck when it's actually done.
-  let eligible = unlocked
-  if (unlocked.length > 0) {
+  // for an actual refund case.
+  //
+  // Also pre-filters to invoices that are actually stale (same
+  // needsRegeneration check the cycle-detail page runs) so the job's total
+  // only counts real work — otherwise 1 stale invoice among 5 current ones
+  // shows a misleading "1/5" that looks stuck when it's actually done.
+  let eligible: any[] = []
+  let lockedCount = 0
+  if ((invoices || []).length > 0) {
     const preload = await buildInvoiceComputePreload(
       supabase,
       schoolId,
       cycleId,
-      unlocked.map((i: any) => i.student_id),
-      unlocked.map((i: any) => i.id)
+      (invoices || []).map((i: any) => i.student_id),
+      (invoices || []).map((i: any) => i.id)
     )
-    const staleChecks = await Promise.all(
-      unlocked.map(async (inv: any) => {
+    const checks = await Promise.all(
+      (invoices || []).map(async (inv: any) => {
         const previouslyApplied = Number(inv.credit_applied || 0)
         const liveCreditBalance = Number(preload.studentsById.get(inv.student_id)?.credit_balance || 0)
         const paid = Number(inv.paid_amount || 0)
@@ -232,14 +235,16 @@ export async function prepareInvoiceRegeneration(supabase: any, schoolId: string
           supabase, schoolId, inv.student_id, cycleId,
           liveCreditBalance + previouslyApplied, paid, inv.id, preload
         )
-        if ('error' in computed) return true // let the chunk processor surface the error
-        return computed.total !== Number(inv.total_amount) || computed.creditApplied !== previouslyApplied
+        if ('error' in computed) return { stale: true, blocked: false } // let the chunk processor surface the error
+        const stale = computed.total !== Number(inv.total_amount) || computed.creditApplied !== previouslyApplied
+        return { stale, blocked: computed.total < paid }
       })
     )
-    eligible = unlocked.filter((_: any, idx: number) => staleChecks[idx])
+    eligible = (invoices || []).filter((_: any, idx: number) => checks[idx].stale && !checks[idx].blocked)
+    lockedCount = checks.filter((c) => c.blocked).length
   }
 
-  return { cycle, invoiceIds: eligible.map((i: any) => i.id), lockedCount: (invoices || []).length - unlocked.length }
+  return { cycle, invoiceIds: eligible.map((i: any) => i.id), lockedCount }
 }
 
 // One-shot (non-chunked) regeneration for call sites with a small, bounded
@@ -310,6 +315,13 @@ export async function processInvoiceRegenerationChunk(
 
     if (computed.total === Number(inv.total_amount) && computed.creditApplied === previouslyApplied) {
       alreadyUpToDate++
+      continue
+    }
+
+    // Re-guard against a clawback here too — a payment could have landed
+    // between prepareInvoiceRegeneration's check and this chunk running.
+    if (computed.total < paid) {
+      errors.push({ label: inv.student_id, error: 'Would drop the invoice below what has already been paid — needs manual refund/credit reconciliation.' })
       continue
     }
 

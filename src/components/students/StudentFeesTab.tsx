@@ -75,13 +75,16 @@ export default function StudentFeesTab({ data }: Props) {
     && existingInvoice.creditApplied === data.expectedCreditApplied
   const diffAmount = existingInvoice ? data.expectedBill - existingInvoice.totalAmount : 0
   const newOutstanding = existingInvoice ? data.expectedBill - existingInvoice.paidAmount : 0
-  // A full regenerate can't safely touch an invoice that's already gone out
-  // or has a payment against it. A new opt-in still applies instantly on its
-  // own (the additive engine in students/[id]/actions.ts) — this only locks
-  // out the "Update invoice" full-recompute button for everything else
-  // (fee-amount edits, opt-outs waiting to be reflected, etc.), which now
-  // waits for the next invoice generation instead.
-  const isLocked = !!existingInvoice && (!!existingInvoice.sentAt || existingInvoice.paidAmount > 0)
+  // A full regenerate is only genuinely unsafe when it would claw back money
+  // already paid — i.e. the live expected total would drop below what's been
+  // paid (a true refund case, deferred to manual reconciliation). A sent-but-
+  // unpaid invoice, or a paid invoice where the recompute still covers what's
+  // paid (e.g. undoing a mistaken opt-in), can regenerate — it just flags
+  // needs_resend so the admin knows to tell the parent. Mirrors the backend
+  // guard in regenerateInvoice (fees/cycles/actions.ts).
+  const isLocked = !!existingInvoice
+    && existingInvoice.paidAmount > 0
+    && data.expectedBill < existingInvoice.paidAmount
 
   async function handleToggleOptIn(fee: StudentFeeItem) {
     setError(null)
@@ -219,9 +222,9 @@ export default function StudentFeesTab({ data }: Props) {
             {existingInvoice && !isInvoiceUpToDate && isLocked && (
               <span
                 className="px-3 py-2 text-sm text-gray-500 italic"
-                title="Already sent or paid against — this waits for the next invoice instead of a full regenerate."
+                title="This change would drop the total below what's already been paid — that needs a manual refund/credit reconciliation, not a regenerate."
               >
-                Locked — applies next invoice
+                Locked — needs refund reconciliation
               </span>
             )}
             {existingInvoice && isInvoiceUpToDate && (

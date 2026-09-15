@@ -111,7 +111,7 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
     if (!cycle) return
     setRegenerateJobId(jobId)
     const lockedNote = lockedCount > 0
-      ? ` (${lockedCount} already sent/paid ${lockedCount === 1 ? 'invoice was' : 'invoices were'} left untouched)`
+      ? ` (${lockedCount} ${lockedCount === 1 ? 'invoice was' : 'invoices were'} left untouched — would drop below what's already been paid)`
       : ''
     trackJob(jobId, 'invoice_regeneration', 'Invoice regeneration', undefined, (job) => {
       if (job.status === 'failed') {
@@ -137,9 +137,6 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
     if ('error' in result) {
       setError(result.error)
     } else {
-      if (result.wasOverpaid) {
-        setError('Invoice updated — the new total is now less than what the student has already paid. Review for a possible refund or credit.')
-      }
       router.refresh()
     }
     setRegeneratingId(null)
@@ -551,10 +548,10 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
                               out of date
                             </span>
                             {canManageInvoices && (
-                              (inv.sentAt || inv.paidAmount > 0) ? (
+                              inv.regenerationBlocked ? (
                                 <span
                                   className="text-xs text-gray-400"
-                                  title="Already sent or paid against — a full regenerate is no longer available. New fee opt-ins still apply instantly; other changes take effect on the next invoice."
+                                  title="This change would drop the total below what's already been paid — that needs a manual refund/credit reconciliation, not a regenerate."
                                 >
                                   Locked
                                 </span>
