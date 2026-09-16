@@ -19,7 +19,11 @@ export async function updateStudentDetails(studentId: string, formData: {
   admissionNumber: string
   classId: string
   admissionDate: string
-  status: string
+  // NOTE: status is deliberately NOT editable here. Lifecycle changes
+  // (withdraw/graduate/reactivate) go through updateStudentStatus, which
+  // detects and offers to cancel any open current-term invoice — editing
+  // status here would silently bypass that. See the Danger zone in
+  // StudentSettingsTab.
 }) {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -58,7 +62,6 @@ export async function updateStudentDetails(studentId: string, formData: {
       admission_number: formData.admissionNumber,
       class_id: formData.classId,
       admission_date: formData.admissionDate,
-      status: formData.status,
     })
     .eq('id', studentId)
     .eq('school_id', schoolId)
@@ -151,7 +154,7 @@ export async function updateFamilyNotes(familyId: string, studentId: string, not
 
 export async function updateStudentStatus(
   studentId: string,
-  status: 'withdrawn' | 'graduated'
+  status: 'active' | 'withdrawn' | 'graduated'
 ): Promise<
   | { error: string }
   | {
@@ -190,16 +193,20 @@ export async function updateStudentStatus(
   // invoice doesn't get touched automatically: the school may still want
   // the parent to finish paying what's owed for the term. Surface it so
   // the admin decides — cancel it, or leave it open and collectible.
-  const { data: openInvoicesRaw } = await supabase
-    .from('invoices')
-    .select('id, invoice_number, total_amount, paid_amount, credit_applied, billing_cycles!inner(status)')
-    .eq('student_id', studentId)
-    .eq('school_id', schoolId)
-    .eq('billing_cycles.status', 'active')
-    .in('status', ['pending', 'partial', 'overdue'])
-
+  // Reactivation (→ active) has nothing to cancel, so skip the detection.
   const openInvoices: { id: string; invoiceNumber: string | null; totalAmount: number; outstandingAmount: number }[] = []
   const invoicesNeedingReview: { id: string; invoiceNumber: string | null }[] = []
+
+  const { data: openInvoicesRaw } = status === 'active'
+    ? { data: [] as any[] }
+    : await supabase
+        .from('invoices')
+        .select('id, invoice_number, total_amount, paid_amount, credit_applied, billing_cycles!inner(status)')
+        .eq('student_id', studentId)
+        .eq('school_id', schoolId)
+        .eq('billing_cycles.status', 'active')
+        .in('status', ['pending', 'partial', 'overdue'])
+
   for (const inv of openInvoicesRaw || []) {
     const untouched = Number(inv.paid_amount || 0) <= 0 && Number(inv.credit_applied || 0) <= 0
     if (untouched) {

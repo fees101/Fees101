@@ -48,14 +48,26 @@ export default function StudentSettingsTab({ student }: Props) {
   const [editingFamily, setEditingFamily] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'withdrawn' | 'graduated' | null>(null)
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [classes, setClasses] = useState<{ id: string, name: string }[]>([])
+  const [reactivating, setReactivating] = useState(false)
   const canManage = useCan('manage-students')
 
   useEffect(() => {
     getClassesList().then(setClasses)
   }, [])
+
+  async function handleReactivate() {
+    setError(null)
+    setReactivating(true)
+    const result = await updateStudentStatus(student.id, 'active')
+    setReactivating(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    router.refresh()
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -223,7 +235,7 @@ export default function StudentSettingsTab({ student }: Props) {
               </button>
             </div>
 
-            <div>
+            <div className={student.status !== 'active' ? 'pb-4 mb-4 border-b border-gray-100' : ''}>
               <p className="text-sm font-medium text-navy mb-1">Mark as graduated</p>
               <p className="text-xs text-gray-500 mb-3">Move to graduates archive.</p>
               <button
@@ -234,6 +246,22 @@ export default function StudentSettingsTab({ student }: Props) {
                 {student.status === 'graduated' ? 'Already graduated' : 'Mark graduated'}
               </button>
             </div>
+
+            {student.status !== 'active' && (
+              <div>
+                <p className="text-sm font-medium text-navy mb-1">Reactivate student</p>
+                <p className="text-xs text-gray-500 mb-3">Return this student to active lists and billing.</p>
+                <button
+                  onClick={handleReactivate}
+                  disabled={reactivating}
+                  className="px-3 py-1.5 border border-mint text-mint text-xs font-medium rounded-lg hover:bg-mint/10 disabled:opacity-50"
+                >
+                  {reactivating ? 'Reactivating...' : 'Reactivate (mark active)'}
+                </button>
+              </div>
+            )}
+
+            {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
           </div>
         </div>
       )}
@@ -294,7 +322,6 @@ function EditStudentModal({ student, classes, onClose, onSave }: {
     admissionNumber: student.admissionNumber,
     classId: student.classId,
     admissionDate: student.admissionDate,
-    status: student.status,
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -357,15 +384,9 @@ function EditStudentModal({ student, classes, onClose, onSave }: {
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
           </div>
 
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Status</label>
-            <select value={form.status} onChange={(e) => setForm({...form, status: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40">
-              <option value="active">Active</option>
-              <option value="withdrawn">Withdrawn</option>
-              <option value="graduated">Graduated</option>
-            </select>
-          </div>
+          <p className="text-xs text-gray-400">
+            To withdraw, graduate, or reactivate this student, use the Status controls on the Settings tab — those handle any open invoice for the current term.
+          </p>
 
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
         </div>
