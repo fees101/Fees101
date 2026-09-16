@@ -76,6 +76,16 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
     totalCarryForward: number
   } | null>(null)
 
+  // Opt-in fee adjustments that had no matching fee item in the new term, so
+  // they couldn't be carried forward — the admin needs to know so a student's
+  // discount/exemption isn't silently lost (self-discovered while
+  // investigating the 2026-09-16 "manual roll-forward doesn't carry opt-ins"
+  // stress-test finding; the shared carry-forward logic was already correct,
+  // but this return value was being dropped on the floor).
+  const [unmatchedAdjustments, setUnmatchedAdjustments] = useState<
+    { studentId: string; feeItemName: string }[]
+  >([])
+
   const [closePreview, setClosePreview] = useState<{
     cycle: CycleRow
     hasOutstanding: boolean
@@ -365,6 +375,23 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
         </div>
       )}
 
+      {unmatchedAdjustments.length > 0 && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-start justify-between gap-3">
+          <p className="font-medium">
+            {unmatchedAdjustments.length} fee opt-in/exemption{unmatchedAdjustments.length === 1 ? '' : 's'} couldn&apos;t be matched to a fee item in the new term and{unmatchedAdjustments.length === 1 ? " wasn't" : " weren't"} carried forward.
+          </p>
+          <button
+            onClick={() => setUnmatchedAdjustments([])}
+            className="text-amber-700 hover:text-amber-900 flex-shrink-0"
+            aria-label="Dismiss"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {allTermsClosed && lastClosedCycle && (
         <div className="mb-6 p-4 bg-navy rounded-xl flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
@@ -400,9 +427,20 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
                 <div className="bg-white p-5 rounded-xl border border-gray-200">
                   <p className="text-xs text-gray-500 mb-1">Invoices generated</p>
                   <p className="text-2xl font-bold text-navy">
-                    {selectedCycle.invoiceCount} <span className="text-sm text-gray-400 font-medium">/ {selectedCycle.totalActiveStudents}</span>
+                    {/* totalActiveStudents is today's live active headcount, not a
+                        snapshot of who was enrolled while this term was current — a
+                        closed term's roster only shrinks from there as students are
+                        promoted/graduated/withdrawn, so "X / today's active count"
+                        drifts into nonsense over time (e.g. reads "5 / 4" once one
+                        of the 5 originally-invoiced students has since left). Once
+                        closed, just show the count that was actually generated. */}
+                    {selectedCycle.status === 'closed'
+                      ? selectedCycle.invoiceCount
+                      : <>{selectedCycle.invoiceCount} <span className="text-sm text-gray-400 font-medium">/ {selectedCycle.totalActiveStudents}</span></>}
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">{invoicedPct}% of students</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {selectedCycle.status === 'closed' ? 'invoices on this closed term' : `${invoicedPct}% of students`}
+                  </p>
                 </div>
                 <div className="bg-white p-5 rounded-xl border border-gray-200">
                   <p className="text-xs text-gray-500 mb-1">Collected</p>
@@ -569,12 +607,13 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
             editingCycle={editingCycle || undefined}
             forceNewSession={forceNewSession}
             onClose={closePanel}
-            onSuccess={(summary) => {
+            onSuccess={(summary, unmatched) => {
               closePanel()
               if (summary && summary.closedTermName) {
                 setCarryForwardSummary({ mode: 'activated', ...summary })
                 trackCloseTermJobIfAny(summary.jobId, summary.invoicesUpdated)
               }
+              setUnmatchedAdjustments(unmatched && unmatched.length > 0 ? unmatched : [])
               router.refresh()
             }}
           />
@@ -834,7 +873,9 @@ function SessionAccordion({
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center text-xs text-gray-700">
-                      {cycle.invoiceCount} / {cycle.totalActiveStudents}
+                      {/* Same "live headcount drifts once the term is closed" fix as
+                          the KPI tile above — see that comment for why. */}
+                      {cycle.status === 'closed' ? cycle.invoiceCount : `${cycle.invoiceCount} / ${cycle.totalActiveStudents}`}
                     </td>
                     <td className="py-3 px-4 text-right text-xs text-gray-700">
                       {showFinancials ? formatNaira(cycle.totalCollected) : `${cycle.totalExpected > 0 ? Math.round((cycle.totalCollected / cycle.totalExpected) * 100) : 0}%`}

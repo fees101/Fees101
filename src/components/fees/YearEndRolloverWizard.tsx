@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { startYearEndRollover, resumeYearEndRollover, cancelYearEndRollover } from '@/app/(app)/fees/cycles/actions'
+import { startYearEndRollover, resumeYearEndRollover, cancelYearEndRollover, getRolloverStatus } from '@/app/(app)/fees/cycles/actions'
 import { PromotionPreviewGroup, PromotionDecision } from '@/lib/yearEnd/promotion'
 import { DraftSession } from '@/app/(app)/fees/year-end/actions'
 
@@ -54,6 +54,44 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
 
   const [resuming, setResuming] = useState(false)
   const [resumeError, setResumeError] = useState<string | null>(null)
+
+  // Mirrors the `activeRun` server prop but updates from polling below, so a
+  // run resumed in the background by the rollover cron sweep (no button
+  // click, no reload) still shows live progress here.
+  const [polledRun, setPolledRun] = useState<RolloverRun | null>(activeRun)
+  useEffect(() => {
+    setPolledRun(activeRun)
+  }, [activeRun])
+
+  // Auto-poll getRolloverStatus while a run is 'in_progress' — the cron
+  // sweep (src/app/api/admin/rollover-sweep) can advance a stalled run at
+  // any time with nobody watching this page, so this can't wait for a
+  // manual click/reload to reflect that.
+  useEffect(() => {
+    if (!polledRun || polledRun.status !== 'in_progress') return
+    let cancelled = false
+    const interval = setInterval(async () => {
+      const statusResult = await getRolloverStatus()
+      if (cancelled || !('run' in statusResult)) return
+      const latest = statusResult.run
+      if (!latest) {
+        // No longer in_progress/failed — it finished. The rich per-run
+        // summary (regeneratedCount, warnings, etc.) only ever comes back
+        // from the mutating call itself and is never persisted, so a
+        // completion nobody clicked "Resume" for can't render that screen —
+        // refresh to the normal "start a new rollover" view instead.
+        router.refresh()
+        return
+      }
+      if (latest.status !== polledRun.status || latest.step !== polledRun.step || latest.error_detail !== polledRun.error_detail) {
+        setPolledRun(latest as RolloverRun)
+      }
+    }, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [polledRun, router])
 
   const [step, setStep] = useState<WizardStep>('details')
 
@@ -137,10 +175,18 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
   }
 
   function buildDecisionList(): PromotionDecision[] {
+    // targetClassId only ever means something for 'promote' — a 'repeat'
+    // row's select state can still be carrying the *promoted* class from
+    // before the action was switched (see setDecision's action-change
+    // handler below), so sending it for 'repeat' risked silently moving the
+    // student to their would-have-been-promoted class instead of keeping
+    // them put. Never send it for anything but 'promote'; the server-side
+    // apply step also no-ops the class_id update whenever it's absent, so
+    // 'repeat' is a guaranteed no-op on class_id regardless of this state.
     return Object.entries(decisions).map(([studentId, d]) => ({
       studentId,
       action: d.action,
-      targetClassId: d.action !== 'graduate' ? d.targetClassId || undefined : undefined,
+      targetClassId: d.action === 'promote' ? (d.targetClassId || undefined) : undefined,
     }))
   }
 
@@ -186,18 +232,18 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
   }
 
   async function handleResume() {
-    if (!activeRun) return
+    if (!polledRun) return
     setResuming(true)
     setResumeError(null)
 
-    const needsNewTerm = activeRun.step === 'started'
+    const needsNewTerm = polledRun.step === 'started'
     if (needsNewTerm && !validateDetails()) {
       setResuming(false)
       return
     }
 
     const resumeResult = await resumeYearEndRollover(
-      activeRun.id,
+      polledRun.id,
       needsNewTerm ? buildNewTermPayload() : undefined
     )
 
@@ -223,10 +269,10 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
   const [cancelError, setCancelError] = useState<string | null>(null)
 
   async function handleCancel() {
-    if (!activeRun) return
+    if (!polledRun) return
     setCancelling(true)
     setCancelError(null)
-    const cancelResult = await cancelYearEndRollover(activeRun.id)
+    const cancelResult = await cancelYearEndRollover(polledRun.id)
     if ('error' in cancelResult) {
       setCancelError(cancelResult.error)
       setCancelling(false)
@@ -312,9 +358,9 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
     )
   }
 
-  if (activeRun) {
-    const needsNewTerm = activeRun.step === 'started'
-    const canDiscard = activeRun.status === 'failed' && activeRun.step === 'started' && !activeRun.to_cycle_id
+  if (polledRun) {
+    const needsNewTerm = polledRun.step === 'started'
+    const canDiscard = polledRun.status === 'failed' && polledRun.step === 'started' && !polledRun.to_cycle_id
     return (
       <div className="bg-white rounded-xl border border-amber-200 p-5">
         <div className="flex items-start gap-3">
@@ -325,17 +371,22 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
           </span>
           <div>
             <h3 className="text-base font-semibold text-navy">
-              {activeRun.status === 'failed' ? 'Rollover failed mid-run' : 'Rollover already in progress'}
+              {polledRun.status === 'failed' ? 'Rollover failed mid-run' : 'Rollover already in progress'}
             </h3>
             <p className="text-sm text-gray-500 mt-1">
-              Last completed step: <span className="font-medium text-navy">{activeRun.step}</span>
-              {activeRun.error_detail && (
-                <> — <span className="text-red-600">{activeRun.error_detail}</span></>
+              Last completed step: <span className="font-medium text-navy">{polledRun.step}</span>
+              {polledRun.error_detail && (
+                <> — <span className="text-red-600">{polledRun.error_detail}</span></>
               )}
             </p>
             <p className="text-sm text-gray-500 mt-1">
               Resuming will pick up exactly where it left off — no student already promoted will be promoted again.
             </p>
+            {polledRun.status === 'in_progress' && (
+              <p className="text-xs text-gray-400 mt-2">
+                Checking automatically every few seconds — a stalled run also resumes on its own, so you don't need to keep this page open or click Resume.
+              </p>
+            )}
           </div>
         </div>
 
@@ -472,10 +523,17 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
                             <td className="px-3 py-2">
                               <select
                                 value={decision.action}
-                                onChange={(e) => setDecision(row.studentId, {
-                                  action: e.target.value as RowDecision['action'],
-                                  targetClassId: e.target.value === 'promote' ? (row.suggestedTargetClassId || '') : decision.targetClassId,
-                                })}
+                                onChange={(e) => {
+                                  const newAction = e.target.value as RowDecision['action']
+                                  // Keep targetClassId honest for the row's own display/state,
+                                  // not just the outgoing payload (buildDecisionList strips it
+                                  // for non-'promote' anyway) — 'repeat' truly means "stays in
+                                  // currentClassId", not whatever class 'promote' last suggested.
+                                  let targetClassId = decision.targetClassId
+                                  if (newAction === 'promote') targetClassId = row.suggestedTargetClassId || ''
+                                  else if (newAction === 'repeat') targetClassId = row.currentClassId
+                                  setDecision(row.studentId, { action: newAction, targetClassId })
+                                }}
                                 className="px-2 py-1 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
                               >
                                 <option value="promote">Promote</option>
