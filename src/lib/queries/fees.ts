@@ -512,9 +512,36 @@ export interface InvoiceRow {
   carriedForwardToCycleName: string | null
 }
 
+export type CycleInvoiceFilter = 'all' | 'paid' | 'partial' | 'unpaid' | 'needs_resend' | 'out_of_date' | 'no_invoice'
+
+export const CYCLE_INVOICES_PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
+
+export interface GetCycleDetailOptions {
+  filter?: CycleInvoiceFilter
+  search?: string
+  page?: number
+  perPage?: number
+}
+
 export interface CycleDetailData {
   cycle: CycleRow | null
+  // Only the current page of the current filter/search — the table renders
+  // this directly. Every KPI/staleness figure below is still computed over
+  // every invoice in the cycle regardless of page, since staleness requires
+  // a per-invoice recompute that can't be reduced to a DB aggregate (see
+  // getCycleDetailById).
   invoices: InvoiceRow[]
+  // Count of invoices matching the current filter/search, before pagination
+  // — drives the "Showing X-Y of Z" footer.
+  invoicesTotal: number
+  page: number
+  perPage: number
+  filter: CycleInvoiceFilter
+  search: string
+  // Students without an invoice this cycle, filtered by the current search
+  // (shown only alongside the 'all'/'no_invoice' filters) — a separate,
+  // typically much smaller list that isn't paginated; see studentsWithoutInvoicesTotal
+  // for the unfiltered count used in KPIs/tab labels/buttons.
   studentsWithoutInvoices: Array<{
     id: string
     firstName: string
@@ -523,6 +550,7 @@ export interface CycleDetailData {
     classId: string | null
     className: string
   }>
+  studentsWithoutInvoicesTotal: number
   totalActiveStudents: number
   totalsByStatus: {
     paid: number
@@ -532,9 +560,14 @@ export interface CycleDetailData {
     needsResend: number
     needsRegeneration: number
   }
+  // Out of the needsRegeneration count above, how many are blocked from
+  // auto-regeneration (would drop the total below what's already paid).
+  // Always computed over the full invoice set, independent of pagination.
+  lockedOutOfDate: number
+  autoRegenerableCount: number
 }
 
-export async function getCycleDetailById(cycleId: string): Promise<CycleDetailData | null> {
+export async function getCycleDetailById(cycleId: string, options: GetCycleDetailOptions = {}): Promise<CycleDetailData | null> {
   const ctx = await getSchoolContext()
   if (!ctx) return null
   const { supabase, schoolId } = ctx
@@ -756,12 +789,72 @@ export async function getCycleDetailById(cycleId: string): Promise<CycleDetailDa
     feeItemCount: 0, // not needed here
   }
 
+  // Out of the invoices needing regeneration, how many are blocked (would
+  // drop the total below what's already paid) — always over the full set,
+  // independent of the filter/pagination applied below.
+  const lockedOutOfDate = invoices.filter(i => i.needsRegeneration && i.regenerationBlocked).length
+  const autoRegenerableCount = totalsByStatus.needsRegeneration - lockedOutOfDate
+
+  // Everything above (totalsByStatus, totalExpected/totalCollected/
+  // totalOutstanding, lockedOutOfDate) is deliberately computed from the
+  // FULL invoice set fetched above — staleness is a per-invoice recompute
+  // that can't be pushed into a DB aggregate, so the whole cycle has to be
+  // fetched and processed regardless of which page is being viewed. What
+  // follows only trims what's actually sent back for rendering: the invoice
+  // list is filtered/searched/paginated here (in memory, since it's already
+  // fully loaded), mirroring the same filter/search behavior the page used
+  // to apply client-side.
+  const filter = options.filter ?? 'all'
+  const search = (options.search || '').trim()
+  const term = search.toLowerCase()
+  const page = Math.max(1, options.page ?? 1)
+  const perPage = CYCLE_INVOICES_PAGE_SIZE_OPTIONS.includes(options.perPage as number)
+    ? (options.perPage as number)
+    : 50
+
+  const matchingInvoices = invoices.filter(inv => {
+    if (filter === 'paid' && inv.status !== 'paid') return false
+    if (filter === 'partial' && inv.status !== 'partial') return false
+    if (filter === 'unpaid' && (inv.status === 'paid' || inv.status === 'partial')) return false
+    if (filter === 'needs_resend' && !inv.needsResend) return false
+    if (filter === 'out_of_date' && !inv.needsRegeneration) return false
+    if (filter === 'no_invoice') return false
+    if (term) {
+      const fullName = `${inv.studentFirstName} ${inv.studentLastName}`.toLowerCase()
+      return fullName.includes(term) || inv.studentAdmissionNumber.toLowerCase().includes(term)
+    }
+    return true
+  })
+  const invoicesTotal = matchingInvoices.length
+  const pagedInvoices = matchingInvoices.slice((page - 1) * perPage, page * perPage)
+
+  // Students without an invoice are a separate, usually much smaller list —
+  // shown alongside invoices only under the 'all'/'no_invoice' filters, and
+  // left unpaginated (its own pagination would mean juggling two page
+  // counters for one table, for a list that's bounded by the roster rather
+  // than the invoice history).
+  const studentsWithoutInvoicesFiltered = (filter === 'all' || filter === 'no_invoice')
+    ? studentsWithoutInvoices.filter(s => {
+        if (!term) return true
+        const fullName = `${s.firstName} ${s.lastName}`.toLowerCase()
+        return fullName.includes(term) || s.admissionNumber.toLowerCase().includes(term)
+      })
+    : []
+
   return {
     cycle,
-    invoices,
-    studentsWithoutInvoices,
+    invoices: pagedInvoices,
+    invoicesTotal,
+    page,
+    perPage,
+    filter,
+    search,
+    studentsWithoutInvoices: studentsWithoutInvoicesFiltered,
+    studentsWithoutInvoicesTotal: studentsWithoutInvoices.length,
     totalActiveStudents: totalActiveStudents || 0,
     totalsByStatus,
+    lockedOutOfDate,
+    autoRegenerableCount,
   }
 }
 
@@ -812,6 +905,10 @@ export interface InvoiceDetail {
   // state survives navigation/refresh and other staff can see it's already
   // in flight (prevents duplicate requests on the same invoice).
   pendingDiscount: { id: string, requestedByName: string | null, requestedAt: string } | null
+  // The student's live running credit balance (unrelated to this invoice's
+  // own creditApplied) — surfaced so staff can see money sitting unapplied
+  // instead of only finding out via the Payment History tab.
+  studentCreditBalance: number
   payments?: Array<{
     id: string
     amount: number
@@ -862,6 +959,7 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
         admission_number,
         provider_dva_account_number,
         provider_dva_bank_name,
+        credit_balance,
         classes(name),
         families(primary_parent_name, primary_parent_phone)
       ),
@@ -958,6 +1056,7 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
     primaryParentPhone: invoice.students.families?.primary_parent_phone || '',
     dvaAccountNumber: invoice.students.provider_dva_account_number || null,
     dvaBankName: invoice.students.provider_dva_bank_name || null,
+    studentCreditBalance: Number(invoice.students.credit_balance || 0),
     lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
     subtotal: Number(invoice.subtotal || 0),
     creditApplied: Number(invoice.credit_applied || 0),
@@ -1027,6 +1126,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
           admission_number,
           provider_dva_account_number,
           provider_dva_bank_name,
+          credit_balance,
           classes(name, display_order),
           families(primary_parent_name, primary_parent_phone)
         ),
@@ -1105,6 +1205,8 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
       dvaAccountNumber: invoice.students.provider_dva_account_number || null,
       // @ts-expect-error
       dvaBankName: invoice.students.provider_dva_bank_name || null,
+      // @ts-expect-error
+      studentCreditBalance: Number(invoice.students.credit_balance || 0),
       lineItems: (invoice.line_items as InvoiceDetail['lineItems']) || [],
       subtotal: Number(invoice.subtotal || 0),
       creditApplied: Number(invoice.credit_applied || 0),

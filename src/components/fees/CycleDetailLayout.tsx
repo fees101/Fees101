@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { CycleDetailData, InvoiceRow } from '@/lib/queries/fees'
+import type { CycleDetailData, CycleInvoiceFilter, InvoiceRow } from '@/lib/queries/fees'
 import GenerateInvoicesPanel from './GenerateInvoicesPanel'
 import { regenerateInvoice, startInvoiceRegenerationJob } from '@/app/(app)/fees/cycles/actions'
 import { sendInvoiceUpdateNotice } from '@/app/(app)/invoices/actions'
@@ -16,10 +16,25 @@ interface Props {
   showFinancials?: boolean
 }
 
-type Filter = 'all' | 'paid' | 'partial' | 'unpaid' | 'needs_resend' | 'out_of_date' | 'no_invoice'
+// Kept as a plain local constant (not imported from fees.ts) so this client
+// component never pulls a real value out of that module — fees.ts chains
+// into server-only code (next/headers via the Supabase server client), and
+// importing anything but a type from it here would drag that whole graph
+// into the browser bundle. Mirrors the same workaround already used by
+// StudentsTable's PAGE_SIZE_OPTIONS.
+const CYCLE_INVOICES_PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
+}
+
+function getPageNumbers(currentPage: number, totalPages: number): (number | '...')[] {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
+  if (currentPage <= 3) return [1, 2, 3, 4, '...', totalPages]
+  if (currentPage >= totalPages - 2) {
+    return [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages]
+  }
+  return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages]
 }
 
 function statusBadge(inv: InvoiceRow) {
@@ -41,12 +56,30 @@ function cycleStatusBadge(status: 'draft' | 'active' | 'closed') {
 
 export default function CycleDetailLayout({ data, showFinancials = true }: Props) {
   const router = useRouter()
+  const pathname = usePathname()
   const canManageFeeStructure = useCan('manage-fee-structure')
   const canManageInvoices = useCan('manage-invoices')
-  const { cycle, invoices, studentsWithoutInvoices, totalActiveStudents, totalsByStatus } = data
+  const {
+    cycle,
+    invoices,
+    invoicesTotal,
+    page,
+    perPage,
+    filter,
+    search,
+    studentsWithoutInvoices,
+    studentsWithoutInvoicesTotal,
+    totalActiveStudents,
+    totalsByStatus,
+    lockedOutOfDate,
+    autoRegenerableCount,
+  } = data
 
-  const [filter, setFilter] = useState<Filter>('all')
-  const [search, setSearch] = useState('')
+  // Search box keeps a local, debounced buffer so typing doesn't trigger a
+  // server round trip on every keystroke — only once the user pauses (see
+  // the effect below). Filter, page and per-page are all applied immediately
+  // since they're discrete clicks, not keystrokes.
+  const [searchInput, setSearchInput] = useState(search)
   const [error, setError] = useState<string | null>(null)
   const { trackJob, findRunningJob, cancelJob } = useActiveJobs()
   const runningGeneration = findRunningJob(j => j.jobType === 'invoice_generation' && j.meta?.cycleId === cycle?.id)
@@ -69,32 +102,38 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
   const [notifyingId, setNotifyingId] = useState<string | null>(null)
   const [notifiedIds, setNotifiedIds] = useState<Set<string>>(new Set())
 
-  const filteredInvoices = useMemo(() => {
-    const term = search.toLowerCase().trim()
-    return invoices.filter(inv => {
-      if (filter === 'paid' && inv.status !== 'paid') return false
-      if (filter === 'partial' && inv.status !== 'partial') return false
-      if (filter === 'unpaid' && (inv.status === 'paid' || inv.status === 'partial')) return false
-      if (filter === 'needs_resend' && !inv.needsResend) return false
-      if (filter === 'out_of_date' && !inv.needsRegeneration) return false
-      if (filter === 'no_invoice') return false
-      if (term) {
-        const fullName = `${inv.studentFirstName} ${inv.studentLastName}`.toLowerCase()
-        return fullName.includes(term) || inv.studentAdmissionNumber.toLowerCase().includes(term)
-      }
-      return true
+  function navigate(patch: Record<string, string>) {
+    const params = new URLSearchParams({
+      page: String(page),
+      perPage: String(perPage),
+      filter,
+      search,
+      ...patch,
     })
-  }, [invoices, filter, search])
+    for (const key of Array.from(params.keys())) {
+      if (!params.get(key) || params.get(key) === 'all') params.delete(key)
+    }
+    router.push(params.toString() ? `${pathname}?${params.toString()}` : pathname)
+  }
 
-  const filteredNoInvoice = useMemo(() => {
-    if (filter !== 'no_invoice' && filter !== 'all') return []
-    const term = search.toLowerCase().trim()
-    return studentsWithoutInvoices.filter(s => {
-      if (!term) return true
-      const fullName = `${s.firstName} ${s.lastName}`.toLowerCase()
-      return fullName.includes(term) || s.admissionNumber.toLowerCase().includes(term)
-    })
-  }, [studentsWithoutInvoices, filter, search])
+  function setFilter(next: CycleInvoiceFilter) {
+    navigate({ filter: next, page: '1' })
+  }
+
+  // Debounce the search box so typing doesn't fire a navigation (and a fresh
+  // server fetch) on every keystroke — only once the user pauses.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== search) navigate({ search: searchInput, page: '1' })
+    }, 400)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput])
+
+  useEffect(() => {
+    setSearchInput(search)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
 
   async function handleRegenerateAll() {
     if (!cycle) return
@@ -118,15 +157,20 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
     trackJob(jobId, 'invoice_regeneration', 'Invoice regeneration', undefined, (job) => {
       if (job.status === 'failed') {
         setError(job.error || 'Something went wrong')
-      } else if (job.status === 'cancelled') {
-        setRegenerateSummary(
-          `Cancelled — ${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated before stopping.${lockedNote}`
-        )
-        router.refresh()
       } else {
-        setRegenerateSummary(
-          `${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated to current fees.${lockedNote}`
-        )
+        const reasons = Array.from(new Set((job.failures || []).map(f => f.error)))
+        const failedNote = job.failed
+          ? ` ${job.failed} failed${reasons.length ? ` (${reasons.join('; ')})` : ''}.`
+          : ''
+        if (job.status === 'cancelled') {
+          setRegenerateSummary(
+            `Cancelled — ${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated before stopping.${lockedNote}${failedNote}`
+          )
+        } else {
+          setRegenerateSummary(
+            `${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated to current fees.${lockedNote}${failedNote}`
+          )
+        }
         router.refresh()
       }
     }, { cycleId: cycle.id, href: `/fees/cycles/${cycle.id}` })
@@ -167,7 +211,14 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
   const badge = cycleStatusBadge(cycle.status)
   const isClosed = cycle.status === 'closed'
   const isDraft = cycle.status === 'draft'
-  const hasInvoices = invoices.length > 0
+  // cycle.invoiceCount reflects the whole cycle, not just the current page/
+  // filter — this is "does the cycle have invoices at all", used to decide
+  // between the print-all/generate-more affordances and the fully-empty state.
+  const hasInvoices = cycle.invoiceCount > 0
+
+  const totalPages = Math.max(1, Math.ceil(invoicesTotal / perPage))
+  const rangeStart = invoicesTotal === 0 ? 0 : (page - 1) * perPage + 1
+  const rangeEnd = Math.min(page * perPage, invoicesTotal)
 
   return (
     <>
@@ -211,19 +262,19 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
               </svg>
-              Print all ({invoices.length})
+              Print all ({cycle.invoiceCount})
             </a>
           )}
           {!isClosed && canManageInvoices && (
             <button
               onClick={() => setGeneratePanelOpen(true)}
-              disabled={(studentsWithoutInvoices.length === 0 && !runningGeneration) || (generatePanelOpen && !!runningGeneration)}
+              disabled={(studentsWithoutInvoicesTotal === 0 && !runningGeneration) || (generatePanelOpen && !!runningGeneration)}
               title={runningGeneration && !generatePanelOpen ? 'Generation is already running — click to view its progress' : undefined}
               className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
             >
               {runningGeneration
                 ? `Generating… (${runningGeneration.processed}/${runningGeneration.total || '?'})`
-                : hasInvoices ? `Generate for ${studentsWithoutInvoices.length} new` : `Generate invoices`}
+                : hasInvoices ? `Generate for ${studentsWithoutInvoicesTotal} new` : `Generate invoices`}
             </button>
           )}
         </div>
@@ -266,6 +317,9 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
             </p>
             <p className="text-xs text-gray-600 mt-0.5">
               Fees, opt-ins, or exemptions changed since these were generated. Regenerate to apply the current numbers — payments already made are preserved.
+              {lockedOutOfDate > 0 && (
+                <> {autoRegenerableCount} can be auto-regenerated; {lockedOutOfDate} {lockedOutOfDate === 1 ? 'is' : 'are'} locked against payments already made.</>
+              )}
             </p>
           </div>
           {canManageInvoices && (
@@ -332,10 +386,10 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
         <div className="bg-white p-4 rounded-xl border border-gray-200">
           <p className="text-xs text-gray-500 mb-1">Invoices</p>
           <p className="text-2xl font-bold text-navy">
-            {invoices.length} <span className="text-sm text-gray-400">/ {totalActiveStudents}</span>
+            {cycle.invoiceCount} <span className="text-sm text-gray-400">/ {totalActiveStudents}</span>
           </p>
-          {studentsWithoutInvoices.length > 0 && (
-            <p className="text-xs text-amber-600 mt-1">{studentsWithoutInvoices.length} students missing</p>
+          {studentsWithoutInvoicesTotal > 0 && (
+            <p className="text-xs text-amber-600 mt-1">{studentsWithoutInvoicesTotal} students missing</p>
           )}
         </div>
         {showFinancials && (
@@ -354,7 +408,7 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
           {cycle.totalExpected > 0 && (
             <p className="text-xs text-gray-500 mt-1">
               {showFinancials ? `${Math.round((cycle.totalCollected / cycle.totalExpected) * 100)}% collected` : 'of expected'}
-              {invoices.length > 0 && ` · ${totalsByStatus.paid}/${invoices.length} paid up`}
+              {cycle.invoiceCount > 0 && ` · ${totalsByStatus.paid}/${cycle.invoiceCount} paid up`}
             </p>
           )}
         </div>
@@ -367,19 +421,19 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
           </p>
           <p className="text-xs text-gray-500 mt-1">
             {!showFinancials && 'of expected, still owed'}
-            {invoices.length > 0 && `${!showFinancials ? ' · ' : ''}${totalsByStatus.partial + totalsByStatus.pending + totalsByStatus.overdue}/${invoices.length} owe`}
+            {cycle.invoiceCount > 0 && `${!showFinancials ? ' · ' : ''}${totalsByStatus.partial + totalsByStatus.pending + totalsByStatus.overdue}/${cycle.invoiceCount} owe`}
           </p>
         </div>
       </div>
 
       {/* Filters */}
-      {(hasInvoices || studentsWithoutInvoices.length > 0) && (
+      {(hasInvoices || studentsWithoutInvoicesTotal > 0) && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <button
             onClick={() => setFilter('all')}
             className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'all' ? 'bg-navy text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
           >
-            All {invoices.length + studentsWithoutInvoices.length}
+            All {cycle.invoiceCount + studentsWithoutInvoicesTotal}
           </button>
           <button
             onClick={() => setFilter('paid')}
@@ -415,18 +469,18 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
               Out of date {totalsByStatus.needsRegeneration}
             </button>
           )}
-          {studentsWithoutInvoices.length > 0 && (
+          {studentsWithoutInvoicesTotal > 0 && (
             <button
               onClick={() => setFilter('no_invoice')}
               className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'no_invoice' ? 'bg-red-100 text-red-800' : 'bg-white border border-gray-200 text-red-700 hover:bg-red-50'}`}
             >
-              No invoice {studentsWithoutInvoices.length}
+              No invoice {studentsWithoutInvoicesTotal}
             </button>
           )}
           <input
             type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search by name or admission #"
             className="ml-auto px-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-mint/40 w-64"
           />
@@ -434,7 +488,7 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
       )}
 
       {/* Empty state */}
-      {!hasInvoices && studentsWithoutInvoices.length === 0 && (
+      {!hasInvoices && studentsWithoutInvoicesTotal === 0 && (
         <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
           <p className="text-gray-500 mb-2">No active students yet.</p>
           <Link href="/students" className="text-mint hover:underline text-sm">
@@ -443,11 +497,11 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
         </div>
       )}
 
-      {!hasInvoices && studentsWithoutInvoices.length > 0 && (
+      {!hasInvoices && studentsWithoutInvoicesTotal > 0 && (
         <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
           <p className="text-gray-500 mb-2">No invoices generated for this term yet.</p>
           <p className="text-sm text-gray-400 mb-4">
-            {studentsWithoutInvoices.length} active {studentsWithoutInvoices.length === 1 ? 'student' : 'students'} ready to be invoiced
+            {studentsWithoutInvoicesTotal} active {studentsWithoutInvoicesTotal === 1 ? 'student' : 'students'} ready to be invoiced
           </p>
           {!isClosed && canManageInvoices && (
             <button
@@ -465,7 +519,7 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
       )}
 
       {/* Invoices table */}
-      {(filteredInvoices.length > 0 || filteredNoInvoice.length > 0) && (
+      {(invoices.length > 0 || studentsWithoutInvoices.length > 0) && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full">
             <thead>
@@ -480,7 +534,7 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredInvoices.map(inv => {
+              {invoices.map(inv => {
                 const b = statusBadge(inv)
                 return (
                   <tr 
@@ -577,7 +631,7 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
                   </tr>
                 )
               })}
-              {filteredNoInvoice.map(s => (
+              {studentsWithoutInvoices.map(s => (
                 <tr
                   key={s.id}
                   onClick={() => router.push(`/students/${s.id}?tab=fees`)}
@@ -603,6 +657,61 @@ export default function CycleDetailLayout({ data, showFinancials = true }: Props
               ))}
             </tbody>
           </table>
+
+          {invoicesTotal > 0 && (
+            <div className="px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center gap-3 justify-between text-sm">
+              <div className="flex items-center gap-4">
+                <p className="text-gray-500">
+                  Showing {rangeStart}-{rangeEnd} of {invoicesTotal} invoices
+                </p>
+                <label className="flex items-center gap-1.5 text-gray-500">
+                  <span className="hidden sm:inline">Per page</span>
+                  <select
+                    value={perPage}
+                    onChange={(e) => navigate({ perPage: e.target.value, page: '1' })}
+                    className="px-2 py-1 border border-gray-200 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20"
+                  >
+                    {CYCLE_INVOICES_PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </label>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => navigate({ page: String(page - 1) })}
+                    disabled={page <= 1}
+                    className="px-3 py-1 text-sm text-gray-700 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    ← Previous
+                  </button>
+                  {getPageNumbers(page, totalPages).map((p, index) => (
+                    p === '...' ? (
+                      <span key={`ellipsis-${index}`} className="px-2 text-gray-400">...</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => navigate({ page: String(p) })}
+                        className={`min-w-[32px] px-2 py-1 text-sm rounded ${
+                          page === p
+                            ? 'bg-navy text-white font-medium'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  ))}
+                  <button
+                    onClick={() => navigate({ page: String(page + 1) })}
+                    disabled={page >= totalPages}
+                    className="px-3 py-1 text-sm text-gray-700 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
