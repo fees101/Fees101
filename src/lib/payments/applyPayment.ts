@@ -10,6 +10,12 @@ import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 import { getInvoiceByIdForSchool } from '@/lib/queries/fees'
 import { renderInvoicePdfBuffer } from '@/lib/pdf/renderInvoicePdf'
 
+// Above this, a webhook amount is still applied in full (a school can
+// legitimately collect a whole year's fees in one transfer) but flagged for
+// a human to glance at — see ROADMAP.md's "no sanity cap on webhook payment
+// amounts" finding (2026-09-16).
+const SUSPICIOUS_PAYMENT_THRESHOLD = 5_000_000
+
 interface ApplyPaymentParams {
   supabase: any
   schoolId: string
@@ -37,6 +43,29 @@ export async function applyProviderPayment(
     supabase, schoolId, studentId, amountPaid, settlementAmount,
     provider, providerReference, providerTransactionId, paidAt,
   } = params
+
+  // A non-positive amount used to fall through to an empty candidate loop
+  // and a silent no-op (webhook still 200s, nothing recorded or flagged) —
+  // reject it explicitly so a malformed/adversarial payload surfaces as an
+  // error the caller logs, instead of vanishing.
+  if (!(amountPaid > 0)) {
+    throw new Error(`Rejected non-positive payment amount (${amountPaid}) for student ${studentId}`)
+  }
+
+  // Best-effort anomaly flag — never blocks a legitimate large payment.
+  if (amountPaid >= SUSPICIOUS_PAYMENT_THRESHOLD) {
+    try {
+      await supabase.from('admin_notifications').insert({
+        school_id: schoolId,
+        type: 'suspicious_payment_amount',
+        title: 'Unusually large payment received',
+        body: `A ${provider} payment of ₦${amountPaid.toLocaleString()} was received and applied ` +
+          `(reference ${providerReference}). Confirm this matches what was expected.`,
+      })
+    } catch {
+      // notification is informational only — a failed insert must never break payment processing
+    }
+  }
 
   // Eligible invoices are any non-cancelled, outstanding invoice that hasn't
   // been superseded — i.e. no other invoice has folded its balance forward
@@ -114,37 +143,41 @@ export async function applyProviderPayment(
 
   for (const invoice of sorted) {
     if (remaining <= 0) break
-    const outstanding = Number(invoice.outstanding_amount)
-    const applyAmount = Math.min(remaining, outstanding)
-    if (applyAmount <= 0) continue
 
-    const { data: paymentRow, error } = await supabase
-      .from('payments')
-      .insert({
-        school_id: schoolId,
-        student_id: studentId,
-        invoice_id: invoice.id,
-        amount: applyAmount,
-        method: 'provider_dva',
-        provider,
-        provider_reference: providerReference,
-        provider_transaction_id: providerTransactionId,
-        paid_at: paidAt,
-        match_status: 'matched', // cryptographically verified — no manual review needed
-        notes,
+    // Locks the invoice row and re-decides how much is actually still owed
+    // before applying anything, so a concurrent call for the same invoice
+    // (e.g. two distinct legitimate webhook deliveries landing near-
+    // simultaneously) can never both apply against a stale outstanding
+    // read — see ROADMAP.md's double-spend race finding (2026-09-16).
+    // Requires db/atomic_payment_application.sql to be run in Supabase.
+    const { data: applyResult, error } = await supabase
+      .rpc('apply_payment_to_invoice', {
+        p_invoice_id: invoice.id,
+        p_school_id: schoolId,
+        p_student_id: studentId,
+        p_amount_available: remaining,
+        p_method: 'provider_dva',
+        p_provider: provider,
+        p_provider_reference: providerReference,
+        p_provider_transaction_id: providerTransactionId,
+        p_paid_at: paidAt,
+        p_notes: notes, // cryptographically verified — no manual review needed
       })
-      .select('id')
       .single()
 
-    if (error) throw new Error(`Failed to insert payment for invoice ${invoice.id}: ${error.message}`)
-    paymentIds.push(paymentRow.id)
+    if (error) throw new Error(`Failed to apply payment to invoice ${invoice.id}: ${error.message}`)
+
+    const applyAmount = Number(applyResult.amount_applied)
+    if (applyAmount <= 0) continue
+
+    paymentIds.push(applyResult.payment_id)
     remaining -= applyAmount
 
-    const newOutstanding = outstanding - applyAmount
-    const isFull = newOutstanding <= 0
+    const newOutstanding = Number(applyResult.new_outstanding)
+    const isFull = applyResult.new_status === 'paid' || newOutstanding <= 0
     appliedInvoices.push({
       invoiceId: invoice.id,
-      paymentId: paymentRow.id,
+      paymentId: applyResult.payment_id,
       amount: applyAmount,
       oldStatus: invoice.status,
       newStatus: isFull ? 'paid' : 'partial',

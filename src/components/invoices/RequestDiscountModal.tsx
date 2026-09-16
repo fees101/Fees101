@@ -5,6 +5,8 @@ import { requestDiscount, type ManualDiscountCategory } from '@/app/(app)/invoic
 
 interface Props {
   invoiceId: string
+  subtotal: number
+  existingDiscountAmount: number
   onClose: () => void
   onSuccess: () => void
 }
@@ -18,7 +20,13 @@ const CATEGORY_OPTIONS: { value: ManualDiscountCategory, label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-export default function RequestDiscountModal({ invoiceId, onClose, onSuccess }: Props) {
+// Stacking several individually-reasonable discounts can still zero out a
+// bill in aggregate with no one having decided that outright (2026-09-16
+// stress test) — this is a heads-up for the approver, not a cap: a genuine
+// full-ride scholarship should still be approvable.
+const CUMULATIVE_DISCOUNT_WARNING_THRESHOLD = 0.5
+
+export default function RequestDiscountModal({ invoiceId, subtotal, existingDiscountAmount, onClose, onSuccess }: Props) {
   const [category, setCategory] = useState<ManualDiscountCategory>('staff_child')
   const [isPercentage, setIsPercentage] = useState(true)
   const [amount, setAmount] = useState<number>(50)
@@ -26,6 +34,11 @@ export default function RequestDiscountModal({ invoiceId, onClose, onSuccess }: 
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const thisRequestAmount = isPercentage ? (subtotal * (amount || 0)) / 100 : (amount || 0)
+  const projectedCumulative = Math.min(subtotal, existingDiscountAmount + thisRequestAmount)
+  const projectedPercentage = subtotal > 0 ? (projectedCumulative / subtotal) * 100 : 0
+  const showStackingWarning = subtotal > 0 && projectedPercentage / 100 >= CUMULATIVE_DISCOUNT_WARNING_THRESHOLD
 
   async function handleSubmit() {
     setError(null)
@@ -94,6 +107,16 @@ export default function RequestDiscountModal({ invoiceId, onClose, onSuccess }: 
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40 resize-none"
             autoFocus
           />
+
+          {showStackingWarning && (
+            <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+              {existingDiscountAmount > 0 ? (
+                <>With this request, cumulative discounts on this invoice would reach ~{Math.round(projectedPercentage)}% of the subtotal. Worth a second look before approving.</>
+              ) : (
+                <>This request alone is ~{Math.round(projectedPercentage)}% of the subtotal. Worth a second look before approving.</>
+              )}
+            </div>
+          )}
 
           {error && (
             <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">

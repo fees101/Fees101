@@ -25,12 +25,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 interface Props {
   currentInvoiceId: string | null
+  currentInvoiceSubtotal?: number
+  currentInvoiceDiscountAmount?: number
   discounts: RevocableDiscount[]
   canAddDiscount: boolean
   canFullyRevoke: boolean
 }
 
-export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAddDiscount, canFullyRevoke }: Props) {
+export default function ApplyDiscountButton({ currentInvoiceId, currentInvoiceSubtotal, currentInvoiceDiscountAmount, discounts, canAddDiscount, canFullyRevoke }: Props) {
   const router = useRouter()
   const [manageOpen, setManageOpen] = useState(false)
   const [requestOpen, setRequestOpen] = useState(false)
@@ -43,7 +45,7 @@ export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAd
   // regardless of the invoice/discount state below.
   if (!canRequest && !canApprove) return null
 
-  if (!currentInvoiceId) {
+  if (!currentInvoiceId && discounts.length === 0) {
     return (
       <button
         disabled
@@ -61,7 +63,9 @@ export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAd
   const hasDiscounts = discounts.length > 0
   // Business logic (canAddDiscount) AND permission (canRequest) both have to
   // allow it before the "add a new discount" path is offered anywhere below.
-  const canOfferAdd = canAddDiscount && canRequest
+  // Also needs a current invoice to attach the new request to — a student
+  // with only an older invoice's discount to revoke can't add a new one here.
+  const canOfferAdd = canAddDiscount && canRequest && !!currentInvoiceId
 
   async function handleRevoke() {
     if (!revokeTarget) return
@@ -82,7 +86,7 @@ export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAd
       <button
         disabled
         className="px-4 py-2 border border-mint text-mint rounded-lg text-sm font-medium flex items-center gap-2 opacity-50 cursor-not-allowed"
-        title={!canAddDiscount ? 'This invoice already has a payment against it — discounts can no longer be applied' : 'You do not have permission to request discounts'}
+        title={!canRequest ? 'You do not have permission to request discounts' : !currentInvoiceId ? 'Generate this term\'s invoice first' : 'This invoice already has a payment against it — discounts can no longer be applied'}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -179,9 +183,11 @@ export default function ApplyDiscountButton({ currentInvoiceId, discounts, canAd
         />
       )}
 
-      {requestOpen && (
+      {requestOpen && currentInvoiceId && (
         <RequestDiscountModal
           invoiceId={currentInvoiceId}
+          subtotal={currentInvoiceSubtotal ?? 0}
+          existingDiscountAmount={currentInvoiceDiscountAmount ?? 0}
           onClose={() => setRequestOpen(false)}
           onSuccess={() => {
             setRequestOpen(false)

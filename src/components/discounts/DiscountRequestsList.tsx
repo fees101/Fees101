@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { approveDiscount, rejectDiscount } from '@/app/(app)/discounts/actions'
 import type { PendingDiscountRequest } from '@/lib/queries/discountRequests'
 import { formatDate } from '@/lib/format/date'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 const CATEGORY_LABELS: Record<string, string> = {
   staff_child: 'Staff-child discount',
@@ -14,6 +15,19 @@ const CATEGORY_LABELS: Record<string, string> = {
   financial_hardship: 'Financial hardship',
   fee_waiver: 'Fee waiver',
   other: 'Other',
+}
+
+// Mirrors RequestDiscountModal's threshold — surfaced again here since the
+// approver may not be the person who requested it (2026-09-16 stress test:
+// several individually-plausible discounts stacked to zero out a bill with
+// no one warned at either step).
+const CUMULATIVE_DISCOUNT_WARNING_THRESHOLD = 0.5
+
+function projectedDiscountPercentage(req: PendingDiscountRequest): number | null {
+  if (req.invoiceSubtotal <= 0) return null
+  const thisAmount = req.isPercentage ? (req.invoiceSubtotal * req.amount) / 100 : req.amount
+  const projected = Math.min(req.invoiceSubtotal, req.existingDiscountAmount + thisAmount)
+  return (projected / req.invoiceSubtotal) * 100
 }
 
 interface Props {
@@ -29,13 +43,17 @@ export default function DiscountRequestsList({ requests, canApprove }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [rejectDialog, setRejectDialog] = useState<PendingDiscountRequest | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [approveDialog, setApproveDialog] = useState<PendingDiscountRequest | null>(null)
 
-  async function handleApprove(id: string) {
+  async function handleApprove() {
+    if (!approveDialog) return
+    const id = approveDialog.id
     setError(null)
     setPendingId(id)
     const result = await approveDiscount(id)
     setPendingId(null)
-    if (result.error) return setError(result.error)
+    setApproveDialog(null)
+    if (result.error) { setError(result.error); return }
     router.refresh()
   }
 
@@ -80,6 +98,15 @@ export default function DiscountRequestsList({ requests, canApprove }: Props) {
                 {req.isRecurring && (
                   <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">Recurring</span>
                 )}
+                {(() => {
+                  const pct = projectedDiscountPercentage(req)
+                  if (pct === null || pct / 100 < CUMULATIVE_DISCOUNT_WARNING_THRESHOLD) return null
+                  return (
+                    <span className="text-xs px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full font-medium">
+                      ~{Math.round(pct)}% of subtotal cumulative
+                    </span>
+                  )
+                })()}
               </div>
               <p className="text-sm text-navy font-medium mt-1.5">
                 {req.isPercentage ? `${req.amount}%` : `₦${req.amount.toLocaleString('en-NG')}`} off — {req.cycleName}
@@ -107,7 +134,7 @@ export default function DiscountRequestsList({ requests, canApprove }: Props) {
                     Reject
                   </button>
                   <button
-                    onClick={() => handleApprove(req.id)}
+                    onClick={() => setApproveDialog(req)}
                     disabled={pendingId === req.id}
                     className="px-3 py-1.5 text-xs bg-mint text-navy font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
                   >
@@ -154,6 +181,22 @@ export default function DiscountRequestsList({ requests, canApprove }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {approveDialog && (
+        <ConfirmDialog
+          title="Approve this discount?"
+          message={(() => {
+            const pct = projectedDiscountPercentage(approveDialog)
+            if (pct !== null && pct / 100 >= CUMULATIVE_DISCOUNT_WARNING_THRESHOLD) {
+              return `This will recompute the invoice immediately. Cumulative discounts on this invoice would reach ~${Math.round(pct)}% of the subtotal — worth double-checking before approving.`
+            }
+            return 'This will recompute the invoice immediately.'
+          })()}
+          confirmLabel={pendingId === approveDialog.id ? 'Approving...' : 'Approve'}
+          onConfirm={handleApprove}
+          onCancel={() => setApproveDialog(null)}
+        />
       )}
     </div>
   )

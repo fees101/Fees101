@@ -31,6 +31,25 @@ export async function approveDiscount(discountId: string) {
   if (!discount) return { error: 'Discount request not found' }
   if (discount.status !== 'pending') return { error: 'This request has already been resolved' }
 
+  const now = new Date().toISOString()
+
+  // Claim the request atomically: the WHERE status='pending' is re-checked by
+  // Postgres against the committed row, so two concurrent approve clicks (or
+  // an approve racing a reject) can never both proceed — the loser's update
+  // affects zero rows. Fixes the reproduced double-approval race
+  // (2026-09-16: two discount.approved audit rows, 2s apart, one request).
+  const { data: claimed, error: claimError } = await supabase
+    .from('discounts')
+    .update({ status: 'applied', approved_by: userId, approved_at: now, applied_at: now })
+    .eq('id', discountId)
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle()
+  if (claimError) return { error: claimError.message }
+  if (!claimed) return { error: 'This request has already been resolved' }
+
+  // Re-read the invoice only after claiming the discount, so paid_amount is
+  // as fresh as possible going into the compute step below.
   const { data: invoice } = await supabase
     .from('invoices')
     .select('id, billing_cycle_id, paid_amount, total_amount, credit_applied, sent_at')
@@ -39,15 +58,11 @@ export async function approveDiscount(discountId: string) {
     .single()
   if (!invoice) return { error: 'Invoice not found' }
   if (Number(invoice.paid_amount || 0) > 0) {
+    // Undo the claim — this request is still genuinely pending, just not
+    // approvable right now.
+    await supabase.from('discounts').update({ status: 'pending', approved_by: null, approved_at: null, applied_at: null }).eq('id', discountId)
     return { error: 'This invoice already has a payment against it, so this request can no longer be approved. Reject it instead.' }
   }
-
-  const now = new Date().toISOString()
-  const { error: approveError } = await supabase
-    .from('discounts')
-    .update({ status: 'applied', approved_by: userId, approved_at: now, applied_at: now })
-    .eq('id', discountId)
-  if (approveError) return { error: approveError.message }
 
   const previouslyApplied = Number(invoice.credit_applied || 0)
   if (previouslyApplied > 0) {
@@ -64,7 +79,7 @@ export async function approveDiscount(discountId: string) {
   if (paid >= computed.total) newStatus = 'paid'
   else if (paid > 0) newStatus = 'partial'
 
-  const { error: updateError } = await supabase
+  const { error: updateError, data: updatedInvoice } = await supabase
     .from('invoices')
     .update({
       line_items: computed.lineItems,
@@ -79,8 +94,27 @@ export async function approveDiscount(discountId: string) {
       needs_resend: !!invoice.sent_at,
       updated_at: now,
     })
+    // Optimistic-concurrency guard: if a payment landed on this invoice
+    // between our read of paid_amount above and this write, paid_amount will
+    // have moved and this predicate won't match — Postgres re-checks WHERE
+    // against the committed row, so the two can never both silently succeed.
+    // Fixes the approval-vs-payment race (2026-09-16 stress test) by turning
+    // a silent simultaneously-discounted-and-overpaid invoice into an
+    // explicit, retryable error instead.
     .eq('id', invoice.id)
+    .eq('paid_amount', invoice.paid_amount)
+    .select('id')
+    .maybeSingle()
   if (updateError) return { error: updateError.message }
+  if (!updatedInvoice) {
+    // Best-effort rollback of the two mutations already made above, then
+    // surface the conflict rather than leaving a half-applied discount.
+    if (previouslyApplied > 0) {
+      await applyCreditBalanceDelta(supabase, schoolId, discount.student_id, -previouslyApplied)
+    }
+    await supabase.from('discounts').update({ status: 'pending', approved_by: null, approved_at: null, applied_at: null }).eq('id', discountId)
+    return { error: 'A payment was just recorded on this invoice, so the discount could not be safely applied. Please try approving again.' }
+  }
 
   await recordAppliedDiscounts(supabase, schoolId, discount.student_id, invoice.id, computed.appliedDiscounts)
   if (computed.creditApplied > 0) {

@@ -14,6 +14,8 @@ export interface PendingDiscountRequest {
   reason: string
   requestedByName: string | null
   requestedAt: string
+  invoiceSubtotal: number
+  existingDiscountAmount: number
 }
 
 async function getSchoolContext() {
@@ -45,7 +47,7 @@ export async function getPendingDiscountRequests(): Promise<PendingDiscountReque
     .select(`
       id, invoice_id, student_id, category, amount, is_percentage, is_recurring, reason, requested_at,
       students!inner(first_name, last_name, classes(name)),
-      invoices!inner(billing_cycles(name)),
+      invoices!inner(subtotal, discount_amount, billing_cycles(name)),
       requested_by_user:users!discounts_requested_by_fkey(name)
     `)
     .eq('school_id', schoolId)
@@ -66,6 +68,8 @@ export async function getPendingDiscountRequests(): Promise<PendingDiscountReque
     reason: row.reason,
     requestedByName: row.requested_by_user?.name || null,
     requestedAt: row.requested_at,
+    invoiceSubtotal: Number(row.invoices?.subtotal || 0),
+    existingDiscountAmount: Number(row.invoices?.discount_amount || 0),
   }))
 }
 
