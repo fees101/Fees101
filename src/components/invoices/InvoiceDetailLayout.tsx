@@ -255,15 +255,14 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {invoice.lineItems.map((item, idx) => (
+                {invoice.lineItems
+                  .filter((item) => item.kind !== 'previous_balance')
+                  .map((item, idx) => (
                   <tr key={idx}>
                     <td className="py-3">
                       <span className="text-sm text-navy">{item.name}</span>
                       {item.kind === 'opt_in' && (
                         <span className="ml-2 text-xs text-gray-500">(opt-in)</span>
-                      )}
-                      {item.kind === 'previous_balance' && (
-                        <span className="ml-2 text-xs text-amber-600">(carry-forward)</span>
                       )}
                       {item.kind === 'credit_applied' && (
                         <span className="ml-2 text-xs text-mint">(credit applied)</span>
