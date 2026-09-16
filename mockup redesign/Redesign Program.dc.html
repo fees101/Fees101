@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="_ds/modernist-999121b8-27f1-406b-988e-740794f31b97/styles.css">
+<script src="_ds/modernist-999121b8-27f1-406b-988e-740794f31b97/_ds_bundle.js"></script>
+<style>
+  body { margin: 0; }
+  a { color: var(--color-accent-700); text-decoration: none; border-bottom: 1px solid var(--color-accent-300); }
+  a:hover { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+  @keyframes ruleIn { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+</style>
+</helmet>
+
+<div style="max-width: 1180px; margin: 0 auto; padding: 0 24px 96px; font-family: var(--font-body); color: var(--color-text);">
+
+  <header style="padding: 56px 0 24px;">
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: baseline; justify-content: space-between; margin-bottom: 40px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span style="font-family: var(--font-heading); font-weight: 800; font-size: 15px; letter-spacing: 0.14em;">FEES101</span>
+        <span style="width: 28px; height: 2px; background: var(--color-text); display: inline-block;"></span>
+        <span style="font-size: 13px; letter-spacing: 0.14em; color: var(--color-neutral-700);">REDESIGN PROGRAM</span>
+      </div>
+      <span style="font-size: 13px; color: var(--color-neutral-600); font-variant-numeric: tabular-nums;">v1 · dev branch · 45 surfaces</span>
+    </div>
+    <h1 style="font-size: clamp(46px, 7.5vw, 92px); line-height: 0.94; letter-spacing: -0.03em; margin: 0 0 24px; max-width: 18ch;">Rebuild the instrument, not the paint.</h1>
+    <p style="font-size: 20px; line-height: 1.45; max-width: 62ch; margin: 0 0 32px; text-wrap: pretty;">Fees101 currently reads like a dashboard template: rounded cards, a mint accent, a colour-coded badge for every state. The rework replaces that with a single hard grid, one ink-and-red palette, type that carries hierarchy instead of containers, and motion that behaves like machined hardware. Every one of the 45 surfaces below is rebuilt — nothing carries over.</p>
+    <div style="height: 2px; background: var(--color-text); transform-origin: left; animation: ruleIn 700ms cubic-bezier(0.2,0,0,1) both;"></div>
+  </header>
+
+  <section style="padding: 48px 0;">
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 24px;">01 — DIRECTION</p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 2px; background: var(--color-divider);">
+      <div style="background: var(--color-bg); padding: 24px 24px 28px;">
+        <h3 style="font-size: 22px; margin: 0 0 10px;">Hardware, not software</h3>
+        <p style="font-size: 15px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">No cards, no shadows, no radius. Surfaces are divided by 2px rules and precise gutters. Weight and position do the organising — the interface should feel milled.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 24px 24px 28px;">
+        <h3 style="font-size: 22px; margin: 0 0 10px;">Money as measurement</h3>
+        <p style="font-size: 15px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Figures set in tabular numerals at display sizes, aligned on the decimal, never inside a pill. A balance is a readout, not a metric card.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 24px 24px 28px;">
+        <h3 style="font-size: 22px; margin: 0 0 10px;">One accent, earned</h3>
+        <p style="font-size: 15px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Red means "this needs you" — overdue, unsent, rejected, destructive. Everything else is ink on paper. The current five-colour status rainbow is retired entirely.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 24px 24px 28px;">
+        <h3 style="font-size: 22px; margin: 0 0 10px;">Two grounds</h3>
+        <p style="font-size: 15px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Paper (#f3f2f2) for operating work — rosters, invoices, settings. Ink for the instrument surfaces — collections, analytics, the cycle close. Switching ground tells you which mode you're in.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 24px 24px 28px;">
+        <h3 style="font-size: 22px; margin: 0 0 10px;">Deliberate motion</h3>
+        <p style="font-size: 15px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Slow-out easing, short travel, no bounce, no spinners. Rules draw, numerals count, panels slide on one axis. Nothing fades in place for decoration.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 24px 24px 28px;">
+        <h3 style="font-size: 22px; margin: 0 0 10px;">Fewer, larger surfaces</h3>
+        <p style="font-size: 15px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">21 nav destinations collapse to 7 workspaces with modes. A bursar should never wonder whether the thing they want is under Fees, Invoices or Settings.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding: 48px 0;">
+    <div style="height: 2px; background: var(--color-divider); margin-bottom: 40px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 24px;">02 — WHAT CHANGES, CONCRETELY</p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 40px;">
+      <div>
+        <h3 style="font-size: 20px; margin: 0 0 16px;">Retired</h3>
+        <ul style="margin: 0; padding-left: 18px; font-size: 15px; line-height: 1.7; color: var(--color-neutral-800);">
+          <li>Manrope, navy #0D1B36, mint #5AD8A6, mint-light</li>
+          <li>Every <code>rounded-xl</code> white card on grey</li>
+          <li>Pill status badges in five hues</li>
+          <li>The 64px hover-expand icon rail</li>
+          <li>The KPI-grid dashboard</li>
+          <li>The "F1" rounded-square monogram</li>
+          <li>Three separate notification mechanisms</li>
+        </ul>
+      </div>
+      <div>
+        <h3 style="font-size: 20px; margin: 0 0 16px;">Introduced</h3>
+        <ul style="margin: 0; padding-left: 18px; font-size: 15px; line-height: 1.7; color: var(--color-neutral-800);">
+          <li>Archivo 400/600/800, ink + single red accent</li>
+          <li>Ruled grid regions, zero radius, no elevation</li>
+          <li>Status by label + rule weight, red only for attention</li>
+          <li>A persistent labelled sidebar with mode switching</li>
+          <li>A decision-first landing surface</li>
+          <li>A new mark built from the numerals</li>
+          <li>One Signals system: banners, jobs, toasts, unified</li>
+        </ul>
+      </div>
+      <div>
+        <h3 style="font-size: 20px; margin: 0 0 16px;">Kept (deliberately)</h3>
+        <ul style="margin: 0; padding-left: 18px; font-size: 15px; line-height: 1.7; color: var(--color-neutral-800);">
+          <li>The SEE/DO permission model — 21 keys, unchanged semantics</li>
+          <li>Background-job durability and reattachment</li>
+          <li>Naira formatting and ledger arithmetic</li>
+          <li>Route names where they're already correct</li>
+          <li>Server-action / RLS architecture — this is a UI rework</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding: 48px 0;">
+    <div style="height: 2px; background: var(--color-divider); margin-bottom: 40px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 24px;">03 — INFORMATION ARCHITECTURE</p>
+    <h2 style="font-size: 32px; margin: 0 0 16px; max-width: 26ch;">21 destinations become 7 workspaces.</h2>
+    <p style="font-size: 17px; line-height: 1.5; max-width: 64ch; margin: 0 0 32px; color: var(--color-neutral-800);">Each workspace owns one job and holds its modes as in-page tabs, so navigation depth drops from three levels to two and the sidebar stops being a directory.</p>
+    <table class="table" style="width: 100%;">
+      <thead>
+        <tr><th style="width: 22%;">Workspace</th><th style="width: 38%;">Absorbs</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Today</strong></td><td>Dashboard, Recent activity, admin notifications</td><td>One surface answering "what needs me this morning" — outstanding money, unsent invoices, pending approvals, the live stream. Replaces the KPI grid.</td></tr>
+        <tr><td><strong>Students</strong></td><td>Students list, student detail, CSV import, bulk payment accounts</td><td>Roster stays the strongest table in the product; import and provisioning become drawers on it rather than separate pages.</td></tr>
+        <tr><td><strong>Fees</strong></td><td>Fees overview, Fee structure, Billing cycles, cycle detail, Year-end rollover</td><td>One workspace, four modes: Structure · Cycles · Close term · Year end. The overview page (duplicate KPIs) is deleted.</td></tr>
+        <tr><td><strong>Money</strong></td><td>Invoices list, invoice detail, Payments analytics, Reports</td><td>The ledger and the analysis of the ledger belong together. Ink ground. Reports become an export action on any view, plus a saved-report shelf.</td></tr>
+        <tr><td><strong>Discounts</strong></td><td>Requests queue, active recurring discounts</td><td>One queue with a status filter instead of two stacked lists.</td></tr>
+        <tr><td><strong>School</strong></td><td>School profile, Academic structure, Payments provider, Reminders, Discount policy</td><td>Everything that configures how the school bills, in one sectioned page instead of five routes.</td></tr>
+        <tr><td><strong>Team &amp; Trust</strong></td><td>Users, Roles &amp; permissions, Audit log, Data &amp; privacy, Account security</td><td>Who can act, and the record of what they did — read together, so they live together.</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size: 15px; line-height: 1.6; max-width: 70ch; margin: 28px 0 0; color: var(--color-neutral-800);">Permission gating is unchanged in behaviour: a workspace whose every mode is hidden disappears, and a single-destination role still lands directly on it. The narrow-role fallback grid is redesigned as a ruled index rather than a card grid.</p>
+  </section>
+
+  <section style="padding: 48px 0;">
+    <div style="height: 2px; background: var(--color-divider); margin-bottom: 40px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 24px;">04 — PHASES</p>
+    <sc-for list="{{ phases }}" as="p" hint-placeholder-count="9">
+      <div style="display: grid; grid-template-columns: 96px minmax(0,1fr); gap: 24px; padding: 28px 0; border-top: 2px solid var(--color-divider); align-items: start;">
+        <div>
+          <p style="font-family: var(--font-heading); font-weight: 800; font-size: 40px; line-height: 1; margin: 0; font-variant-numeric: tabular-nums;">{{ p.no }}</p>
+          <p style="font-size: 12px; letter-spacing: 0.1em; color: var(--color-neutral-600); margin: 6px 0 0;">{{ p.effort }}</p>
+        </div>
+        <div>
+          <h3 style="font-size: 25px; margin: 0 0 8px;">{{ p.title }}</h3>
+          <p style="font-size: 16px; line-height: 1.5; margin: 0 0 14px; max-width: 70ch; color: var(--color-neutral-800);">{{ p.body }}</p>
+          <p style="font-size: 13px; letter-spacing: 0.06em; color: var(--color-neutral-700); margin: 0;">DELIVERABLE — {{ p.out }}</p>
+        </div>
+      </div>
+    </sc-for>
+    <div style="height: 2px; background: var(--color-divider);"></div>
+  </section>
+
+  <section style="padding: 48px 0;">
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 24px;">05 — MOTION SPECIFICATION</p>
+    <h2 style="font-size: 32px; margin: 0 0 32px; max-width: 30ch;">Four durations, two curves, one axis at a time.</h2>
+    <table class="table" style="width: 100%; margin-bottom: 32px;">
+      <thead><tr><th style="width: 26%;">Token</th><th style="width: 18%;">Value</th><th>Used by</th></tr></thead>
+      <tbody>
+        <tr><td>tick</td><td>120ms</td><td>Hover tints, focus ring, checkbox, sort-arrow flip</td></tr>
+        <tr><td>move</td><td>200ms</td><td>Tab underline travel, row expand, tag swap</td></tr>
+        <tr><td>enter</td><td>320ms</td><td>Drawer and panel slide, mode change, content wipe (12px up)</td></tr>
+        <tr><td>settle</td><td>560ms</td><td>Rule draw on section mount, numeral count-up, job progress fill</td></tr>
+        <tr><td>ease-out</td><td>cubic-bezier(.2,0,0,1)</td><td>Everything entering or settling</td></tr>
+        <tr><td>ease-in</td><td>cubic-bezier(.4,0,1,1)</td><td>Everything leaving</td></tr>
+      </tbody>
+    </table>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 2px; background: var(--color-divider);">
+      <div style="background: var(--color-bg); padding: 22px;">
+        <h4 style="margin: 0 0 8px;">Rule draw</h4>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Section dividers scale from the left on first paint. The system's signature move — it makes the grid assemble itself rather than appear.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 22px;">
+        <h4 style="margin: 0 0 8px;">Numeral count</h4>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Every displayed total counts from zero once, in tabular figures so no digit shifts. Never on re-render, only on arrival.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 22px;">
+        <h4 style="margin: 0 0 8px;">No spinners</h4>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Loading is a 2px rule sweeping its own track. Jobs fill it proportionally; indeterminate work sweeps. Nothing spins anywhere in the product.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 22px;">
+        <h4 style="margin: 0 0 8px;">Single-axis panels</h4>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Drawers come from the right, sheets from the bottom, modes wipe up. A surface never moves on two axes or scales.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 22px;">
+        <h4 style="margin: 0 0 8px;">Table choreography</h4>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Sort and filter reorder rows with a 200ms position transition, capped at 24 visible rows so the page never churns.</p>
+      </div>
+      <div style="background: var(--color-bg); padding: 22px;">
+        <h4 style="margin: 0 0 8px;">Reduced motion</h4>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: var(--color-neutral-800);">Under <code>prefers-reduced-motion</code> every token collapses to 0ms and count-ups render final values. Layout never depends on animation.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding: 48px 0;">
+    <div style="height: 2px; background: var(--color-divider); margin-bottom: 40px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 24px;">06 — SIGNALS: ONE NOTIFICATION LANGUAGE</p>
+    <p style="font-size: 17px; line-height: 1.5; max-width: 66ch; margin: 0 0 32px; color: var(--color-neutral-800);">Today the product speaks in three unrelated voices: an admin banner at the top of every page, a live job-progress chip, and ad-hoc toasts. They become one system with four registers, each with a fixed position and a fixed lifetime.</p>
+    <table class="table" style="width: 100%;">
+      <thead><tr><th style="width: 18%;">Register</th><th style="width: 22%;">Position</th><th style="width: 16%;">Lifetime</th><th>Carries</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Confirm</strong></td><td>Bottom-left, ruled slab</td><td>4s, dismissible</td><td>"18 invoices sent." Result of an action you just took.</td></tr>
+        <tr><td><strong>Progress</strong></td><td>Docked strip under the header</td><td>Until done or backgrounded</td><td>Job label, filling rule, count, cancel. Survives reload and tab change.</td></tr>
+        <tr><td><strong>Attention</strong></td><td>In-context, above the affected region</td><td>Until resolved</td><td>Red-accented: unsent invoices, failed job, provider credentials invalid.</td></tr>
+        <tr><td><strong>Record</strong></td><td>Stream drawer, right edge</td><td>Persistent history</td><td>The activity feed, opened from anywhere — no longer its own page.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section style="padding: 48px 0;">
+    <div style="height: 2px; background: var(--color-divider); margin-bottom: 40px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 12px;">07 — SURFACE LEDGER</p>
+    <p style="font-size: 17px; line-height: 1.5; max-width: 64ch; margin: 0 0 24px; color: var(--color-neutral-800);">All 45 surfaces in the product, the phase that rebuilds each, and its state. This is the checklist — nothing ships until every row reads DONE.</p>
+    <div style="border-top: 2px solid var(--color-text); border-bottom: 2px solid var(--color-divider); padding: 20px 0; margin-bottom: 32px;">
+      <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 14px;">
+        <div>
+          <p style="font-size: 12px; letter-spacing: 0.14em; color: var(--color-neutral-700); margin: 0 0 6px;">BUILT SO FAR</p>
+          <p style="font-family: var(--font-heading); font-weight: 800; font-size: 42px; line-height: 0.95; margin: 0; font-variant-numeric: tabular-nums;">{{ doneCount }} <span style="font-size: 20px; color: var(--color-neutral-700);">of {{ totalCount }}</span></p>
+        </div>
+        <p style="font-size: 15px; color: var(--color-neutral-800); margin: 0; text-align: right; font-variant-numeric: tabular-nums;">{{ pct }} complete<br />{{ leftCount }} surfaces left</p>
+      </div>
+      <div style="display: flex; height: 8px;">
+        <span style="background: var(--color-text); width: {{ barDone }};"></span>
+        <span style="background: var(--color-neutral-300); width: {{ barLeft }};"></span>
+      </div>
+    </div>
+    <table class="table" style="width: 100%; font-variant-numeric: tabular-nums;">
+      <thead><tr><th style="width: 6%;">#</th><th style="width: 30%;">Surface</th><th style="width: 12%;">Phase</th><th style="width: 34%;">Rework note</th><th style="width: 12%;">State</th></tr></thead>
+      <tbody>
+        <sc-for list="{{ ledger }}" as="row" hint-placeholder-count="34">
+          <tr>
+            <td style="color: var(--color-neutral-600);">{{ row.n }}</td>
+            <td style="color: {{ row.ink }};"><strong>{{ row.name }}</strong></td>
+            <td style="color: var(--color-neutral-700);">{{ row.phase }}</td>
+            <td style="color: var(--color-neutral-800);">{{ row.note }}</td>
+            <td><span class="{{ row.cls }}">{{ row.state }}</span></td>
+          </tr>
+        </sc-for>
+      </tbody>
+    </table>
+  </section>
+
+  <section style="padding: 48px 0;">
+    <div style="height: 2px; background: var(--color-text); margin-bottom: 40px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 24px;">08 — WHAT IS DECIDED, AND WHAT IS STILL OPEN</p>
+    <h2 style="font-size: clamp(30px, 4vw, 44px); line-height: 1.05; margin: 0 0 20px; max-width: 26ch;">The system is settled. The remaining work is depth, not direction.</h2>
+    <p style="font-size: 18px; line-height: 1.5; max-width: 68ch; margin: 0 0 28px; color: var(--color-neutral-800);">Every decision that shapes other decisions has been made and is visible somewhere in this project: the mark, the palette and its rules, the type scale, the two grounds, the motion tokens, the seven-workspace structure, the Signals language, and the voice of what parents receive. What is left is a small number of deep screens and the artefacts nobody sees until something goes wrong.</p>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0; margin-bottom: 44px;">
+      <div style="background: var(--color-bg); border: 1px solid var(--color-divider); padding: 24px;">
+        <h3 style="font-size: 20px; margin: 0 0 10px;">Decided — do not revisit</h3>
+        <ul style="margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.7; color: var(--color-neutral-800);">
+          <li>Mark A, the stack — rule is a separate element, so the accent can change without redrawing it</li>
+          <li>Archivo 400/600/800, tabular numerals on every figure</li>
+          <li>Signal red for brand and structure, green for money received, ochre for what needs a human</li>
+          <li>Paper for operating, ink for the ledger and analytics</li>
+          <li>Four motion durations, two curves, no spinners anywhere</li>
+          <li>21 permission destinations collapsed to 7 workspaces with in-page modes</li>
+          <li>Option B subject lines — child first, then the figure</li>
+        </ul>
+      </div>
+      <div style="background: var(--color-bg); border: 1px solid var(--color-divider); padding: 24px;">
+        <h3 style="font-size: 20px; margin: 0 0 10px;">Still open — real work</h3>
+        <ul style="margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.7; color: var(--color-neutral-800);">
+          <li><strong>Student fees tab</strong> — opt-in management, exemptions and adjustments; the largest unread component in the repo</li>
+          <li><strong>Comparisons &amp; rates</strong> — head-to-head of up to five periods with the metric toggle</li>
+          <li><strong>Receipt PDF</strong> — pairs with the invoice PDF</li>
+          <li><strong>Staff invite email</strong> — the one message that goes to staff</li>
+          <li><strong>Narrow-role index</strong> — the landing surface for a role with one destination</li>
+        </ul>
+      </div>
+      <div style="background: var(--color-bg); border: 1px solid var(--color-divider); padding: 24px;">
+        <h3 style="font-size: 20px; margin: 0 0 10px;">Deliberately dropped</h3>
+        <ul style="margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.7; color: var(--color-neutral-800);">
+          <li>Payment simulator — internal test surface, never seen by a school</li>
+          <li>Parent-facing app — messages only, as decided at the start</li>
+          <li>Before/after panels on surfaces not yet rebuilt — the compare control disables itself rather than lying</li>
+          <li>Mobile-first layouts — desktop-first with reflow, as decided</li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="height: 2px; background: var(--color-text); margin-bottom: 36px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 24px;">09 — SPECS FOR WHAT IS NOT DRAWN</p>
+    <h2 style="font-size: clamp(28px, 3.6vw, 40px); line-height: 1.05; margin: 0 0 16px; max-width: 28ch;">Five surfaces, specified in words instead of pixels.</h2>
+    <p style="font-size: 17px; line-height: 1.5; max-width: 70ch; margin: 0 0 32px; color: var(--color-neutral-800);">These are detailed enough to build from without guessing. Each states the layout, the exact figures and colour roles, the copy that carries meaning, and the decision the surface exists to serve — so what gets built matches the rest of the system rather than drifting into a new dialect.</p>
+
+    <sc-for list="{{ specs }}" as="sp" hint-placeholder-count="5">
+      <div style="border-top: 2px solid var(--color-text); padding: 24px 0 28px;">
+        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 14px;">
+          <h3 style="font-size: 24px; margin: 0;">{{ sp.title }}</h3>
+          <span style="font-size: 12px; letter-spacing: 0.08em; color: var(--color-neutral-700);">{{ sp.where }}</span>
+        </div>
+        <p style="font-size: 16px; line-height: 1.55; margin: 0 0 20px; max-width: 76ch; color: var(--color-neutral-800);">{{ sp.purpose }}</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0;">
+          <div style="background: var(--color-bg); border: 1px solid var(--color-divider); padding: 20px;">
+            <p style="font-size: 11px; letter-spacing: 0.12em; color: var(--color-neutral-700); margin: 0 0 10px;">LAYOUT</p>
+            <p style="font-size: 14px; line-height: 1.6; margin: 0; color: var(--color-neutral-800);">{{ sp.layout }}</p>
+          </div>
+          <div style="background: var(--color-bg); border: 1px solid var(--color-divider); padding: 20px;">
+            <p style="font-size: 11px; letter-spacing: 0.12em; color: var(--color-neutral-700); margin: 0 0 10px;">COLOUR &amp; TYPE</p>
+            <p style="font-size: 14px; line-height: 1.6; margin: 0; color: var(--color-neutral-800);">{{ sp.colour }}</p>
+          </div>
+          <div style="background: var(--color-bg); border: 1px solid var(--color-divider); padding: 20px;">
+            <p style="font-size: 11px; letter-spacing: 0.12em; color: var(--color-neutral-700); margin: 0 0 10px;">BEHAVIOUR &amp; COPY</p>
+            <p style="font-size: 14px; line-height: 1.6; margin: 0; color: var(--color-neutral-800);">{{ sp.behaviour }}</p>
+          </div>
+        </div>
+        <p style="font-size: 13px; letter-spacing: 0.04em; color: var(--color-neutral-700); margin: 16px 0 0;">FILES — {{ sp.files }}</p>
+      </div>
+    </sc-for>
+
+    <div style="height: 2px; background: var(--color-text); margin-bottom: 36px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: var(--color-neutral-600); margin: 0 0 24px;">10 — GETTING IT INTO THE REAL PRODUCT</p>
+    <h2 style="font-size: clamp(28px, 3.6vw, 40px); line-height: 1.05; margin: 0 0 16px; max-width: 26ch;">Six steps, smallest risk first.</h2>
+    <p style="font-size: 17px; line-height: 1.5; max-width: 68ch; margin: 0 0 32px; color: var(--color-neutral-800);">Nothing in this project touches the repository — it is design only. The order below exists so that each step is shippable on its own and nothing depends on a later one. Work on a branch; every step is a separate pull request you can read.</p>
+
+    <sc-for list="{{ handoff }}" as="h" hint-placeholder-count="6">
+      <div style="display: grid; grid-template-columns: 116px minmax(0,1fr) minmax(0,0.9fr); gap: 24px; padding: 24px 0; border-top: 2px solid var(--color-divider); align-items: start;">
+        <div>
+          <p style="font-family: var(--font-heading); font-weight: 800; font-size: 32px; line-height: 1; margin: 0; font-variant-numeric: tabular-nums;">{{ h.n }}</p>
+          <p style="font-size: 11px; letter-spacing: 0.1em; color: var(--color-neutral-700); margin: 6px 0 0;">{{ h.risk }}</p>
+        </div>
+        <div>
+          <h3 style="font-size: 21px; margin: 0 0 8px;">{{ h.title }}</h3>
+          <p style="font-size: 15px; line-height: 1.55; margin: 0 0 10px; color: var(--color-neutral-800);">{{ h.body }}</p>
+          <p style="font-size: 13px; letter-spacing: 0.04em; color: var(--color-neutral-700); margin: 0;">FILES — {{ h.files }}</p>
+        </div>
+        <div>
+          <p style="font-size: 11px; letter-spacing: 0.12em; color: var(--color-neutral-700); margin: 0 0 8px;">TELL CLAUDE CODE</p>
+          <p style="font-size: 14px; line-height: 1.6; margin: 0; color: var(--color-neutral-800); font-style: italic;">“{{ h.prompt }}”</p>
+        </div>
+      </div>
+    </sc-for>
+    <div style="height: 2px; background: var(--color-text); margin-bottom: 32px;"></div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0;">
+      <div style="background: var(--color-bg); border: 1px solid var(--color-divider); padding: 24px;">
+        <h4 style="margin: 0 0 8px;">What to give it</h4>
+        <p style="font-size: 14px; line-height: 1.55; margin: 0; color: var(--color-neutral-800);">Open the design file for the surface being built and keep it beside the editor — the values are all inline, so they read straight off the markup. <code>github.md</code> in this project records which repo files each screen was designed from.</p>
+      </div>
+      <div style="background: var(--color-bg); border: 1px solid var(--color-divider); padding: 24px;">
+        <h4 style="margin: 0 0 8px;">What not to let it do</h4>
+        <p style="font-size: 14px; line-height: 1.55; margin: 0; color: var(--color-neutral-800);">Do not let it change queries, server actions or RLS policies — this is a UI rework and the data layer is already correct. If a screen seems to need new data, that is a design question to bring back here first.</p>
+      </div>
+      <div style="background: var(--color-bg); border: 1px solid var(--color-divider); padding: 24px;">
+        <h4 style="margin: 0 0 8px;">How to know a step is done</h4>
+        <p style="font-size: 14px; line-height: 1.55; margin: 0; color: var(--color-neutral-800);">No rounded corners, no shadows, no mint, no Manrope, no coloured pills, no spinners. Every figure tabular. Green only where money arrived. If any of those appear, the step is not finished.</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const phases = [
+      { no: '00', effort: 'FIRST', title: 'Foundations & brand', body: 'The type scale (Archivo 400/600/800 with a display tier above it), the ink + red palette with its ramps, tabular-numeral treatment for money, the 12-column ruled grid, icon language, and three candidate marks built from the numerals rather than a rounded "F1" square. Both grounds — paper and ink — specified at the same time.', out: 'A foundations sheet and three logo candidates you pick from.' },
+      { no: '01', effort: 'FIRST', title: 'Shell, navigation & signals', body: 'The persistent sidebar (labelled, not a hover-expand rail), the 7-workspace structure with in-page modes, the header with its docked progress strip, the stream drawer, the command surface for jump-to-student/invoice, and all four Signals registers. Permission-driven hiding built in from the start.', out: 'A live shell with real nav, wrapped around placeholder content.' },
+      { no: '02', effort: 'CORE', title: 'Today', body: 'The landing surface, rebuilt from a KPI grid into a decision queue: outstanding money as a single readout, the three things needing action, collection trend, and the live record — all permission-aware, plus the narrow-role index for roles with one destination.', out: 'Today, in full, including the empty and narrow-permission states.' },
+      { no: '03', effort: 'CORE', title: 'Students', body: 'The roster table (the product\u2019s most-used screen) with its new sort, filter, grouping and pagination language; the student profile with fees, payment history and settings as ruled sections; and CSV import and bulk payment-account provisioning rebuilt as drawers with the new progress language.', out: 'Roster, profile, import flow, provisioning flow.' },
+      { no: '04', effort: 'CORE', title: 'Money', body: 'The invoice ledger on the ink ground, invoice detail with its line items and discount actions, bulk send, the collections analytics surface (timeline, comparisons, rates) rebuilt with the count-up and rule-draw system, and reports as export actions plus a saved shelf.', out: 'Ledger, invoice detail, analytics, bulk send, exports.' },
+      { no: '05', effort: 'CORE', title: 'Fees', body: 'One workspace with four modes: fee structure per class and group, billing cycles and cycle detail, close-term carry-forward, and the year-end rollover wizard restructured as a linear ruled sequence with a visible ledger of what each step will do before it runs.', out: 'Structure, cycles, cycle detail, close term, year-end wizard.' },
+      { no: '06', effort: 'CORE', title: 'Discounts', body: 'Requests and active recurring discounts merged into one queue with status filters, approve/reject as a ruled decision row rather than a modal, and the request flow reachable from a student without leaving the roster.', out: 'Discount queue, decision flow, request drawer.' },
+      { no: '07', effort: 'CONFIG', title: 'School, Team & Trust', body: 'School profile, academic structure, payment provider, reminders and discount policy as one sectioned configuration page; then users, the role permission matrix (21 keys — the densest UI in the product), audit log, data & privacy, and account security. Includes the destructive-action language.', out: 'Two configuration workspaces and the permission matrix.' },
+      { no: '08', effort: 'EDGE', title: 'Edges & artefacts', body: 'Login, set-password, deactivated and scheduled-deletion states, every empty state, every error state, the 404, and the printed artefacts — the invoice PDF and report exports — redrawn in the new system so what a parent receives matches what the school sees.', out: 'Auth screens, all empty/error states, invoice PDF, exports.' },
+      { no: '09', effort: 'LAST', title: 'Sweep & handoff', body: 'A full pass across every surface in the ledger below, against the foundations sheet — type, rules, accent discipline, motion tokens, contrast, focus states, 44px targets on touch — then the developer handoff: component inventory, token map, and per-screen implementation notes against the real file paths.', out: 'A signed-off ledger and a handoff package.' },
+    ];
+
+    const L = [
+      ['Sidebar & rail', '01', 'Labelled persistent nav, mode-aware, replaces hover-expand'],
+      ['Header & user menu', '01', 'School identity, jump-to, account menu, docked progress'],
+      ['Signals: confirm', '01', 'Ruled slab, bottom-left, replaces ad-hoc toasts'],
+      ['Signals: progress', '01', 'Docked filling rule, survives reload'],
+      ['Signals: attention', '01', 'In-context red block, replaces admin banner'],
+      ['Stream drawer', '01', 'Activity feed becomes app-wide drawer, page deleted'],
+      ['Today', '02', 'Decision queue replaces KPI grid'],
+      ['Narrow-role index', '02', 'Ruled index replaces fallback card grid'],
+      ['Collection trend', '02', 'Rule-and-figure chart, no gridline clutter'],
+      ['Students roster', '03', 'New table language: sort, group, paginate'],
+      ['Student profile', '03', 'Ruled sections, not tab-in-card'],
+      ['Student fees tab', '03', 'Opt-ins, exemptions, adjustments as one ledger'],
+      ['Payment history tab', '03', 'Chronological ledger with receipt access'],
+      ['Student settings tab', '03', 'Family, status, payment account'],
+      ['Add student', '03', 'Drawer, single column, flush-left labels'],
+      ['CSV import', '03', 'Linear ruled sequence with column mapping'],
+      ['Bulk payment accounts', '03', 'Drawer with progress rule'],
+      ['Invoice ledger', '04', 'Ink ground, status by label not pill'],
+      ['Invoice detail', '04', 'Document-like layout, line items as ledger'],
+      ['Bulk send', '04', 'Drawer, preview count, backgroundable'],
+      ['Collections analytics', '05', 'Timeline hero rebuilt on ink ground'],
+      ['Period picker', '04', 'Segmented ruled control'],
+      ['Reports & exports', '04', 'Export action plus saved shelf'],
+      ['Fee structure', '05', 'Per-class matrix with group editing'],
+      ['Billing cycles', '05', 'Cycle list as timeline of terms'],
+      ['Cycle detail', '05', 'Generation, send and close in one sequence'],
+      ['Year-end rollover', '05', 'Linear wizard with pre-run ledger'],
+      ['Discount queue', '06', 'Requests + recurring merged, filtered'],
+      ['School configuration', '07', 'Profile, structure, provider, reminders, policy'],
+      ['Users & invites', '07', 'Roster of staff with role assignment'],
+      ['Role permission matrix', '07', '21 SEE/DO keys — densest surface in product'],
+      ['Audit log', '07', 'Module-tagged history, monochrome tags'],
+      ['Data & privacy', '07', 'Export-all and deletion with real consequence copy'],
+      ['Auth & edge states', '08', 'Login, set password, deactivated, empty, error, 404'],
+      ['Invoice PDF', '08', 'The artefact parents receive, in the new system'],
+      ['Invoice email & SMS', '08', 'composeInvoice — what a parent opens first'],
+      ['Receipt message', '08', 'sendReceipt — confirmation of money received'],
+      ['Reminder messages', '08', 'Due and overdue schedule, in the new voice'],
+      ['Staff invite & set-password', '08', 'composeInvite + the set-password screen'],
+      ['Collections timeline', '04', 'TimelineHero rebuilt — was one ledger row, is a screen'],
+      ['Comparisons & rates', '04', 'AnalyticsCharts + PeriodPicker on the ink ground'],
+      ['Confirm & destructive dialogs', '08', 'ConfirmDialog pattern — red can no longer be the only alarm'],
+      ['Permission-denied states', '08', 'Routine with 21 keys, today renders as nothing'],
+      ['Student activity timeline', '03', 'Per-student history inside the profile'],
+      ['Receipt PDF', '08', 'The artefact attached to a receipt email'],
+    ];
+
+    const DONE = {
+      'Sidebar & rail': 1, 'Header & user menu': 1, 'Signals: confirm': 1, 'Signals: progress': 1,
+      'Stream drawer': 1, 'Today': 1, 'Collection trend': 1, 'Students roster': 1,
+      'Student profile': 1, 'Payment history tab': 1, 'Student settings tab': 1,
+      'Invoice ledger': 1, 'Collections analytics': 1, 'Period picker': 1,
+      'Collections timeline': 1, 'Student activity timeline': 1,
+      'Invoice PDF': 1, 'Invoice email & SMS': 1, 'Receipt message': 1, 'Reminder messages': 1,
+      'Invoice detail': 1, 'Reports & exports': 1, 'Discount queue': 1, 'School configuration': 1,
+      'Users & invites': 1, 'Role permission matrix': 1, 'Audit log': 1, 'Data & privacy': 1,
+      'Auth & edge states': 1, 'CSV import': 1, 'Bulk payment accounts': 1,
+      'Fee structure': 1, 'Billing cycles': 1, 'Cycle detail': 1, 'Year-end rollover': 1,
+      'Confirm & destructive dialogs': 1, 'Permission-denied states': 1, 'Signals: attention': 1,
+      'Add student': 1, 'Bulk send': 1,
+    };
+    const PART = {
+      'Student fees tab': 1, 'Comparisons & rates': 1, 'Staff invite & set-password': 1,
+    };
+
+    const ledger = L.map((r, i) => {
+      const done = !!DONE[r[0]], part = !!PART[r[0]];
+      return {
+        n: String(i + 1).padStart(2, '0'),
+        name: r[0], phase: 'P' + r[1], note: r[2],
+        state: done ? 'DONE' : part ? 'PARTIAL' : 'NOT STARTED',
+        cls: done ? 'tag tag-accent' : 'tag tag-neutral',
+        ink: done ? '#201e1d' : '#605d5d',
+      };
+    });
+    const doneCount = ledger.filter(r => r.state === 'DONE').length;
+
+    const handoff = [
+      { n: '01', risk: 'NO UI RISK', title: 'Tokens and type',
+        body: 'Replace the palette and font before touching any screen, so every later step inherits them. Archivo in, Manrope out; the three colour roles as named CSS variables; zero radius; the four motion durations and two curves as variables. Nothing else changes — the app will briefly look like the old layout in the new skin, which is expected.',
+        files: 'src/app/globals.css, src/app/layout.tsx',
+        prompt: 'Replace the design tokens in globals.css with these values and roles, swap Manrope for Archivo, set all radii to 0, and add the motion duration and easing variables. Do not change any component markup yet.' },
+      { n: '02', risk: 'NO UI RISK', title: 'What parents receive',
+        body: 'Pure string and HTML generation — no routing, no permissions, no layout. The highest-traffic surface in the product and the easiest to ship. Keep every constraint: GSM-7, NGN rather than the naira sign, one 160-character segment, table-based email.',
+        files: 'src/lib/messaging/composeInvoice.ts, reminders.ts',
+        prompt: 'Rewrite the SMS templates and the invoice and receipt email bodies to match the Messages design file. Keep them under 160 GSM-7 characters and keep the email table-based and client-safe.' },
+      { n: '03', risk: 'ONE FILE', title: 'The invoice PDF',
+        body: 'One self-contained component. Body text rises to 10–11pt, the three competing summary tiles become a running total, the school logo leads the document with an initials fallback, and carried balance and credit each carry a word as well as a colour so it survives black-and-white printing.',
+        files: 'src/components/invoices/InvoicePDF.tsx',
+        prompt: 'Rebuild InvoicePDF.tsx to match the Invoice PDF tab in the Messages design file. Keep the DejaVu font registration for the naira glyph and keep A4.' },
+      { n: '04', risk: 'ARCHITECTURAL', title: 'The shell and navigation',
+        body: 'The structural change: 21 nav destinations become 7 workspaces with in-page modes. Build the sidebar, header, mode tabs, the docked progress strip, the stream drawer and the four Signals registers — wrapped around the screens as they are, so routing changes land before any screen is redrawn.',
+        files: 'src/app/(app)/layout.tsx, src/components/layout/Sidebar.tsx, src/lib/nav/navConfig.ts',
+        prompt: 'Restructure the navigation into the seven workspaces in the App Shell design file, keeping every existing permission gate and redirect behaviour exactly as it is. Preserve the job provider so a running job survives navigation.' },
+      { n: '05', risk: 'SCREEN BY SCREEN', title: 'The screens, in traffic order',
+        body: 'Today, then Students roster and profile, then the invoice ledger and detail, then Collections, then Fees, then Discounts. One pull request per screen. Each is already designed down to the figure, so these should be mechanical.',
+        files: 'src/components/dashboard/*, students/*, invoices/*, payments/*, fees/*',
+        prompt: 'Rebuild this one screen to match its section in the App Shell design file. Use the existing queries unchanged — if the design needs data the query does not return, stop and tell me rather than changing the query.' },
+      { n: '06', risk: 'LAST', title: 'Edges, settings and the trust surfaces',
+        body: 'Sign-in and its six states, every empty and error state, permission-denied, the destructive-confirmation pattern, then the School and Team configuration pages and the 21-key permission matrix. These come last because they are the least-visited and the most detail-sensitive.',
+        files: 'src/app/login/*, set-password/*, src/components/settings/*',
+        prompt: 'Build the auth screens and every empty, error and permission-denied state from the Auth and Edges design file, then the settings pages from the App Shell School and Team workspaces.' },
+    ];
+
+    const specs = [
+      {
+        title: 'Student fees tab — opt-ins, exemptions, adjustments',
+        where: 'STUDENTS → PROFILE, BELOW “THIS TERM”',
+        purpose: 'The profile currently shows a read-only term ledger. This is the editable half: which optional fees the student takes, which required fees have been waived for them, and any one-off adjustment. It answers “why does this student owe a different amount from everyone else in JSS 2”, which is the single most common question a bursar gets from a parent.',
+        layout: 'A third ruled section on the profile, full width under “This term”, never a tab. Three stacked blocks with 2px rules between them: Opt-ins, Exemptions, Adjustments. Opt-ins is a list of every optional fee for that class — one row each, fee name flush left, price right-aligned tabular, and a square 20px checkbox at the far left (2px ink border, filled ink when on; no toggle switches). Exemptions lists required fees with a “Waived” state and the reason typed alongside. Adjustments is a ledger of one-off credits and charges, newest first, each with date, reason, amount and who applied it. Each block shows its running effect on the invoice at the foot, right-aligned.',
+        colour: 'Rows are ink on paper. Prices tabular. A waived fee shows its original price struck through in #605D5D with the waived amount in green beside it, because money not charged is still money accounted for. Adjustment amounts are green when they reduce what is owed and ochre when they increase it. No pills, no coloured row backgrounds. Checkbox focus is the 2px red ring.',
+        behaviour: 'Changing anything here changes what the student owes, so nothing saves silently. A change stages itself and a docked bar appears at the foot of the section: “School bus added · ₦17,000 · invoice will rise to ₦479,500” with Save and Discard. On save, if the invoice has already been sent, the confirm states plainly that the parent holds an old figure and offers to resend — the same language as the bulk-send drawer. Every change writes to the student activity timeline with the staff name.',
+        files: 'src/components/students/StudentFeesTab.tsx, ManageOptInsPanel.tsx, ApplyDiscountButton.tsx',
+      },
+      {
+        title: 'Comparisons & rates',
+        where: 'MONEY → COLLECTIONS, FOURTH SUB-TAB',
+        purpose: 'Head-to-head comparison of up to five periods. The Terms/Sessions chips already sit in the Collections header but currently do nothing. This is the surface they should drive: pick several terms or several sessions and see them against each other rather than reading one trend line.',
+        layout: 'Ink ground, same as the rest of Collections. Top: the picker — every term as a selectable chip, maximum five, with a count reading “2 of 5 picked”. Below it, two blocks side by side on wide screens and stacked below 900px. Left: grouped horizontal bars, one pair per period (billed as a hollow bar with a 1px #605D5D outline, collected as a solid fill), period label flush left, figures right-aligned tabular. Right: collection rate per period as plain horizontal bars with the percentage at the end of each. Under both, a ruled table of the picked periods with billed, collected, rate, and the delta against the first-picked period.',
+        colour: 'Collected fills use #35C483 on ink — this is received money, so green is correct here. Billed outlines and all chart geometry are #605D5D. Rate bars are neutral #D7D3D3 with the figure in #FFF, because a rate is not money. Deltas are green when better than the baseline and ochre when worse, with an explicit + or − sign. No categorical palette and no legend — every series is labelled in place.',
+        behaviour: 'A metric toggle sits above the bars: Collected · Billed · Both. “Both” draws collected solid and billed hollow in the same row rather than adding a colour. Picking a sixth period replaces the oldest rather than erroring. With fewer than two periods picked, the surface shows a single line of instruction rather than empty axes: “Pick two or more terms to compare them.” Selection persists in the URL so a comparison can be sent to someone.',
+        files: 'src/components/payments/TimelineHero.tsx — CompareBars, CompareRates, CompareOverlay',
+      },
+      {
+        title: 'Receipt PDF',
+        where: 'ATTACHED TO THE RECEIPT EMAIL',
+        purpose: 'The proof of payment a parent keeps and brings back at re-registration. It pairs with the invoice PDF and must be unmistakably different from it at a glance, because the two arrive in the same inbox from the same sender.',
+        layout: 'Same A4 geometry, margins, logo treatment and footer as the invoice PDF — copy that structure exactly, then change three things. One: the document label reads RECEIPT and the rule under the header is green #0A6B3D rather than ink. Two: where the invoice puts AMOUNT DUE, the receipt puts AMOUNT RECEIVED, same 32pt tabular treatment, in green. Three: the line-item table is replaced by a payment table — date, method, reference, amount — one row per payment, because a receipt is a record of transfers, not of charges. Beneath it a three-row summary: total billed for the term, total received, balance remaining.',
+        colour: 'Green for the received figure, the header rule and the payment amounts. Everything else ink on white. If the balance remaining is above zero it is set in ochre with the words “still to pay” beside it; when it is zero the line reads “Nothing further owed this term” in green. Body text 10–11pt, never the 8.5pt of the current invoice. Must survive black-and-white printing, so every coloured figure also carries a word.',
+        behaviour: 'Generated per payment, not per term — a family paying in three instalments gets three receipts, each showing that payment highlighted and the earlier ones listed above it for context. Receipt number format RCP-{invoice}-{sequence}, shown in the header beside the date. Footer carries the school name, the receipt number and “page 1 of 1”, and the school office phone.',
+        files: 'new src/components/invoices/ReceiptPDF.tsx, alongside src/lib/invoicing/sendReceipt.ts',
+      },
+      {
+        title: 'Staff invite email',
+        where: 'SENT WHEN A STAFF MEMBER IS ADDED',
+        purpose: 'The only message in the product that goes to staff rather than parents, and the one that carries a credential. It has to feel like an internal tool granting access, not like a marketing email — and it has to make the security expectation obvious without lecturing.',
+        layout: 'Same 680px table-based email shell as the parent messages, and the same two-tone construction as the sign-in screen: an ink band at the top carrying the FEES/101 mark, then a white body. Unlike the parent emails, Fees101 leads here rather than the school, because the recipient is being given access to a system. Body order: who invited them and to which school, what role they have been given and what that role can do in one sentence, the action button, then the expiry.',
+        colour: 'Ink band, red rule, ink primary button reading “Set your password”. No green anywhere — no money is involved. The expiry line is ochre because it is a deadline the reader must act on. The role name is set in the label style, 12px 0.1em caps, so it reads as a system value rather than prose.',
+        behaviour: 'States the invitation is single-use and expires in seven days, with the actual date rather than “in 7 days”. Names the inviter in full, so an unexpected invite can be verified. Carries a plain-text line explaining what to do if the recipient was not expecting this — contact the school, do not click. The expired-link state is already designed in the Auth and Edges file and must match this email’s wording.',
+        files: 'src/lib/messaging/composeInvite.ts, src/app/set-password/page.tsx',
+      },
+      {
+        title: 'Narrow-role index',
+        where: 'LANDING SURFACE FOR A RESTRICTED ROLE',
+        purpose: 'With 21 permission keys, plenty of staff can see only one or two workspaces. Today such a user lands on a fallback grid of cards. The redesign needs a landing surface that is dignified rather than apologetic — it should look like a purpose-built tool for that person, not a stripped-down version of someone else’s dashboard.',
+        layout: 'No sidebar when only one destination is permitted — the workspace fills the frame and the mark sits in the header instead. With two or three destinations, the sidebar shows only those and the landing surface is a ruled index: one full-width row per permitted workspace, each with the workspace name at heading scale, one line describing what they can do there, and the single most useful figure from it right-aligned. Rows are separated by 2px rules, never boxed as cards.',
+        colour: 'Paper ground, ink type, red rule under the header only. Figures tabular and coloured by their role — a collected figure green, an outstanding figure ochre. If a role cannot see financial totals, the row shows a count instead of an amount and no placeholder dashes.',
+        behaviour: 'A role with exactly one permitted destination skips this surface entirely and lands directly on that workspace, as the current build already does — preserve that redirect. The index never lists what the user cannot access, and never shows a locked or greyed row: absence is the correct signal. The account menu still offers a way to ask for more access, which notifies the owner.',
+        files: 'src/app/(app)/page.tsx, src/lib/auth/permissions.ts, PermissionsProvider.tsx',
+      },
+    ];
+
+    return {
+      phases, ledger, handoff, specs,
+      doneCount: String(doneCount),
+      totalCount: String(ledger.length),
+      leftCount: String(ledger.length - doneCount),
+      pct: Math.round((doneCount / ledger.length) * 100) + '%',
+      barDone: (doneCount / ledger.length) * 100 + '%',
+      barLeft: (1 - doneCount / ledger.length) * 100 + '%',
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Manrope:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="_ds/modernist-999121b8-27f1-406b-988e-740794f31b97/styles.css">
+<style>
+  body { margin: 0; }
+  a { color: #ae1800; text-decoration: none; border-bottom: 1px solid #ffc4b8; }
+  a:hover { color: #ec3013; border-bottom-color: #ec3013; }
+  @keyframes ruleIn { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @keyframes sweepRule { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+  .btn-ink { background: #201e1d; color: #f3f2f2; border: 2px solid #201e1d; padding: 10px 18px; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; transition: background 120ms cubic-bezier(.2,0,0,1); }
+  .btn-ink:hover { background: #444141; }
+  .btn-ink:active { background: #000; }
+  .btn-out { background: transparent; color: #201e1d; border: 2px solid #201e1d; padding: 10px 18px; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; transition: background 120ms cubic-bezier(.2,0,0,1); }
+  .btn-out:hover { background: #eae7e7; }
+  .btn-red { background: #ec3013; color: #fff; border: 2px solid #ec3013; padding: 10px 18px; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; transition: background 120ms cubic-bezier(.2,0,0,1); }
+  .btn-red:hover { background: #dd2b0f; }
+  .btn-ghost { background: transparent; color: #201e1d; border: 2px solid transparent; padding: 10px 18px; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; transition: background 120ms cubic-bezier(.2,0,0,1); }
+  .btn-ghost:hover { background: #eae7e7; }
+  .btn-ink:disabled, .btn-out:disabled { opacity: 0.45; cursor: not-allowed; }
+  .fin { background: #fff; border: 2px solid #201e1d; padding: 10px 12px; font-family: Archivo, sans-serif; font-size: 14px; color: #201e1d; width: 100%; }
+  .fin::placeholder { color: #605d5d; }
+  .btn-ink:focus-visible, .btn-out:focus-visible, .btn-red:focus-visible, .btn-ghost:focus-visible, .fin:focus-visible { outline: 2px solid #ec3013; outline-offset: 2px; }
+  .cell { background: #f3f2f2; border: 1px solid rgba(32,30,29,0.4); padding: 22px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+</style>
+</helmet>
+
+<div style="max-width: 1240px; margin: 0 auto; padding: 0 24px 120px; font-family: Archivo, system-ui, sans-serif; color: #201e1d;">
+
+  <header style="padding: 56px 0 28px;">
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: baseline; justify-content: space-between; margin-bottom: 40px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span style="font-weight: 800; font-size: 15px; letter-spacing: 0.14em;">FEES101</span>
+        <span style="width: 28px; height: 2px; background: #ec3013; display: inline-block;"></span>
+        <span style="font-size: 13px; letter-spacing: 0.14em; color: #605d5d;">PHASE 00 — FOUNDATIONS</span>
+      </div>
+      <div style="display: flex; gap: 20px; font-size: 13px;">
+        <a href="Redesign Program.dc.html">Program</a>
+        <a href="Accent Candidates.dc.html">Accent study</a>
+      </div>
+    </div>
+    <h1 style="font-size: clamp(44px, 7vw, 88px); line-height: 0.94; letter-spacing: -0.03em; margin: 0 0 24px; max-width: 20ch; font-weight: 800;">The system, settled.</h1>
+    <p style="font-size: 19px; line-height: 1.45; max-width: 64ch; margin: 0 0 20px; text-wrap: pretty;">Signal red carries the brand and the structure. Green marks money that arrived. Ochre marks what still needs a human. Everything else — around ninety per cent of every screen — is ink on paper. This is the reference all 35 surfaces get built against; one decision is still open on it, the mark.</p>
+    <div style="height: 2px; background: #201e1d; transform-origin: left; animation: ruleIn 700ms cubic-bezier(0.2,0,0,1) both;"></div>
+  </header>
+
+  <section style="padding: 52px 0;">
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 8px;">LOCKED — COLOUR ROLES</p>
+    <h2 style="font-size: 32px; margin: 0 0 12px; font-weight: 800;">Three accents, one job each.</h2>
+    <p style="font-size: 16px; line-height: 1.5; max-width: 68ch; margin: 0 0 32px; color: #444141;">The current build's failure is that every hue is used both semantically and decoratively, so none of them mean anything. Here a colour has exactly one job — and the <em>never</em> column is as binding as the first.</p>
+
+    <div style="border-top: 2px solid #201e1d;">
+      <div style="display: grid; grid-template-columns: 180px minmax(0,1fr) minmax(0,1fr); gap: 24px; padding: 20px 0; border-bottom: 1px solid #d7d3d3; align-items: start;">
+        <div>
+          <div style="height: 44px; background: #ec3013; margin-bottom: 8px;"></div>
+          <p style="font-size: 14px; font-weight: 600; margin: 0;">Signal red</p>
+          <p style="font-size: 12px; color: #605d5d; margin: 2px 0 0; font-variant-numeric: tabular-nums;">#EC3013 · text #AE1800</p>
+        </div>
+        <div>
+          <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 6px;">CARRIES</p>
+          <p style="font-size: 15px; line-height: 1.5; margin: 0;">The mark. Section markers and emphasis rules. Collection bars. Destructive confirmation. Anything that is structurally Fees101 rather than a data state.</p>
+        </div>
+        <div>
+          <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 6px;">NEVER</p>
+          <p style="font-size: 15px; line-height: 1.5; margin: 0; color: #444141;">A row status. The default button. Small text at pure #EC3013 — under 20px it drops to #AE1800, which clears 6.4:1.</p>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 180px minmax(0,1fr) minmax(0,1fr); gap: 24px; padding: 20px 0; border-bottom: 1px solid #d7d3d3; align-items: start;">
+        <div>
+          <div style="height: 44px; background: #0a6b3d; margin-bottom: 8px;"></div>
+          <p style="font-size: 14px; font-weight: 600; margin: 0;">Ledger green</p>
+          <p style="font-size: 12px; color: #605d5d; margin: 2px 0 0; font-variant-numeric: tabular-nums;">#0A6B3D · on ink #35C483</p>
+        </div>
+        <div>
+          <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 6px;">CARRIES</p>
+          <p style="font-size: 15px; line-height: 1.5; margin: 0;">Money that actually arrived: amounts paid, settled rows, collected totals, receipts, a successful reconciliation.</p>
+        </div>
+        <div>
+          <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 6px;">NEVER</p>
+          <p style="font-size: 15px; line-height: 1.5; margin: 0; color: #444141;">A button, a link, a nav highlight, toast chrome. It <em>may</em> fill chart geometry — but only where that geometry is received money, never a rate or a pass/fail threshold. Green where no money arrived means the system has broken.</p>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 180px minmax(0,1fr) minmax(0,1fr); gap: 24px; padding: 20px 0; border-bottom: 1px solid #d7d3d3; align-items: start;">
+        <div>
+          <div style="height: 44px; background: #b45f06; margin-bottom: 8px;"></div>
+          <p style="font-size: 14px; font-weight: 600; margin: 0;">Follow-up ochre</p>
+          <p style="font-size: 12px; color: #605d5d; margin: 2px 0 0; font-variant-numeric: tabular-nums;">#B45F06 · text #8A4805</p>
+        </div>
+        <div>
+          <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 6px;">CARRIES</p>
+          <p style="font-size: 15px; line-height: 1.5; margin: 0;">States awaiting a human: partial, overdue, not sent, needs resend, pending approval. Always with weight, and flagged rows sort to the top.</p>
+        </div>
+        <div>
+          <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 6px;">NEVER</p>
+          <p style="font-size: 15px; line-height: 1.5; margin: 0; color: #444141;">A heading, a rule, or a total. Ochre appears only in the status column and in the arrears segment of a bar.</p>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 180px minmax(0,1fr) minmax(0,1fr); gap: 24px; padding: 20px 0; border-bottom: 2px solid #201e1d; align-items: start;">
+        <div>
+          <div style="display: flex; margin-bottom: 8px; height: 44px;">
+            <span style="flex: 1; background: #201e1d;"></span><span style="flex: 1; background: #444141;"></span><span style="flex: 1; background: #605d5d;"></span><span style="flex: 1; background: #d7d3d3;"></span><span style="flex: 1; background: #f3f2f2; border: 1px solid #d7d3d3;"></span>
+          </div>
+          <p style="font-size: 14px; font-weight: 600; margin: 0;">Ink &amp; paper</p>
+          <p style="font-size: 12px; color: #605d5d; margin: 2px 0 0; font-variant-numeric: tabular-nums;">#201E1D → #F3F2F2</p>
+        </div>
+        <div>
+          <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 6px;">CARRIES</p>
+          <p style="font-size: 15px; line-height: 1.5; margin: 0;">All type, all rules, all primary buttons, all chart geometry. Ink primaries are the single choice that keeps this from reading like a dashboard template.</p>
+        </div>
+        <div>
+          <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 6px;">FLOOR</p>
+          <p style="font-size: 15px; line-height: 1.5; margin: 0; color: #444141;">Secondary text stops at #605D5D (5.8:1). #7D7979 and lighter are for rules and disabled states only — never text.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding: 52px 0;">
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 8px;">LOCKED — THE MARK · A, THE STACK</p>
+    <h2 style="font-size: 32px; margin: 0 0 12px; font-weight: 800;">Three candidates, built from the numerals.</h2>
+    <p style="font-size: 16px; line-height: 1.5; max-width: 68ch; margin: 0 0 24px; color: #444141;">The name stays; the rounded mint "F1" square goes — it reads like a starter-kit avatar, carries no idea, and dies below 24px. Each candidate is type and rules only: one colour, either ground, legible at 16px in a browser tab and at poster size.</p>
+
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 36px; padding: 14px 0; border-top: 2px solid #d7d3d3; border-bottom: 2px solid #d7d3d3;">
+      <span style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d;">REPLACING</span>
+      <span style="width: 34px; height: 34px; background: #E8F8F1; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-family: Manrope, sans-serif; font-weight: 700; font-size: 15px; color: #0D1B36;">F1</span>
+      <span style="font-family: Manrope, sans-serif; font-weight: 700; font-size: 17px; color: #0D1B36;">Fees<span style="color: #5AD8A6;">101</span></span>
+      <span style="font-size: 13px; color: #605d5d; margin-left: auto;">Manrope · navy + mint · 8px radius</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0; border-top: 2px solid #201e1d; border-bottom: 2px solid #201e1d;">
+
+      <div style="background: #f3f2f2; border: 1px solid rgba(32,30,29,0.4); padding: 28px;">
+        <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px;">
+          <span style="font-weight: 800; font-size: 13px; letter-spacing: 0.1em;">A</span>
+          <span style="font-size: 13px; letter-spacing: 0.1em; color: #605d5d;">THE STACK</span>
+        </div>
+        <div style="height: 128px; display: flex; align-items: center;">
+          <div style="border-left: 5px solid #ec3013; padding-left: 14px;">
+            <p style="font-weight: 800; font-size: 14px; letter-spacing: 0.24em; margin: 0 0 3px; line-height: 1;">FEES</p>
+            <p style="font-weight: 800; font-size: 52px; letter-spacing: -0.045em; margin: 0; line-height: 0.86; font-variant-numeric: tabular-nums;">101</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px; padding-top: 16px; border-top: 2px solid #d7d3d3;">
+          <span style="display: inline-flex; flex-direction: column; border-left: 2px solid #ec3013; padding-left: 4px;">
+            <span style="font-weight: 800; font-size: 5px; letter-spacing: 0.18em; line-height: 1;">FEES</span>
+            <span style="font-weight: 800; font-size: 15px; letter-spacing: -0.04em; line-height: 0.86;">101</span>
+          </span>
+          <span style="font-size: 13px; color: #605d5d;">at 16px — favicon</span>
+        </div>
+        <p style="font-size: 14px; line-height: 1.5; margin: 16px 0 0; color: #444141;">The red rule is the brand device, and it reappears as the emphasis rule on every surface — so the logo is literally made of the interface. Strongest system logic of the three.</p>
+      </div>
+
+      <div style="background: #f3f2f2; border: 1px solid rgba(32,30,29,0.4); padding: 28px;">
+        <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px;">
+          <span style="font-weight: 800; font-size: 13px; letter-spacing: 0.1em;">B</span>
+          <span style="font-size: 13px; letter-spacing: 0.1em; color: #605d5d;">THE LEDGER LINE</span>
+        </div>
+        <div style="height: 128px; display: flex; align-items: center;">
+          <div>
+            <p style="font-weight: 800; font-size: 40px; letter-spacing: -0.035em; margin: 0 0 6px; line-height: 0.9; font-variant-numeric: tabular-nums;">Fees<span style="color: #ec3013;">101</span></p>
+            <div style="display: flex; gap: 3px; align-items: center;">
+              <span style="height: 4px; width: 46px; background: #0a6b3d; display: block;"></span>
+              <span style="height: 4px; width: 22px; background: #b45f06; display: block;"></span>
+              <span style="height: 4px; width: 10px; background: #d7d3d3; display: block;"></span>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px; padding-top: 16px; border-top: 2px solid #d7d3d3;">
+          <span style="display: inline-flex; flex-direction: column; gap: 2px;">
+            <span style="font-weight: 800; font-size: 11px; letter-spacing: -0.03em; line-height: 1;">F<span style="color: #ec3013;">101</span></span>
+            <span style="display: flex; gap: 1px;"><span style="height: 2px; width: 13px; background: #0a6b3d;"></span><span style="height: 2px; width: 6px; background: #b45f06;"></span></span>
+          </span>
+          <span style="font-size: 13px; color: #605d5d;">at 16px — favicon</span>
+        </div>
+        <p style="font-size: 14px; line-height: 1.5; margin: 16px 0 0; color: #444141;">The underline is a live collection bar in the three semantic colours — collected, outstanding, unbilled. Most explicitly fintech; also the most literal, and it hard-codes the palette into the mark.</p>
+      </div>
+
+      <div style="background: #f3f2f2; border: 1px solid rgba(32,30,29,0.4); padding: 28px;">
+        <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px;">
+          <span style="font-weight: 800; font-size: 13px; letter-spacing: 0.1em;">C</span>
+          <span style="font-size: 13px; letter-spacing: 0.1em; color: #605d5d;">THE COUNTER</span>
+        </div>
+        <div style="height: 128px; display: flex; align-items: center;">
+          <div style="display: flex; align-items: stretch;">
+            <span style="background: #ec3013; color: #fff; font-weight: 800; font-size: 46px; line-height: 1; letter-spacing: -0.04em; padding: 10px 12px 12px; font-variant-numeric: tabular-nums;">101</span>
+            <span style="display: flex; align-items: flex-end; padding-left: 12px;">
+              <span style="font-weight: 800; font-size: 19px; letter-spacing: 0.08em; line-height: 1.6;">FEES</span>
+            </span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px; padding-top: 16px; border-top: 2px solid #d7d3d3;">
+          <span style="display: inline-flex; align-items: stretch;">
+            <span style="background: #ec3013; color: #fff; font-weight: 800; font-size: 13px; line-height: 1; letter-spacing: -0.04em; padding: 3px 4px 4px;">101</span>
+          </span>
+          <span style="font-size: 13px; color: #605d5d;">at 16px — favicon</span>
+        </div>
+        <p style="font-size: 14px; line-height: 1.5; margin: 16px 0 0; color: #444141;">A solid red block — the only filled shape in the entire system, which is exactly why it reads as a mark. Shrinks best, works unchanged on the ink ground, and makes the strongest app icon.</p>
+      </div>
+    </div>
+    <p style="font-size: 15px; line-height: 1.6; max-width: 72ch; margin: 24px 0 0; color: #444141;">My pick is <strong>A</strong> — the only one whose logic propagates into the interface rather than sitting on top of it. <strong>C</strong> is the better badge if you want something that survives as a favicon, an invoice footer and an app icon. <strong>B</strong> I'd avoid: baking the palette into the wordmark means any future palette change breaks the logo.</p>
+  </section>
+
+  <section style="padding: 52px 0;">
+    <div style="height: 2px; background: rgba(32,30,29,0.4); margin-bottom: 40px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 8px;">TYPE</p>
+    <h2 style="font-size: 32px; margin: 0 0 12px; font-weight: 800;">Archivo, five tiers, tabular money.</h2>
+    <p style="font-size: 16px; line-height: 1.5; max-width: 68ch; margin: 0 0 32px; color: #444141;">One family, three weights. Manrope goes: it's a friendly geometric sans that softens precisely the thing this product should feel exact about. Every figure sets in tabular numerals so columns align and count-ups don't jitter.</p>
+    <div style="border-top: 2px solid #201e1d;">
+      <div style="display: grid; grid-template-columns: 170px minmax(0,1fr); gap: 24px; align-items: baseline; padding: 20px 0; border-bottom: 1px solid #d7d3d3;">
+        <div><p style="font-size: 13px; letter-spacing: 0.1em; margin: 0; font-weight: 600;">DISPLAY</p><p style="font-size: 12px; color: #605d5d; margin: 3px 0 0;">800 · 88/0.94 · −0.03em</p></div>
+        <p style="margin: 0; font-size: 56px; font-weight: 800; line-height: 0.94; letter-spacing: -0.03em;">Second term closed</p>
+      </div>
+      <div style="display: grid; grid-template-columns: 170px minmax(0,1fr); gap: 24px; align-items: baseline; padding: 20px 0; border-bottom: 1px solid #d7d3d3;">
+        <div><p style="font-size: 13px; letter-spacing: 0.1em; margin: 0; font-weight: 600;">READOUT</p><p style="font-size: 12px; color: #605d5d; margin: 3px 0 0;">800 · 44 · tabular</p></div>
+        <p style="margin: 0; font-size: 44px; font-weight: 800; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums;">₦6,542,500<span style="font-size: 20px; color: #605d5d; letter-spacing: 0; margin-left: 12px;">collected</span></p>
+      </div>
+      <div style="display: grid; grid-template-columns: 170px minmax(0,1fr); gap: 24px; align-items: baseline; padding: 20px 0; border-bottom: 1px solid #d7d3d3;">
+        <div><p style="font-size: 13px; letter-spacing: 0.1em; margin: 0; font-weight: 600;">HEADING</p><p style="font-size: 12px; color: #605d5d; margin: 3px 0 0;">800 · 25/1.12</p></div>
+        <p style="margin: 0; font-size: 25px; font-weight: 800; line-height: 1.12;">Invoices awaiting send</p>
+      </div>
+      <div style="display: grid; grid-template-columns: 170px minmax(0,1fr); gap: 24px; align-items: baseline; padding: 20px 0; border-bottom: 1px solid #d7d3d3;">
+        <div><p style="font-size: 13px; letter-spacing: 0.1em; margin: 0; font-weight: 600;">BODY</p><p style="font-size: 12px; color: #605d5d; margin: 3px 0 0;">400 · 15/1.55</p></div>
+        <p style="margin: 0; font-size: 15px; line-height: 1.55; max-width: 62ch;">Fourteen invoices were regenerated after the sibling-discount change and have not been resent. Parents are still holding the previous figures.</p>
+      </div>
+      <div style="display: grid; grid-template-columns: 170px minmax(0,1fr); gap: 24px; align-items: baseline; padding: 20px 0; border-bottom: 2px solid #201e1d;">
+        <div><p style="font-size: 13px; letter-spacing: 0.1em; margin: 0; font-weight: 600;">LABEL</p><p style="font-size: 12px; color: #605d5d; margin: 3px 0 0;">600 · 12 · 0.1em caps</p></div>
+        <div style="display: flex; flex-wrap: wrap; gap: 24px;">
+          <p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em;">OUTSTANDING</p>
+          <p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; color: #0a6b3d;">SETTLED</p>
+          <p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; color: #8a4805;">OVERDUE</p>
+          <p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; color: #605d5d;">NO INVOICE</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding: 52px 0;">
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 8px;">CONTROLS</p>
+    <h2 style="font-size: 32px; margin: 0 0 12px; font-weight: 800;">Ink primaries, flush-left labels, zero radius.</h2>
+    <p style="font-size: 16px; line-height: 1.5; max-width: 68ch; margin: 0 0 32px; color: #444141;">Every label sits flush left, including inside a button wider than its text. Focus is always a 2px red ring at 2px offset — never the browser default.</p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 32px; border-top: 2px solid #201e1d; padding-top: 28px;">
+      <div>
+        <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 14px;">BUTTONS</p>
+        <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+          <button class="btn-ink" style="width: 100%;">Generate invoices</button>
+          <button class="btn-out" style="width: 100%;">Preview first</button>
+          <button class="btn-ghost" style="width: 100%;">Cancel</button>
+          <button class="btn-red" style="width: 100%;">Close term permanently</button>
+          <button class="btn-ink" style="width: 100%;" disabled="disabled">Send all — nothing to send</button>
+        </div>
+        <p style="font-size: 13px; line-height: 1.5; margin: 14px 0 0; color: #444141;">Red is reserved for irreversible actions, which is why it stays credible.</p>
+      </div>
+      <div>
+        <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 14px;">FIELDS</p>
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          <label style="display: block;">
+            <span style="display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 6px;">SEARCH ROSTER</span>
+            <input class="fin" type="text" placeholder="Name, admission no., parent" />
+          </label>
+          <label style="display: block;">
+            <span style="display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 6px;">AMOUNT</span>
+            <input class="fin" type="text" value="312,500" style="font-variant-numeric: tabular-nums;" />
+          </label>
+          <div>
+            <p style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; margin: 0 0 6px;">TERM</p>
+            <div style="display: flex; border: 2px solid #201e1d;">
+              <span style="flex: 1; padding: 9px 12px; font-size: 13px; font-weight: 600; background: #201e1d; color: #f3f2f2;">Second</span>
+              <span style="flex: 1; padding: 9px 12px; font-size: 13px; border-left: 2px solid #201e1d;">Third</span>
+              <span style="flex: 1; padding: 9px 12px; font-size: 13px; border-left: 2px solid #201e1d; color: #605d5d;">All</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 14px;">STATUS — NO PILLS</p>
+        <div style="border-top: 1px solid #d7d3d3;">
+          <div style="display: grid; grid-template-columns: 1fr auto; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px;">Paid in full</span><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #0a6b3d;">SETTLED</span></div>
+          <div style="display: grid; grid-template-columns: 1fr auto; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px;">Part paid</span><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #8a4805;">PARTIAL</span></div>
+          <div style="display: grid; grid-template-columns: 1fr auto; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px;">Past due date</span><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #8a4805;">OVERDUE</span></div>
+          <div style="display: grid; grid-template-columns: 1fr auto; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px;">Changed, not resent</span><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #8a4805;">NEEDS RESEND</span></div>
+          <div style="display: grid; grid-template-columns: 1fr auto; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px;">Not generated</span><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #605d5d;">NO INVOICE</span></div>
+          <div style="display: grid; grid-template-columns: 1fr auto; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px;">Voided</span><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #605d5d; text-decoration: line-through;">CANCELLED</span></div>
+        </div>
+        <p style="font-size: 13px; line-height: 1.5; margin: 14px 0 0; color: #444141;">Six states, three inks, no containers. Every pair clears 4.5:1.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding: 52px 0;">
+    <div style="height: 2px; background: rgba(32,30,29,0.4); margin-bottom: 40px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 8px;">MOTION</p>
+    <h2 style="font-size: 32px; margin: 0 0 12px; font-weight: 800;">Four durations, two curves, no spinners.</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; border-top: 2px solid #201e1d; padding-top: 28px;">
+      <div>
+        <div style="display: grid; grid-template-columns: 90px 70px minmax(0,1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px; font-weight: 600;">tick</span><span style="font-size: 13px; font-variant-numeric: tabular-nums; color: #605d5d;">120ms</span><span style="font-size: 13px; color: #444141;">Hover, focus, sort flip</span></div>
+        <div style="display: grid; grid-template-columns: 90px 70px minmax(0,1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px; font-weight: 600;">move</span><span style="font-size: 13px; font-variant-numeric: tabular-nums; color: #605d5d;">200ms</span><span style="font-size: 13px; color: #444141;">Tab travel, row expand</span></div>
+        <div style="display: grid; grid-template-columns: 90px 70px minmax(0,1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px; font-weight: 600;">enter</span><span style="font-size: 13px; font-variant-numeric: tabular-nums; color: #605d5d;">320ms</span><span style="font-size: 13px; color: #444141;">Drawers, ground change, wipe</span></div>
+        <div style="display: grid; grid-template-columns: 90px 70px minmax(0,1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 13px; font-weight: 600;">settle</span><span style="font-size: 13px; font-variant-numeric: tabular-nums; color: #605d5d;">560ms</span><span style="font-size: 13px; color: #444141;">Rule draw, count-up, progress</span></div>
+        <div style="display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 12px; padding: 10px 0; border-bottom: 2px solid #201e1d;"><span style="font-size: 13px; font-weight: 600;">curves</span><span style="font-size: 13px; color: #444141; font-variant-numeric: tabular-nums;">in .2,0,0,1 · out .4,0,1,1</span></div>
+      </div>
+      <div>
+        <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 14px;">LOADING — A RULE, NOT A SPINNER</p>
+        <div style="height: 4px; background: #d7d3d3; overflow: hidden; margin-bottom: 8px;">
+          <div style="height: 4px; width: 28%; background: #ec3013; animation: sweepRule 1400ms cubic-bezier(.4,0,1,1) infinite;"></div>
+        </div>
+        <p style="font-size: 13px; color: #444141; margin: 0 0 24px;">Indeterminate work sweeps.</p>
+        <p style="font-size: 12px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 8px;">JOB PROGRESS</p>
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
+          <span style="font-size: 13px; font-weight: 600;">Sending invoices</span>
+          <span style="font-size: 13px; font-variant-numeric: tabular-nums; color: #605d5d;">418 / 640</span>
+        </div>
+        <div style="height: 4px; background: #d7d3d3;"><div style="height: 4px; width: 65%; background: #201e1d;"></div></div>
+        <p style="font-size: 13px; color: #444141; margin: 8px 0 0;">Determinate work fills, in ink. Red is reserved for a failed job.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding: 52px 0 0;">
+    <div style="height: 2px; background: #201e1d; margin-bottom: 36px;"></div>
+    <p style="font-size: 12px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 20px;">NEXT</p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0;">
+      <div class="cell">
+        <h4 style="margin: 0 0 8px; font-weight: 800;">Pick a mark</h4>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #444141;">A, B or C above. It sets the sidebar header, the favicon, the login screen and the invoice PDF masthead — so it blocks Phase 01.</p>
+      </div>
+      <div class="cell">
+        <h4 style="margin: 0 0 8px; font-weight: 800;">Then the shell</h4>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #444141;">Sidebar, header, the 7 workspaces, the stream drawer and all four Signals registers — wrapped around three real screens, with before/after against today's build.</p>
+      </div>
+      <div class="cell">
+        <h4 style="margin: 0 0 8px; font-weight: 800;">Comparison format</h4>
+        <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #444141;">From Phase 01 on, every surface ships as a NOW/NEXT pair — today's UI recreated from your real source beside the rework, so you can check the criteria were met.</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Manrope:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="_ds/modernist-999121b8-27f1-406b-988e-740794f31b97/styles.css">
+<style>
+  body { margin: 0; background: #f3f2f2; }
+  a { color: #ae1800; text-decoration: none; border-bottom: 1px solid #ffc4b8; }
+  a:hover { color: #ec3013; border-bottom-color: #ec3013; }
+  @keyframes ruleIn { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .tb { background: transparent; border: 0; border-bottom: 3px solid transparent; cursor: pointer; font-family: Archivo, sans-serif; font-size: 14px; font-weight: 600; letter-spacing: 0.03em; color: #605d5d; padding: 10px 0; margin-right: 24px; transition: color 120ms, border-color 200ms cubic-bezier(.2,0,0,1); }
+  .tb:hover { color: #201e1d; }
+  .tb[data-on="1"] { color: #201e1d; border-bottom-color: #ec3013; }
+  .bi2 { background: #201e1d; color: #f3f2f2; border: 2px solid #201e1d; padding: 11px 18px; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; width: 100%; transition: background 120ms cubic-bezier(.2,0,0,1); }
+  .bi2:hover { background: #444141; }
+  .bo2 { background: transparent; color: #201e1d; border: 2px solid #201e1d; padding: 11px 18px; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; transition: background 120ms; }
+  .bo2:hover { background: #eae7e7; }
+  .br2 { background: #ec3013; color: #fff; border: 2px solid #ec3013; padding: 11px 18px; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; }
+  .in2 { background: #fff; border: 2px solid #201e1d; padding: 11px 13px; font-family: Archivo, sans-serif; font-size: 14px; color: #201e1d; width: 100%; box-sizing: border-box; }
+  .in2::placeholder { color: #605d5d; }
+  .tb:focus-visible, .in2:focus-visible, .bi2:focus-visible, .bo2:focus-visible, .br2:focus-visible { outline: 2px solid #ec3013; outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+</style>
+</helmet>
+
+<div style="max-width: 1320px; margin: 0 auto; padding: 0 24px 120px; font-family: Archivo, system-ui, sans-serif; color: #201e1d;">
+
+  <header style="padding: 56px 0 24px;">
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: baseline; justify-content: space-between; margin-bottom: 40px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span style="font-weight: 800; font-size: 15px; letter-spacing: 0.14em;">FEES101</span>
+        <span style="width: 28px; height: 2px; background: #ec3013; display: inline-block;"></span>
+        <span style="font-size: 13px; letter-spacing: 0.14em; color: #605d5d;">PHASE 08 — WAY IN, WAY OUT, EVERY EDGE</span>
+      </div>
+      <div style="display: flex; gap: 20px; font-size: 13px;">
+        <a href="Redesign Program.dc.html">Program</a>
+        <a href="App Shell.dc.html">App</a>
+        <a href="Messages.dc.html">Messages</a>
+      </div>
+    </div>
+    <h1 style="font-size: clamp(42px, 6.5vw, 82px); line-height: 0.94; letter-spacing: -0.03em; margin: 0 0 22px; max-width: 20ch; font-weight: 800;">The states nobody designs.</h1>
+    <p style="font-size: 19px; line-height: 1.45; max-width: 66ch; margin: 0 0 32px; text-wrap: pretty;">Sign-in is the first thing every user sees and the only screen they see when something has gone wrong. Empty, error and blocked states are where a product either explains itself or loses the person.</p>
+    <div style="height: 2px; background: #201e1d; transform-origin: left; animation: ruleIn 700ms cubic-bezier(0.2,0,0,1) both;"></div>
+  </header>
+
+  <div style="display: flex; flex-wrap: wrap; border-bottom: 2px solid #d7d3d3; margin-bottom: 36px;">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+      <button class="tb" data-on="{{ t.on }}" onClick="{{ t.go }}">{{ t.label }}</button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ isAuth }}" hint-placeholder-val="{{ true }}">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 40px;">
+      <div>
+        <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 14px;">NOW — CURRENT BUILD</p>
+        <div style="background: #f9fafb; padding: 28px 20px; font-family: Manrope, sans-serif; display: flex; align-items: center; justify-content: center;">
+          <div style="background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 32px; width: 100%; max-width: 360px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 24px;">
+              <span style="width: 36px; height: 36px; background: #E8F8F1; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; color: #0D1B36;">F1</span>
+              <span style="font-weight: 700; font-size: 19px; color: #0D1B36;">Fees<span style="color: #5AD8A6;">101</span></span>
+            </div>
+            <h2 style="font-size: 22px; font-weight: 700; color: #0D1B36; margin: 0 0 6px;">Welcome back</h2>
+            <p style="font-size: 14px; color: #6b7280; margin: 0 0 22px;">Sign in to your school account</p>
+            <label style="display: block; font-size: 13px; color: #374151; margin-bottom: 6px;">Email</label>
+            <input style="width: 100%; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-family: Manrope, sans-serif; font-size: 14px; margin-bottom: 16px; box-sizing: border-box;" placeholder="you@school.com" />
+            <label style="display: block; font-size: 13px; color: #374151; margin-bottom: 6px;">Password</label>
+            <input type="password" style="width: 100%; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-family: Manrope, sans-serif; font-size: 14px; margin-bottom: 20px; box-sizing: border-box;" placeholder="••••••••" />
+            <button style="width: 100%; background: #5AD8A6; color: #0D1B36; border: 0; border-radius: 8px; padding: 11px; font-family: Manrope, sans-serif; font-weight: 600; font-size: 14px; cursor: pointer;">Sign in</button>
+            <p style="font-size: 13px; color: #6b7280; margin: 18px 0 0; text-align: center;">Forgot your password?</p>
+          </div>
+        </div>
+        <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 18px 0 0;">A centred card on grey that could belong to any product. Nothing says what this tool does, and public signup is disabled but the screen never says so — a school owner who lands here without an invite has no idea what to do next.</p>
+      </div>
+
+      <div>
+        <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 14px;">NEXT — REWORK</p>
+        <div style="display: grid; grid-template-columns: minmax(0,1fr); border: 2px solid #201e1d;">
+          <div style="background: #201e1d; padding: 30px 28px; display: flex; flex-direction: column; gap: 28px;">
+            <div style="border-left: 5px solid #ec3013; padding-left: 12px;">
+              <p style="font-weight: 800; font-size: 11px; letter-spacing: 0.24em; margin: 0 0 2px; line-height: 1; color: #f3f2f2;">FEES</p>
+              <p style="font-weight: 800; font-size: 34px; letter-spacing: -0.045em; margin: 0; line-height: 0.86; color: #fff; font-variant-numeric: tabular-nums;">101</p>
+            </div>
+            <div>
+              <p style="font-size: 20px; line-height: 1.35; color: #fff; margin: 0 0 10px; max-width: 30ch; font-weight: 600;">₦6.5 million collected this term across Grace Academy.</p>
+              <p style="font-size: 14px; line-height: 1.5; color: #9b9797; margin: 0; max-width: 40ch;">School fees, collected and accounted for. Sign in to pick up where the school left off.</p>
+            </div>
+          </div>
+          <div style="background: #fff; padding: 30px 28px;">
+            <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 4px;">Sign in</h2>
+            <p style="font-size: 14px; color: #444141; margin: 0 0 24px;">Use the address your school invited.</p>
+            <label style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 6px;">EMAIL</label>
+            <input class="in2" style="margin-bottom: 16px;" placeholder="you@yourschool.ng" />
+            <label style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 6px;">PASSWORD</label>
+            <input class="in2" type="password" style="margin-bottom: 20px;" placeholder="Your password" />
+            <button class="bi2" style="margin-bottom: 16px;">Sign in</button>
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; padding-top: 14px; border-top: 1px solid #d7d3d3;">
+              <a href="#reset" style="font-size: 13px;">Forgotten password</a>
+              <span style="font-size: 13px; color: #605d5d;">No account? Your school creates it.</span>
+            </div>
+          </div>
+        </div>
+        <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 18px 0 0;">The ink panel carries the mark and one real figure, so the screen proves the product does something before you type. The paper panel is the form, flush left, ink button. The account line answers the question the current screen leaves hanging.</p>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isStates }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <p style="font-size: 16px; line-height: 1.5; max-width: 74ch; margin: 0 0 32px; color: #444141;">Every state the sign-in flow can reach. The current build handles the first two and leaves the rest to a generic error or a blank page.</p>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 28px;">
+        <sc-for list="{{ authStates }}" as="a" hint-placeholder-count="6">
+          <div style="border: 2px solid #201e1d; background: #fff; padding: 22px;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 14px;">
+              <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em;">{{ a.kind }}</span>
+              <span style="font-size: 11px; letter-spacing: 0.08em; color: {{ a.tagInk }};">{{ a.tag }}</span>
+            </div>
+            <p style="font-size: 19px; font-weight: 800; margin: 0 0 8px; line-height: 1.2; color: {{ a.titleInk }};">{{ a.title }}</p>
+            <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 0 0 16px;">{{ a.body }}</p>
+            <button class="{{ a.btn }}">{{ a.cta }}</button>
+            <p style="font-size: 13px; line-height: 1.5; color: #605d5d; margin: 16px 0 0; padding-top: 12px; border-top: 1px solid #d7d3d3;">{{ a.note }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <p style="font-size: 16px; line-height: 1.5; max-width: 76ch; margin: 0 0 12px; color: #444141;">An empty state is a first-run instruction, not an apology. Each names what is missing, why it matters, and the single next action — none is a centred illustration saying "Nothing here yet".</p>
+      <p style="font-size: 15px; line-height: 1.5; max-width: 76ch; margin: 0 0 32px; color: #444141;">Order matters: a school cannot bill until it has classes, fees, a term and students, in that sequence. Every empty state points at the step before it.</p>
+      <sc-for list="{{ empties }}" as="e" hint-placeholder-count="8">
+        <div style="display: grid; grid-template-columns: minmax(0,1.1fr) minmax(0,1.7fr) auto; gap: 24px; align-items: start; padding: 18px 0; border-top: 1px solid #d7d3d3;">
+          <div>
+            <p style="font-size: 11px; letter-spacing: 0.12em; color: #605d5d; margin: 0 0 6px;">{{ e.where }}</p>
+            <p style="font-size: 17px; font-weight: 800; margin: 0; line-height: 1.25;">{{ e.title }}</p>
+          </div>
+          <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 0;">{{ e.body }}</p>
+          <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: {{ e.ctaInk }}; text-align: right;">{{ e.cta }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isErrors }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <p style="font-size: 16px; line-height: 1.5; max-width: 76ch; margin: 0 0 32px; color: #444141;">Errors and blocked actions. The rule throughout: say what happened, say whether money or data moved, and give the one thing that fixes it. Never a code without a sentence, never blame the user.</p>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 28px;">
+        <sc-for list="{{ errors }}" as="e" hint-placeholder-count="7">
+          <div style="border-top: 2px solid {{ e.rule }}; padding: 16px 0 0;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px;">
+              <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; color: {{ e.rule }};">{{ e.kind }}</span>
+              <span style="font-size: 11px; letter-spacing: 0.08em; color: #605d5d;">{{ e.where }}</span>
+            </div>
+            <p style="font-size: 18px; font-weight: 800; margin: 0 0 8px; line-height: 1.25;">{{ e.title }}</p>
+            <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 0 0 12px;">{{ e.body }}</p>
+            <p style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; margin: 0;">{{ e.cta }}</p>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="border-top: 2px solid #201e1d; margin-top: 44px; padding-top: 24px;">
+        <h2 style="font-size: 25px; font-weight: 800; margin: 0 0 6px;">Destructive confirmation</h2>
+        <p style="font-size: 15px; line-height: 1.5; color: #444141; margin: 0 0 22px; max-width: 74ch;">Red is the brand colour now, so it cannot be the only signal that something is irreversible. Three things carry that instead: the action is spelled out, the consequence is itemised before the button, and each outcome is its own button so there is no hidden default.</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 32px;">
+          <div>
+            <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 12px;">NOW — CURRENT BUILD</p>
+            <div style="background: #f9fafb; padding: 22px; font-family: Manrope, sans-serif;">
+              <div style="background: #fff; border-radius: 12px; padding: 22px; box-shadow: 0 4px 14px rgba(0,0,0,0.1);">
+                <p style="font-size: 17px; font-weight: 600; color: #0D1B36; margin: 0 0 8px;">Mark Chidinma Adebayo as withdrawn?</p>
+                <p style="font-size: 14px; color: #4b5563; margin: 0 0 18px; line-height: 1.5;">This student will no longer appear in active lists. You can reverse this from the Settings tab later.</p>
+                <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                  <span style="font-size: 14px; color: #374151; padding: 8px 14px;">Cancel</span>
+                  <span style="font-size: 14px; font-weight: 600; color: #fff; background: #dc2626; border-radius: 8px; padding: 8px 14px;">Mark withdrawn</span>
+                </div>
+              </div>
+            </div>
+            <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 16px 0 0;">Never mentions the ₦462,500 open invoice — a second dialog asks about that after the fact.</p>
+          </div>
+          <div>
+            <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 12px;">NEXT — REWORK</p>
+            <div style="background: #e4e1e1; padding: 22px;">
+              <div style="background: #fff; border: 2px solid #201e1d; padding: 24px;">
+                <p style="font-size: 11px; letter-spacing: 0.14em; color: #ae1800; margin: 0 0 8px; font-weight: 600;">THIS MOVES MONEY</p>
+                <p style="font-size: 21px; font-weight: 800; margin: 0 0 10px; line-height: 1.2;">Withdraw Chidinma Adebayo</p>
+                <p style="font-size: 14px; color: #444141; margin: 0 0 16px; line-height: 1.55;">She leaves the active roster and stops being billed from Third Term. Her record and payment history stay.</p>
+                <div style="border-top: 1px solid #d7d3d3; padding: 10px 0; display: flex; justify-content: space-between; gap: 12px;"><span style="font-size: 13px; color: #444141;">Open invoice INV-0412</span><span style="font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: #8a4805;">₦462,500 unpaid</span></div>
+                <div style="border-top: 1px solid #d7d3d3; padding: 10px 0; display: flex; justify-content: space-between; gap: 12px;"><span style="font-size: 13px; color: #444141;">Paid so far, kept on record</span><span style="font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: #0a6b3d;">₦17,500</span></div>
+                <div style="border-top: 1px solid #d7d3d3; border-bottom: 2px solid #201e1d; padding: 10px 0; display: flex; justify-content: space-between; gap: 12px;"><span style="font-size: 13px; color: #444141;">Siblings still enrolled</span><span style="font-size: 14px; font-weight: 600;">2 · discount recalculates</span></div>
+                <p style="font-size: 13px; color: #444141; margin: 16px 0 10px; line-height: 1.5;">Decide the invoice now rather than after: leave it open if the family may still pay, or cancel it.</p>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                  <button class="bo2" style="flex: 1; min-width: 150px;">Withdraw, keep invoice</button>
+                  <button class="br2" style="flex: 1; min-width: 150px;">Withdraw and cancel it</button>
+                </div>
+              </div>
+            </div>
+            <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 16px 0 0;">One dialog instead of two, with the money stated before the decision rather than after it.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = { tab: 0 };
+
+  renderVals() {
+    const t = this.state.tab;
+    const ochre = '#8a4805', red = '#ae1800', ink = '#201e1d', dim = '#605d5d';
+
+    return {
+      tabs: ['Sign in', 'Auth states', 'Empty states', 'Errors & blocks'].map((label, i) => ({
+        label, on: t === i ? '1' : '0', go: () => this.setState({ tab: i }),
+      })),
+      isAuth: t === 0, isStates: t === 1, isEmpty: t === 2, isErrors: t === 3,
+
+      authStates: [
+        { kind: 'WRONG DETAILS', tag: 'HANDLED TODAY', tagInk: dim, titleInk: ink,
+          title: 'That email and password do not match',
+          body: 'Deliberately vague about which is wrong — naming the email confirms to a stranger that the account exists. The field keeps what was typed.',
+          cta: 'Try again', btn: 'bo2', note: 'After five failures the account locks for fifteen minutes and the owner is emailed.' },
+        { kind: 'FIRST SIGN-IN', tag: 'SET PASSWORD', tagInk: dim, titleInk: ink,
+          title: 'Choose a password for Grace Academy',
+          body: 'Reached from the invite link. Names the school, so an accountant working for three of them knows which account this is. One field, one rule: at least ten characters.',
+          cta: 'Set password and sign in', btn: 'bi2', note: 'The link works once and expires after seven days.' },
+        { kind: 'EXPIRED LINK', tag: 'NOT HANDLED TODAY', tagInk: ochre, titleInk: ink,
+          title: 'This invite has expired',
+          body: 'Rather than a dead end, the screen offers to tell whoever invited you — the owner gets a notification and can reissue it without you hunting for their number.',
+          cta: 'Ask for a new invite', btn: 'bi2', note: 'Also covers a reset link that has already been used.' },
+        { kind: 'ACCESS REVOKED', tag: 'NOT HANDLED TODAY', tagInk: ochre, titleInk: ink,
+          title: 'Your access to Grace Academy was removed',
+          body: 'Says plainly that the credentials are right but access was withdrawn, and by whom — the alternative is someone deciding the product is broken and calling you about it.',
+          cta: 'Contact the school office', btn: 'bo2', note: 'Removed by Abdullahi Adedeji on 14 March.' },
+        { kind: 'SCHOOL CLOSING', tag: 'NOT HANDLED TODAY', tagInk: ochre, titleInk: red,
+          title: 'This school is scheduled for deletion in 22 days',
+          body: 'Shown to the owner at every sign-in during the grace period, with the date and a way to stop it. Everyone else sees a plain notice that the school is closing.',
+          cta: 'Cancel the deletion', btn: 'br2', note: 'After the grace period, sign-in returns the standard wrong-details response.' },
+        { kind: 'SIGNED OUT', tag: 'NOT HANDLED TODAY', tagInk: ochre, titleInk: ink,
+          title: 'Signed out — 14 invoices were still sending',
+          body: 'Sign-out confirms what was running and whether it will finish. Jobs continue server-side, and the screen says so rather than leaving you wondering whether you just cancelled a send to 640 parents.',
+          cta: 'Sign back in', btn: 'bi2', note: 'An idle session ends after eight hours and lands here with the same reassurance.' },
+      ],
+
+      empties: [
+        { where: 'TODAY', title: 'Nothing needs you yet', body: 'Shown when the queue is genuinely clear — not an error. Names what is being watched: unsent invoices, overdue balances, pending approvals. A clear morning should feel earned rather than broken.', cta: 'NO ACTION', ctaInk: dim },
+        { where: 'STUDENTS', title: 'No students yet', body: 'The true first-run state. Two ways forward, weighted: import a spreadsheet if the school already has a list, or add one by hand to try it. States the columns expected before you go looking for the file.', cta: 'IMPORT CSV', ctaInk: ink },
+        { where: 'FEES · STRUCTURE', title: 'No fees set up', body: 'This blocks billing entirely, so it says so: until a fee exists, no invoice can be generated. Offers to copy last term wherever there is a previous term to copy.', cta: 'ADD FIRST FEE', ctaInk: ink },
+        { where: 'FEES · CYCLES', title: 'No terms yet', body: 'Explains the dependency rather than the gap: a term is what invoices attach to, and it needs a name and a due date. Suggests the school\u2019s own calendar naming — First, Second, Third.', cta: 'CREATE TERM', ctaInk: ink },
+        { where: 'MONEY · INVOICES', title: 'No invoices for this term', body: 'Distinguishes the two reasons — either generation has not run, or it ran and every student was skipped. Says which, and how many students are waiting.', cta: 'GENERATE 648', ctaInk: ink },
+        { where: 'MONEY · COLLECTIONS', title: 'Nothing to analyse yet', body: 'Analytics needs at least one closed term to compare against. Says how far off that is rather than showing empty axes: two more terms before the trend means anything.', cta: 'NO ACTION', ctaInk: dim },
+        { where: 'DISCOUNTS', title: 'No requests waiting', body: 'Names who can raise one and how, because the usual reason this is empty is that staff do not know the feature exists.', cta: 'SEE POLICY', ctaInk: ink },
+        { where: 'SEARCH', title: 'No student matches "adebayo k"', body: 'Offers the nearest matches rather than a dead end, and keeps the query visible so a typo is obvious. Searches name, admission number and parent phone.', cta: 'CLEAR SEARCH', ctaInk: ink },
+      ],
+
+      errors: [
+        { kind: 'PERMISSION', where: 'ANY GATED VIEW', rule: ochre,
+          title: 'Your role cannot see financial totals',
+          body: 'Not a blank page and not a 404. Names the permission in the same words the roles matrix uses, names who can grant it, and shows everything on the page the role IS allowed to see.',
+          cta: 'ASK ABDULLAHI FOR ACCESS →' },
+        { kind: 'PROVIDER DOWN', where: 'MONEY · PAYMENTS', rule: ochre,
+          title: 'Monnify is not responding',
+          body: 'Payments already made are safe and will reconcile when the connection returns. What is blocked: creating new payment accounts. Says which, so nobody assumes money was lost.',
+          cta: 'RETRY · LAST CHECKED 09:14' },
+        { kind: 'JOB FAILED', where: 'FEES · GENERATE', rule: red,
+          title: 'Invoice generation stopped after 412 of 648',
+          body: 'States exactly where it stopped and that the 412 are real and correct. Resuming picks up at 413 rather than starting over or double-billing anyone.',
+          cta: 'RESUME FROM 413' },
+        { kind: 'STALE DATA', where: 'MONEY · INVOICES', rule: ochre,
+          title: 'These figures changed while you were reading',
+          body: 'Someone else recorded a payment. Rather than silently refreshing under your cursor, the strip says what changed and lets you take it when ready.',
+          cta: 'LOAD 3 CHANGES' },
+        { kind: 'VALIDATION', where: 'ADD STUDENT', rule: ochre,
+          title: 'Admission number GA/2023/0412 is already used',
+          body: 'Errors sit on the field, name the conflict, and link to the record that holds it — so you can check whether this is a duplicate or a typo without losing the form.',
+          cta: 'VIEW CHIDINMA ADEBAYO →' },
+        { kind: 'NOT FOUND', where: 'ANY URL', rule: dim,
+          title: 'That page does not exist',
+          body: 'Usually a stale bookmark from the old route structure. Lists the seven workspaces rather than offering a lone Home button, because the person was looking for something specific.',
+          cta: 'GO TO TODAY' },
+        { kind: 'OFFLINE', where: 'ANYWHERE', rule: ochre,
+          title: 'No connection — you are seeing figures from 09:12',
+          body: 'Reading continues from cache with the time stamped plainly. Anything that writes is disabled rather than queued, because a bursar must never believe money moved when it did not.',
+          cta: 'RECONNECTING…' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

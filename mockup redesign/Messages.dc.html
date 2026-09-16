@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap">
+<link rel="stylesheet" href="_ds/modernist-999121b8-27f1-406b-988e-740794f31b97/styles.css">
+<style>
+  body { margin: 0; background: #f3f2f2; }
+  a { color: #ae1800; text-decoration: none; border-bottom: 1px solid #ffc4b8; }
+  a:hover { color: #ec3013; border-bottom-color: #ec3013; }
+  @keyframes ruleIn { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .tabx { background: transparent; border: 0; border-bottom: 3px solid transparent; cursor: pointer; font-family: Archivo, sans-serif; font-size: 14px; font-weight: 600; letter-spacing: 0.03em; color: #605d5d; padding: 10px 0; margin-right: 26px; transition: color 120ms, border-color 200ms cubic-bezier(.2,0,0,1); }
+  .tabx:hover { color: #201e1d; }
+  .tabx[data-on="1"] { color: #201e1d; border-bottom-color: #ec3013; }
+  .tabx:focus-visible { outline: 2px solid #ec3013; outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+</style>
+</helmet>
+
+<div style="max-width: 1320px; margin: 0 auto; padding: 0 24px 120px; font-family: Archivo, system-ui, sans-serif; color: #201e1d;">
+
+  <header style="padding: 56px 0 24px;">
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: baseline; justify-content: space-between; margin-bottom: 40px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span style="font-weight: 800; font-size: 15px; letter-spacing: 0.14em;">FEES101</span>
+        <span style="width: 28px; height: 2px; background: #ec3013; display: inline-block;"></span>
+        <span style="font-size: 13px; letter-spacing: 0.14em; color: #605d5d;">PHASE 02 — WHAT PARENTS RECEIVE</span>
+      </div>
+      <div style="display: flex; gap: 20px; font-size: 13px;">
+        <a href="Redesign Program.dc.html">Program</a>
+        <a href="Foundations.dc.html">Foundations</a>
+        <a href="App Shell.dc.html">App</a>
+      </div>
+    </div>
+    <h1 style="font-size: clamp(42px, 6.5vw, 82px); line-height: 0.94; letter-spacing: -0.03em; margin: 0 0 22px; max-width: 19ch; font-weight: 800;">The only surface families ever see.</h1>
+    <p style="font-size: 19px; line-height: 1.45; max-width: 66ch; margin: 0 0 18px; text-wrap: pretty;">Six hundred and forty parents never open the app. They get an SMS and an email — so these four artefacts <em>are</em> Fees101 to them, and they're the highest-traffic thing in the product by an order of magnitude.</p>
+    <p style="font-size: 16px; line-height: 1.5; max-width: 66ch; margin: 0 0 32px; color: #444141;">Each is shown as it exists today, drawn from <code>composeInvoice.ts</code> and <code>reminders.ts</code>, beside the rework. The constraints are kept exactly: email stays table-based and client-safe, SMS stays GSM-7 with "NGN" rather than ₦, and inside one 160-character segment.</p>
+    <div style="height: 2px; background: #201e1d; transform-origin: left; animation: ruleIn 700ms cubic-bezier(0.2,0,0,1) both;"></div>
+  </header>
+
+  <div style="display: flex; flex-wrap: wrap; border-bottom: 2px solid #d7d3d3; margin-bottom: 36px;">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+      <button class="tabx" data-on="{{ t.on }}" onClick="{{ t.go }}">{{ t.label }}</button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ isInvoice }}" hint-placeholder-val="{{ true }}">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 40px;">
+
+      <div>
+        <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 6px;">NOW — CURRENT BUILD</p>
+        <p style="font-size: 13px; color: #444141; margin: 0 0 16px; line-height: 1.5;">Subject: <strong>Grace Academy — Second Term Fees Invoice for Chidinma Adebayo</strong></p>
+        <div style="background: #f3f4f6; padding: 24px 16px;">
+          <div style="max-width: 680px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-family: Helvetica, Arial, sans-serif;">
+            <div style="background: #0D1B36; padding: 24px 32px;">
+              <p style="margin: 0; color: #fff; font-size: 18px; font-weight: bold;">Grace Academy</p>
+              <p style="margin: 4px 0 0; color: #9CA8C0; font-size: 12px;">School Fees Notification</p>
+            </div>
+            <div style="height: 4px; background: #5AD8A6;"></div>
+            <div style="padding: 32px; color: #0D1B36; font-size: 14px; line-height: 1.7;">
+              <p style="margin: 0 0 16px;">Dear Mr Adebayo Kunle,</p>
+              <p style="margin: 0 0 8px;">Please find below the <strong>Second Term</strong> fees invoice for <strong>Chidinma Adebayo</strong> at <strong>Grace Academy</strong>.</p>
+              <div style="margin: 20px 0;">
+                <sc-for list="{{ oldRows }}" as="o" hint-placeholder-count="5">
+                  <div style="display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid #e5e7eb;">
+                    <span style="color: #6b7280; font-size: 13px;">{{ o.label }}</span>
+                    <sc-if value="{{ o.chip }}" hint-placeholder-val="{{ false }}">
+                      <span style="display: inline-block; background: #E8F8F1; color: #0D1B36; padding: 4px 12px; border-radius: 6px; font-size: 15px; font-weight: bold;">{{ o.value }}</span>
+                    </sc-if>
+                    <sc-if value="{{ o.plain }}" hint-placeholder-val="{{ true }}">
+                      <span style="font-size: 14px; text-align: right;">{{ o.value }}</span>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="margin: 20px 0; background: #E8F8F1; border-radius: 6px; border-left: 3px solid #5AD8A6; padding: 14px 16px; color: #0D1B36; font-size: 13px;">
+                <strong>The full invoice</strong> is attached to this email as a PDF — please keep a copy for your records.
+              </div>
+              <p style="margin: 20px 0 0;">Kindly make payment on or before the due date to avoid a late reminder. If you have already paid, please disregard this notice — payments are usually reflected automatically within a few minutes.</p>
+              <p style="margin: 16px 0 0;">If you have any questions about this invoice, please reach out to the school office directly.</p>
+              <p style="margin: 24px 0 0;">Thank you for your continued partnership with <strong>Grace Academy</strong>.</p>
+              <p style="margin: 20px 0 0;">Warm regards,<br /><strong>Grace Academy</strong></p>
+            </div>
+            <div style="padding: 20px 32px; background: #f9fafb; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.6;">This is an automated message from <strong>Grace Academy</strong>, sent on their behalf via Fees101.<br />If you believe you received this in error, or have questions about this invoice, please contact the school office directly.</p>
+              <p style="margin: 16px 0 0; color: #9CA8C0; font-size: 11px;">Powered by Fees<span style="color: #5AD8A6; font-weight: bold;">101</span></p>
+            </div>
+          </div>
+        </div>
+        <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 18px 0 0;">The amount due — the single fact the parent needs — is the fourth row of a five-row table, set at 15px inside a mint chip. The account number to pay into is the fifth. Above them sit 47 words of preamble; below them, 76 more of pleasantries. A parent scanning on a phone has to read the whole card to find two numbers.</p>
+      </div>
+
+      <div>
+        <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 6px;">NEXT — REWORK</p>
+        <div style="border-top: 1px solid #d7d3d3; border-bottom: 1px solid #d7d3d3; padding: 12px 0; margin-bottom: 16px;">
+          <p style="font-size: 11px; letter-spacing: 0.12em; color: #605d5d; margin: 0 0 8px;">SUBJECT LINE — PICK ONE</p>
+          <div style="display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 10px; padding: 5px 0;">
+            <span style="font-size: 12px; font-weight: 600; color: #ae1800;">B</span>
+            <span><strong style="font-size: 14px;">Chidinma's Second Term fees: ₦462,500 due 28 March</strong><span style="display: block; font-size: 13px; color: #605d5d; margin-top: 2px;">Chosen. Child first, so it reads as information rather than a demand. The amount sits just past the phone preview, which is the price of the softer tone — the SMS carries the figure up front, so between the two the parent still gets it at a glance.</span></span>
+          </div>
+          <div style="display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 10px; padding: 5px 0; opacity: 0.55;">
+            <span style="font-size: 12px; font-weight: 600; color: #605d5d;">A</span>
+            <span><strong style="font-size: 14px; font-weight: 400;">₦462,500 due 28 March — Chidinma's Second Term fees</strong><span style="display: block; font-size: 13px; color: #605d5d; margin-top: 2px;">Not taken. Both facts inside the preview, but blunt.</span></span>
+          </div>
+          <p style="font-size: 13px; color: #444141; margin: 8px 0 0;">Today's reads "Grace Academy — Second Term Fees Invoice for Chidinma Adebayo": 62 characters, none of them new to the reader.</p>
+        </div>
+        <div style="background: #e4e1e1; padding: 24px 16px;">
+          <div style="max-width: 680px; margin: 0 auto; background: #fff; font-family: Helvetica, Arial, sans-serif; border: 2px solid #201e1d;">
+            <div style="padding: 20px 28px 18px; border-bottom: 2px solid #201e1d; display: flex; align-items: flex-start; gap: 14px;">
+              <span style="width: 46px; height: 46px; border: 2px solid #201e1d; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 8px; letter-spacing: 0.1em; color: #605d5d; text-align: center; line-height: 1.3;">SCHOOL<br />LOGO</span>
+              <div style="min-width: 0;">
+                <p style="margin: 0; color: #201e1d; font-size: 19px; font-weight: bold; letter-spacing: -0.01em;">Grace Academy</p>
+                <p style="margin: 5px 0 0; color: #605d5d; font-size: 11px; letter-spacing: 0.14em;">SECOND TERM 2025/26 · FEES INVOICE</p>
+              </div>
+            </div>
+
+            <div style="padding: 26px 28px 22px;">
+              <p style="margin: 0 0 6px; color: #605d5d; font-size: 11px; letter-spacing: 0.14em;">AMOUNT DUE</p>
+              <p style="margin: 0 0 4px; color: #201e1d; font-size: 42px; font-weight: bold; line-height: 0.95; letter-spacing: -0.03em;">₦462,500</p>
+              <p style="margin: 0; color: #8a4805; font-size: 14px; font-weight: bold;">By Friday 28 March — 12 days from now</p>
+            </div>
+
+            <div style="border-top: 2px solid #201e1d; border-bottom: 2px solid #201e1d; background: #f3f2f2; padding: 20px 28px;">
+              <p style="margin: 0 0 10px; color: #605d5d; font-size: 11px; letter-spacing: 0.14em;">PAY INTO THIS ACCOUNT</p>
+              <p style="margin: 0 0 2px; color: #201e1d; font-size: 26px; font-weight: bold; letter-spacing: 0.02em;">8142 556 301</p>
+              <p style="margin: 0; color: #444141; font-size: 14px;">Wema Bank · Grace Academy — Chidinma Adebayo</p>
+              <p style="margin: 10px 0 0; color: #605d5d; font-size: 13px; line-height: 1.5;">This account belongs to Chidinma only. Anything paid into it is credited to her fees automatically, usually within a few minutes.</p>
+            </div>
+
+            <div style="padding: 22px 28px;">
+              <div style="display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid #d7d3d3;">
+                <span style="color: #605d5d; font-size: 13px;">Student</span>
+                <span style="color: #201e1d; font-size: 14px; font-weight: bold;">Chidinma Adebayo · JSS 2</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid #d7d3d3;">
+                <span style="color: #605d5d; font-size: 13px;">Term fees</span>
+                <span style="color: #201e1d; font-size: 14px;">₦480,000</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid #d7d3d3;">
+                <span style="color: #605d5d; font-size: 13px;">Sibling discount</span>
+                <span style="color: #201e1d; font-size: 14px;">− ₦17,500</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 2px solid #201e1d;">
+                <span style="color: #201e1d; font-size: 13px; font-weight: bold;">Amount due</span>
+                <span style="color: #201e1d; font-size: 15px; font-weight: bold;">₦462,500</span>
+              </div>
+              <p style="margin: 16px 0 0; color: #444141; font-size: 13px; line-height: 1.6;">The full breakdown is attached as a PDF. Already paid? Ignore this — it crossed in the post.</p>
+              <p style="margin: 12px 0 0; color: #444141; font-size: 13px; line-height: 1.6;">Questions about this invoice: call the school office on 0803 441 2290.</p>
+            </div>
+
+            <div style="padding: 16px 28px; background: #201e1d;">
+              <p style="margin: 0; color: #d7d3d3; font-size: 12px; line-height: 1.6;">Sent by <strong style="color: #fff;">Grace Academy</strong> through Fees101. Not expecting this? Contact the school office.</p>
+              <p style="margin: 10px 0 0; color: #9b9797; font-size: 11px; letter-spacing: 0.1em;">FEES<span style="color: #ec3013; font-weight: bold;">101</span></p>
+            </div>
+          </div>
+        </div>
+        <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 18px 0 0;">Three facts, in the order a parent acts on them: how much, by when, where to pay. The subject line carries the amount and the date so it's answerable from the notification without opening anything. The breakdown moves below the fold, the pleasantries go, and the due date gains a countdown — "12 days from now" prompts action in a way "28 March" does not.</p>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isPdf }}" hint-placeholder-val="{{ false }}">
+    <p style="font-size: 16px; line-height: 1.5; max-width: 74ch; margin: 0 0 32px; color: #444141;">A separate artefact from the email — this is the A4 document attached to it, rendered by <code>InvoicePDF.tsx</code> through @react-pdf/renderer. It's the one thing a parent prints, files, and brings back at re-registration, so it has to read as a financial record rather than a screenshot of a web page. DejaVu Sans is embedded because Helvetica has no ₦ glyph; that constraint stays.</p>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 40px;">
+
+      <div>
+        <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 16px;">NOW — CURRENT BUILD</p>
+        <div style="background: #e4e1e1; padding: 20px;">
+          <div style="background: #fff; padding: 28px; font-family: Helvetica, Arial, sans-serif; color: #0D1B36; font-size: 9px; box-shadow: 0 1px 4px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px;">
+              <div style="display: flex; align-items: flex-start; gap: 10px;">
+                <span style="width: 34px; height: 34px; background: #E8F8F1; border: 1px solid #5AD8A6; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: #0D1B36; flex-shrink: 0;">GA</span>
+                <div>
+                  <p style="margin: 0 0 4px; font-size: 12px; font-weight: bold;">Grace Academy</p>
+                  <p style="margin: 0; font-size: 8px; color: #6b7280; line-height: 1.7;">14 Awolowo Road, Ikoyi, Lagos</p>
+                  <p style="margin: 0; font-size: 8px; color: #6b7280; line-height: 1.7;">0803 441 2290</p>
+                </div>
+              </div>
+              <div style="text-align: right; flex-shrink: 0;">
+                <p style="margin: 0 0 5px; font-size: 15px; font-weight: bold;">Invoice</p>
+                <p style="margin: 0 0 12px; font-size: 9px; font-weight: bold;">#INV-0412</p>
+                <p style="margin: 3px 0 0; font-size: 8px;"><span style="color: #6b7280;">Term: </span>Second Term 2025/26</p>
+                <p style="margin: 3px 0 0; font-size: 8px;"><span style="color: #6b7280;">Due date: </span>28 Mar 2026</p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 14px; margin-bottom: 22px;">
+              <div style="flex: 1; border: 1px solid #e5e7eb; border-radius: 10px; padding: 15px;">
+                <p style="margin: 0 0 11px; font-size: 8px; font-weight: bold; color: #6b7280;">student</p>
+                <p style="margin: 0 0 11px; font-size: 11px; font-weight: bold;">Chidinma Adebayo</p>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 8px; color: #6b7280;">Admission #</span><span style="font-size: 8px;">GA/2023/0412</span></div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 8px; color: #6b7280;">Class</span><span style="font-size: 8px;">JSS 2</span></div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 8px; color: #6b7280;">Parent / Guardian</span><span style="font-size: 8px;">Mr Adebayo Kunle</span></div>
+                <div style="display: flex; justify-content: space-between;"><span style="font-size: 8px; color: #6b7280;">Phone</span><span style="font-size: 8px;">0803 441 2290</span></div>
+              </div>
+              <div style="flex: 1; border: 1px solid #e5e7eb; border-radius: 10px; padding: 15px;">
+                <p style="margin: 0 0 11px; font-size: 8px; font-weight: bold; color: #6b7280;">payment instructions</p>
+                <p style="margin: 0 0 11px; font-size: 8px; line-height: 1.7;">Please pay via bank transfer to the student's virtual account below.</p>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 8px; color: #6b7280;">Account number</span><span style="font-size: 8px;">8142556301</span></div>
+                <div style="display: flex; justify-content: space-between;"><span style="font-size: 8px; color: #6b7280;">Bank name</span><span style="font-size: 8px;">Wema Bank</span></div>
+              </div>
+            </div>
+
+            <div style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-bottom: 18px;">
+              <div style="display: flex; justify-content: space-between; background: #f9fafb; border-bottom: 1px solid #e5e7eb; padding: 8px 12px;">
+                <span style="font-size: 8px; font-weight: bold; color: #6b7280;">Item</span>
+                <span style="font-size: 8px; font-weight: bold; color: #6b7280;">Amount (₦)</span>
+              </div>
+              <sc-for list="{{ pdfNowItems }}" as="it" hint-placeholder-count="6">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #f3f4f6;">
+                  <span style="display: flex; align-items: center; gap: 5px; min-width: 0;">
+                    <span>
+                      <span style="font-size: 9px; color: {{ it.ink }};">{{ it.name }}</span>
+                      <sc-if value="{{ it.note }}" hint-placeholder-val="{{ false }}">
+                        <span style="display: block; font-size: 7px; color: #2FAE7A; margin-top: 1px;">{{ it.note }}</span>
+                      </sc-if>
+                    </span>
+                    <sc-if value="{{ it.pill }}" hint-placeholder-val="{{ false }}">
+                      <span style="padding: 1px 6px; background: #E8F8F1; border-radius: 8px; font-size: 7px; color: #2FAE7A; font-weight: bold; flex-shrink: 0;">optional</span>
+                    </sc-if>
+                  </span>
+                  <span style="font-size: 9px; color: {{ it.ink }}; flex-shrink: 0;">{{ it.amount }}</span>
+                </div>
+              </sc-for>
+              <div style="display: flex; justify-content: space-between; padding: 10px 12px; background: #E8F8F1;">
+                <span style="font-size: 9px; font-weight: bold;">total</span>
+                <span style="font-size: 10px; font-weight: bold; color: #2FAE7A;">₦480,000</span>
+              </div>
+            </div>
+
+            <div style="display: flex; border-top: 1px solid #e5e7eb; padding-top: 14px;">
+              <div style="flex: 1;">
+                <p style="margin: 0 0 5px; font-size: 8px; color: #6b7280;">total amount</p>
+                <p style="margin: 0; font-size: 12px; font-weight: bold; color: #0D1B36;">₦480,000</p>
+              </div>
+              <div style="flex: 1; border-left: 1px solid #e5e7eb; padding-left: 14px;">
+                <p style="margin: 0 0 5px; font-size: 8px; color: #6b7280;">amount paid</p>
+                <p style="margin: 0; font-size: 12px; font-weight: bold; color: #2FAE7A;">₦17,500</p>
+              </div>
+              <div style="flex: 1; border-left: 1px solid #e5e7eb; padding-left: 14px;">
+                <p style="margin: 0 0 5px; font-size: 8px; color: #6b7280;">outstanding balance</p>
+                <p style="margin: 0; font-size: 12px; font-weight: bold; color: #DC2626;">₦462,500</p>
+              </div>
+            </div>
+
+            <p style="margin: 28px 0 0; font-size: 7px; color: #9ca3af; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 8px;">Grace Academy · Generated on 16 Mar 2026</p>
+          </div>
+        </div>
+        <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 18px 0 0;">Body text is 8.5pt — under the 10pt floor for a printed document, and hard to read for a parent who isn't young. The amount owed is the third of three equal summary tiles at the bottom of the page, in red, below a "total" row that is itself mint and larger. Four different figures compete for the eye: total in the table, total again in tile one, paid in tile two, outstanding in tile three. Lowercase labels ("student", "total") read as a styling tic rather than a document convention.</p>
+      </div>
+
+      <div>
+        <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 16px;">NEXT — REWORK</p>
+        <div style="background: #e4e1e1; padding: 20px;">
+          <div style="background: #fff; padding: 30px; font-family: Archivo, Helvetica, Arial, sans-serif; color: #201e1d; box-shadow: 0 1px 4px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding-bottom: 14px; border-bottom: 2px solid #201e1d;">
+              <div style="display: flex; align-items: flex-start; gap: 12px; min-width: 0;">
+                <span style="width: 44px; height: 44px; border: 2px solid #201e1d; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 8px; letter-spacing: 0.1em; color: #605d5d; text-align: center; line-height: 1.3;">SCHOOL<br />LOGO</span>
+                <div>
+                  <p style="margin: 0 0 4px; font-size: 15px; font-weight: 800; letter-spacing: -0.01em;">Grace Academy</p>
+                  <p style="margin: 0; font-size: 9px; color: #605d5d; line-height: 1.6;">14 Awolowo Road, Ikoyi, Lagos · 0803 441 2290</p>
+                </div>
+              </div>
+              <div style="text-align: right; flex-shrink: 0;">
+                <p style="margin: 0 0 3px; font-size: 10px; font-weight: 800; letter-spacing: 0.16em;">INVOICE</p>
+                <p style="margin: 0; font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;">INV-0412</p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 24px; padding: 18px 0; border-bottom: 1px solid #d7d3d3;">
+              <div style="flex: 1.3;">
+                <p style="margin: 0 0 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.14em; color: #605d5d;">BILLED TO</p>
+                <p style="margin: 0 0 3px; font-size: 13px; font-weight: 800;">Chidinma Adebayo</p>
+                <p style="margin: 0; font-size: 10px; color: #444141; line-height: 1.65;">JSS 2 · GA/2023/0412<br />Mr Adebayo Kunle · 0803 441 2290</p>
+              </div>
+              <div style="flex: 1;">
+                <p style="margin: 0 0 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.14em; color: #605d5d;">TERM</p>
+                <p style="margin: 0 0 3px; font-size: 13px; font-weight: 800;">Second Term</p>
+                <p style="margin: 0; font-size: 10px; color: #444141; line-height: 1.65;">2025/26 session<br />Issued 16 Mar 2026</p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 24px; padding: 20px 0 18px; border-bottom: 2px solid #201e1d;">
+              <div style="flex: 1.3;">
+                <p style="margin: 0 0 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.14em; color: #605d5d;">AMOUNT DUE</p>
+                <p style="margin: 0 0 4px; font-size: 32px; font-weight: 800; line-height: 0.95; letter-spacing: -0.03em; font-variant-numeric: tabular-nums;">₦462,500</p>
+                <p style="margin: 0; font-size: 11px; font-weight: 800; color: #8a4805;">By Friday 28 March 2026</p>
+              </div>
+              <div style="flex: 1;">
+                <p style="margin: 0 0 6px; font-size: 9px; font-weight: 600; letter-spacing: 0.14em; color: #605d5d;">PAY INTO</p>
+                <p style="margin: 0 0 3px; font-size: 17px; font-weight: 800; letter-spacing: 0.02em; font-variant-numeric: tabular-nums;">8142 556 301</p>
+                <p style="margin: 0; font-size: 10px; color: #444141; line-height: 1.6;">Wema Bank · this account belongs to Chidinma only and credits her fees automatically.</p>
+              </div>
+            </div>
+
+            <div style="padding: 16px 0 0;">
+              <div style="display: flex; justify-content: space-between; padding-bottom: 7px; border-bottom: 1px solid #201e1d;">
+                <span style="font-size: 9px; font-weight: 600; letter-spacing: 0.12em; color: #605d5d;">ITEM</span>
+                <span style="font-size: 9px; font-weight: 600; letter-spacing: 0.12em; color: #605d5d;">AMOUNT</span>
+              </div>
+              <sc-for list="{{ pdfNextItems }}" as="it" hint-placeholder-count="6">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-bottom: 1px solid #d7d3d3;">
+                  <span style="display: flex; align-items: baseline; gap: 8px; min-width: 0;">
+                    <span style="font-size: 11px; color: {{ it.ink }};">{{ it.name }}</span>
+                    <sc-if value="{{ it.kind }}" hint-placeholder-val="{{ false }}">
+                      <span style="font-size: 8px; font-weight: 600; letter-spacing: 0.1em; color: #605d5d; flex-shrink: 0;">{{ it.kind }}</span>
+                    </sc-if>
+                  </span>
+                  <span style="font-size: 11px; color: {{ it.ink }}; flex-shrink: 0; font-variant-numeric: tabular-nums;">{{ it.amount }}</span>
+                </div>
+              </sc-for>
+              <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 2px solid #201e1d;">
+                <span style="font-size: 11px; font-weight: 800;">Total billed</span>
+                <span style="font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums;">₦480,000</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid #d7d3d3;">
+                <span style="font-size: 11px; color: #444141;">Paid so far</span>
+                <span style="font-size: 11px; color: #0a6b3d; font-weight: 600; font-variant-numeric: tabular-nums;">− ₦17,500</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 11px 0 0;">
+                <span style="font-size: 13px; font-weight: 800;">Still to pay</span>
+                <span style="font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums;">₦462,500</span>
+              </div>
+            </div>
+
+            <p style="margin: 26px 0 0; font-size: 9px; color: #605d5d; border-top: 1px solid #d7d3d3; padding-top: 9px; line-height: 1.6;">Grace Academy · Invoice INV-0412 · generated 16 March 2026 · page 1 of 1<br />Questions about this invoice: call the school office on 0803 441 2290.</p>
+          </div>
+        </div>
+        <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 18px 0 0;">The school's logo leads the document, squared to a 44pt box against a 2px rule — no radius, no tinted plate. Where a school hasn't uploaded one, the fallback is its initials set in ink in the same box, so the header geometry never shifts. Body text lifts to 10–11pt, the minimum for a printed document. One figure dominates — what's still to pay — and it appears exactly twice: once at the top for a parent scanning, once at the foot of the ledger where the arithmetic resolves. The three competing summary tiles collapse into a running total that reads downward like a statement. Carried balance is ochre, credit applied is green, and each carries a word rather than relying on colour alone — the document has to survive being printed in black and white.</p>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isReceipt }}" hint-placeholder-val="{{ false }}">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 40px;">
+      <div>
+        <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 6px;">NOW — CURRENT BUILD</p>
+        <p style="font-size: 13px; color: #444141; margin: 0 0 16px; line-height: 1.5;">Subject: <strong>Grace Academy — Payment Receipt for Chidinma Adebayo (Second Term)</strong></p>
+        <div style="background: #f3f4f6; padding: 24px 16px;">
+          <div style="max-width: 680px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-family: Helvetica, Arial, sans-serif;">
+            <div style="background: #0D1B36; padding: 24px 32px;">
+              <p style="margin: 0; color: #fff; font-size: 18px; font-weight: bold;">Grace Academy</p>
+              <p style="margin: 4px 0 0; color: #9CA8C0; font-size: 12px;">School Fees Notification</p>
+            </div>
+            <div style="height: 4px; background: #5AD8A6;"></div>
+            <div style="padding: 32px; color: #0D1B36; font-size: 14px; line-height: 1.7;">
+              <p style="margin: 0 0 16px;">Dear Mr Adebayo Kunle,</p>
+              <p style="margin: 0 0 8px;">We are pleased to confirm that payment has been received <strong>in full</strong> for <strong>Chidinma Adebayo</strong>'s <strong>Second Term</strong> fees at <strong>Grace Academy</strong>.</p>
+              <div style="margin: 20px 0;">
+                <div style="display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid #e5e7eb;"><span style="color: #6b7280; font-size: 13px;">Student</span><span style="font-size: 14px;">Chidinma Adebayo</span></div>
+                <div style="display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid #e5e7eb;"><span style="color: #6b7280; font-size: 13px;">Term</span><span style="font-size: 14px;">Second Term</span></div>
+                <div style="display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid #e5e7eb;"><span style="color: #6b7280; font-size: 13px;">Amount paid</span><span style="display: inline-block; background: #E8F8F1; color: #0D1B36; padding: 4px 12px; border-radius: 6px; font-size: 15px; font-weight: bold;">NGN 462,500</span></div>
+                <div style="display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid #e5e7eb;"><span style="color: #6b7280; font-size: 13px;">Status</span><span style="display: inline-block; background: #E8F8F1; color: #0D1B36; padding: 4px 12px; border-radius: 6px; font-weight: bold; font-size: 14px;">Fully paid</span></div>
+              </div>
+              <div style="margin: 20px 0; background: #E8F8F1; border-radius: 6px; border-left: 3px solid #5AD8A6; padding: 14px 16px; color: #0D1B36; font-size: 13px;">
+                <strong>Your official receipt</strong> is attached to this email as a PDF — please keep a copy for your records.
+              </div>
+              <p style="margin: 20px 0 0;">Thank you for your prompt payment and for being a valued part of the <strong>Grace Academy</strong> community.</p>
+              <p style="margin: 20px 0 0;">Warm regards,<br /><strong>Grace Academy</strong></p>
+            </div>
+            <div style="padding: 20px 32px; background: #f9fafb; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.6;">This is an automated message from <strong>Grace Academy</strong>, sent on their behalf via Fees101.</p>
+              <p style="margin: 16px 0 0; color: #9CA8C0; font-size: 11px;">Powered by Fees<span style="color: #5AD8A6; font-weight: bold;">101</span></p>
+            </div>
+          </div>
+        </div>
+        <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 18px 0 0;">Identical chrome to the invoice — same navy band, same mint stripe, same chip. A parent glancing at their inbox cannot tell a bill from a receipt without reading. The two messages that should feel most different look the same.</p>
+      </div>
+
+      <div>
+        <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 6px;">NEXT — REWORK</p>
+        <p style="font-size: 13px; color: #444141; margin: 0 0 16px; line-height: 1.5;">Subject: <strong>Chidinma's Second Term fees: receipt for ₦462,500 received</strong></p>
+        <div style="background: #e4e1e1; padding: 24px 16px;">
+          <div style="max-width: 680px; margin: 0 auto; background: #fff; font-family: Helvetica, Arial, sans-serif; border: 2px solid #0a6b3d;">
+            <div style="padding: 20px 28px 18px; border-bottom: 2px solid #0a6b3d; display: flex; align-items: flex-start; gap: 14px;">
+              <span style="width: 46px; height: 46px; border: 2px solid #201e1d; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 8px; letter-spacing: 0.1em; color: #605d5d; text-align: center; line-height: 1.3;">SCHOOL<br />LOGO</span>
+              <div style="min-width: 0;">
+                <p style="margin: 0; color: #201e1d; font-size: 19px; font-weight: bold; letter-spacing: -0.01em;">Grace Academy</p>
+                <p style="margin: 5px 0 0; color: #0a6b3d; font-size: 11px; letter-spacing: 0.14em; font-weight: bold;">RECEIPT · SECOND TERM 2025/26</p>
+              </div>
+            </div>
+            <div style="padding: 26px 28px 22px;">
+              <p style="margin: 0 0 6px; color: #605d5d; font-size: 11px; letter-spacing: 0.14em;">RECEIVED WITH THANKS</p>
+              <p style="margin: 0 0 6px; color: #0a6b3d; font-size: 42px; font-weight: bold; line-height: 0.95; letter-spacing: -0.03em;">₦462,500</p>
+              <p style="margin: 0; color: #201e1d; font-size: 15px; font-weight: bold;">Chidinma's Second Term fees are fully settled.</p>
+              <p style="margin: 6px 0 0; color: #605d5d; font-size: 14px;">Nothing further is owed this term.</p>
+            </div>
+            <div style="border-top: 2px solid #d7d3d3; padding: 20px 28px;">
+              <div style="display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="color: #605d5d; font-size: 13px;">Student</span><span style="color: #201e1d; font-size: 14px; font-weight: bold;">Chidinma Adebayo · JSS 2</span></div>
+              <div style="display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="color: #605d5d; font-size: 13px;">Received on</span><span style="color: #201e1d; font-size: 14px;">16 March 2026, 09:12</span></div>
+              <div style="display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="color: #605d5d; font-size: 13px;">Into account</span><span style="color: #201e1d; font-size: 14px;">8142 556 301 · Wema Bank</span></div>
+              <div style="display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid #d7d3d3;"><span style="color: #605d5d; font-size: 13px;">Receipt no.</span><span style="color: #201e1d; font-size: 14px;">RCP-0412-02</span></div>
+              <p style="margin: 16px 0 0; color: #444141; font-size: 13px; line-height: 1.6;">The stamped receipt is attached as a PDF. Keep it — schools ask for it at re-registration.</p>
+            </div>
+            <div style="padding: 16px 28px; background: #201e1d;">
+              <p style="margin: 0; color: #d7d3d3; font-size: 12px; line-height: 1.6;">Sent by <strong style="color: #fff;">Grace Academy</strong> through Fees101.</p>
+              <p style="margin: 10px 0 0; color: #9b9797; font-size: 11px; letter-spacing: 0.1em;">FEES<span style="color: #ec3013; font-weight: bold;">101</span></p>
+            </div>
+          </div>
+        </div>
+        <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 18px 0 0;">Green border, green figure, green label — this is the one place the money-received colour earns its rule, and it makes a receipt unmistakable at a glance in a crowded inbox. "Nothing further is owed this term" is the sentence parents actually want; the current version never says it plainly.</p>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isSms }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <p style="font-size: 16px; line-height: 1.5; max-width: 74ch; margin: 0 0 32px; color: #444141;">Four SMS templates, all inside the 160-character single-segment limit and all in GSM-7 (NGN, not ₦ — the sign forces Unicode and roughly doubles the cost per message). Sendchamp's hard cap is 320 characters and the composer's own drafting ceiling is 250, but neither is the number that matters: billing steps at 160. Sender ID is "Fees101". Counts are measured from the exact strings below; anything over 160 bills as a second segment across all 640 parents.</p>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 40px;">
+        <div>
+          <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 16px;">NOW — CURRENT BUILD</p>
+          <sc-for list="{{ smsNow }}" as="m" hint-placeholder-count="4">
+            <div style="margin-bottom: 22px;">
+              <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px;">
+                <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; color: #201e1d;">{{ m.kind }}</span>
+                <span style="font-size: 12px; color: {{ m.countInk }}; font-variant-numeric: tabular-nums;">{{ m.count }}</span>
+              </div>
+              <div style="background: #fff; border: 1px solid #d7d3d3; padding: 14px 16px; font-family: Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.55; color: #201e1d;">{{ m.text }}</div>
+              <p style="font-size: 13px; color: #605d5d; margin: 8px 0 0; line-height: 1.5;">{{ m.note }}</p>
+            </div>
+          </sc-for>
+        </div>
+
+        <div>
+          <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 16px;">NEXT — REWORK</p>
+          <sc-for list="{{ smsNext }}" as="m" hint-placeholder-count="4">
+            <div style="margin-bottom: 22px;">
+              <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px;">
+                <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; color: #201e1d;">{{ m.kind }}</span>
+                <span style="font-size: 12px; color: {{ m.countInk }}; font-variant-numeric: tabular-nums;">{{ m.count }}</span>
+              </div>
+              <div style="background: #fff; border: 2px solid #201e1d; padding: 14px 16px; font-family: Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.55; color: #201e1d;">{{ m.text }}</div>
+              <p style="font-size: 13px; color: #605d5d; margin: 8px 0 0; line-height: 1.5;">{{ m.note }}</p>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="border-top: 2px solid #201e1d; margin-top: 28px; padding-top: 24px;">
+        <h2 style="font-size: 25px; font-weight: 800; margin: 0 0 6px;">What changed, and why</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0; margin-top: 18px;">
+          <div style="border: 1px solid rgba(32,30,29,0.4); padding: 22px;">
+            <h4 style="margin: 0 0 8px; font-weight: 800;">Amount first, greeting last</h4>
+            <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #444141;">An SMS preview shows roughly 40 characters. Today every one of them is spent on "Hello Mr Adebayo Kunle, this is the…" — the parent must open the message to learn anything. Leading with the amount makes it answerable from the lock screen.</p>
+          </div>
+          <div style="border: 1px solid rgba(32,30,29,0.4); padding: 22px;">
+            <h4 style="margin: 0 0 8px; font-weight: 800;">Overdue reads as overdue</h4>
+            <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #444141;">Today the only difference between the due and overdue reminder is "are due" versus "were due" — two characters. The rework states how many days late and what happens next, because a reminder that doesn't escalate gets ignored on the third send.</p>
+          </div>
+          <div style="border: 1px solid rgba(32,30,29,0.4); padding: 22px;">
+            <h4 style="margin: 0 0 8px; font-weight: 800;">Headroom for real names</h4>
+            <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #444141;">With these short sample names every current template already fits one segment — but the invoice sits at exactly 160, with none to spare. A longer parent, student or school name (the cap is 30 characters) pushes it to 208 and bills twice. The rework leaves 33 characters of slack, so it holds for every family on the roster.</p>
+          </div>
+          <div style="border: 1px solid rgba(32,30,29,0.4); padding: 22px;">
+            <h4 style="margin: 0 0 8px; font-weight: 800;">The school stays the sender</h4>
+            <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #444141;">The school name leads every message and Fees101 is never named in the body — parents have a relationship with the school, not the platform. The sender ID already carries the attribution.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isInvite }}" hint-placeholder-val="{{ false }}">
+    <div style="border-top: 2px solid #201e1d; padding-top: 24px;">
+      <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 10px;">PHASE 08 — NOT YET DESIGNED</p>
+      <h2 style="font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 14px; max-width: 24ch;">Staff invite and set-password.</h2>
+      <p style="font-size: 16px; line-height: 1.55; max-width: 64ch; margin: 0 0 22px; color: #444141;">The one message that goes to staff rather than parents, and the screen it lands on. It's a different job from the parent messages — it carries a credential and a security expectation — so it's grouped with the auth surfaces in Phase 08 rather than designed here.</p>
+      <div style="border-top: 1px solid #d7d3d3; max-width: 620px;">
+        <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; padding: 11px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 14px; font-weight: 600;">Invite email</span><span style="font-size: 12px; letter-spacing: 0.08em; color: #605d5d;">composeInvite.ts</span></div>
+        <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; padding: 11px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 14px; font-weight: 600;">Set-password screen</span><span style="font-size: 12px; letter-spacing: 0.08em; color: #605d5d;">/set-password</span></div>
+        <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; padding: 11px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 14px; font-weight: 600;">Supabase auth templates</span><span style="font-size: 12px; letter-spacing: 0.08em; color: #605d5d;">docs/supabase-email-templates.txt</span></div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = { tab: 0 };
+
+  renderVals() {
+    const t = this.state.tab;
+    const over = '#8a4805', ok = '#605d5d';
+    return {
+      tabs: ['Invoice email', 'Invoice PDF', 'Receipt email', 'SMS templates', 'Staff invite'].map((label, i) => ({
+        label, on: t === i ? '1' : '0', go: () => this.setState({ tab: i }),
+      })),
+      isInvoice: t === 0, isPdf: t === 1, isReceipt: t === 2, isSms: t === 3, isInvite: t === 4,
+
+      pdfNowItems: [
+        { name: 'Tuition', amount: '₦380,000', ink: '#0D1B36', pill: false, note: '' },
+        { name: 'Development levy', amount: '₦55,000', ink: '#0D1B36', pill: false, note: '' },
+        { name: 'Books & stationery', amount: '₦28,000', ink: '#0D1B36', pill: false, note: '' },
+        { name: 'School bus', amount: '₦17,000', ink: '#0D1B36', pill: true, note: '' },
+        { name: 'Balance from First Term', amount: '₦12,500', ink: '#B45309', pill: false, note: '' },
+        { name: 'Credit applied', amount: '-₦12,500', ink: '#2FAE7A', pill: false, note: 'From a prior overpayment, not a new payment this term' },
+      ],
+      pdfNextItems: [
+        { name: 'Tuition', amount: '₦380,000', ink: '#201e1d', kind: '' },
+        { name: 'Development levy', amount: '₦55,000', ink: '#201e1d', kind: '' },
+        { name: 'Books & stationery', amount: '₦28,000', ink: '#201e1d', kind: '' },
+        { name: 'School bus', amount: '₦17,000', ink: '#201e1d', kind: 'OPTIONAL' },
+        { name: 'Balance carried from First Term', amount: '₦12,500', ink: '#8a4805', kind: 'CARRIED' },
+        { name: 'Credit applied from overpayment', amount: '− ₦12,500', ink: '#0a6b3d', kind: 'NOT A PAYMENT' },
+      ],
+
+      oldRows: [
+        { label: 'Student', value: 'Chidinma Adebayo', chip: false, plain: true },
+        { label: 'Term', value: 'Second Term', chip: false, plain: true },
+        { label: 'Amount due', value: 'NGN 462,500', chip: true, plain: false },
+        { label: 'Due date', value: '28 Mar 2026', chip: false, plain: true },
+        { label: 'Payment account', value: '8142556301 (Wema Bank)', chip: false, plain: true },
+      ],
+
+      smsNow: [
+        { kind: 'INVOICE', count: '160 chars · 1 segment, at the limit', countInk: over,
+          text: "Hello Mr Adebayo Kunle, this is the Second Term fees invoice for Chidinma Adebayo at Grace Academy: NGN 462,500, due 28 Mar 2026. Pay to 8142556301 (Wema Bank).",
+          note: 'Exactly on the 160-character boundary with short names. Substitute a longer parent, student and school — all permitted, school names run to 30 characters — and the same template hits 208 and bills as two segments.' },
+        { kind: 'REMINDER · DUE SOON', count: '128 chars · 1 segment', countInk: ok,
+          text: "Hello Mr Adebayo Kunle, Chidinma Adebayo's Grace Academy Second Term fees of NGN 462,500 are due 28 Mar 2026. Pay to 8142556301.",
+          note: 'The first 40 characters — all a parent sees in the preview — carry no information.' },
+        { kind: 'REMINDER · OVERDUE', count: '129 chars · 1 segment', countInk: ok,
+          text: "Hello Mr Adebayo Kunle, Chidinma Adebayo's Grace Academy Second Term fees of NGN 462,500 were due 28 Mar 2026. Pay to 8142556301.",
+          note: 'Differs from the reminder above by one word: "were" instead of "are". Nothing escalates.' },
+        { kind: 'PART PAYMENT', count: '132 chars · 1 segment', countInk: ok,
+          text: "Hello Mr Adebayo Kunle, NGN 150,000 was received for Chidinma Adebayo's Grace Academy fees. Balance: NGN 312,500. Pay to 8142556301.",
+          note: 'The clearest of the four — the balance is stated plainly. No due date, though.' },
+      ],
+
+      smsNext: [
+        { kind: 'INVOICE', count: '127 chars · 1 segment', countInk: ok,
+          text: "Grace Academy: Chidinma's Second Term fees are NGN 462,500, due Fri 28 Mar. Pay to 8142556301 (Wema). Breakdown emailed to you.",
+          note: 'School and amount inside the preview window, and 33 characters of headroom so long names stay in one segment.' },
+        { kind: 'REMINDER · DUE SOON', count: '102 chars · 1 segment', countInk: ok,
+          text: "Grace Academy: Chidinma's fees of NGN 462,500 are due in 3 days, Fri 28 Mar. Pay to 8142556301 (Wema).",
+          note: '"In 3 days" beats a date — no mental arithmetic on a lock screen.' },
+        { kind: 'REMINDER · OVERDUE', count: '134 chars · 1 segment', countInk: ok,
+          text: "Grace Academy: Chidinma's fees of NGN 462,500 are 9 days overdue. Please pay to 8142556301 (Wema) or call the office on 0803 441 2290.",
+          note: 'States the lateness and offers a way out — the escalation the current version lacks.' },
+        { kind: 'PART PAYMENT', count: '126 chars · 1 segment', countInk: ok,
+          text: "Grace Academy: NGN 150,000 received for Chidinma, thank you. NGN 312,500 still to pay by Fri 28 Mar. Pay to 8142556301 (Wema).",
+          note: 'Thanks them, then states what remains and by when — the current one omits the date.' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
