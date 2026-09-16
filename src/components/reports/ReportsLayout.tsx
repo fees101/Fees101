@@ -31,7 +31,7 @@ interface Props {
   showAuditLog: boolean
 }
 
-type ScopeKind = 'cycle' | 'dates' | 'status'
+type ScopeKind = 'cycle' | 'dates' | 'status' | 'none'
 type Accent = 'red' | 'mint' | 'amber' | 'navy' | 'violet' | 'gray'
 
 interface ReportDef {
@@ -71,6 +71,7 @@ const REPORTS: ReportDef[] = [
   { type: 'class-summary', title: 'Per-class summary',     grain: 'per class',            description: 'Billed, collected, outstanding and collection rate by class.',          scope: 'cycle',  accent: 'amber',  icon: ICONS.chart, financial: true },
   { type: 'invoices',      title: 'Invoices',              grain: 'per invoice',          description: 'Raw billing ledger — subtotal, discount, total, paid, outstanding.',    scope: 'cycle',  accent: 'navy',   icon: ICONS.doc, financial: true },
   { type: 'discounts',     title: 'Discounts',             grain: 'per discount',         description: 'Every discount — category, value, status, recurring, reason.',          scope: 'cycle',  accent: 'violet', icon: ICONS.tag, financial: true },
+  { type: 'unresolved-credits', title: 'Unresolved credits', grain: 'per opt-out overage', description: 'Amounts left as-is for a manual refund outside the app — open and resolved.', scope: 'none', accent: 'amber', icon: ICONS.cash, financial: true },
   { type: 'students',      title: 'Student directory',     grain: 'per student',          description: 'Full student list with class, contact, virtual account, credit.',       scope: 'status', accent: 'gray',   icon: ICONS.users },
   { type: 'audit-log',     title: 'Audit log',             grain: 'per event',            description: 'Every action logged in this account — who did what and when.',          scope: 'dates',  accent: 'navy',   icon: ICONS.log },
 ]
@@ -182,6 +183,7 @@ function ReportCard({ def, sessions, cycles }: { def: ReportDef; sessions: Scope
       return {}
     }
     if (def.scope === 'dates') return { from, to }
+    if (def.scope === 'none') return {}
     return { status }
   }, [def, cycleScope, from, to, status])
 

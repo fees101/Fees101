@@ -54,9 +54,11 @@ export default function ManageOptInsPanel({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let ignore = false
     async function load() {
       if (isGroup && feeItemIds) {
         const result = await getOptInsForFeeGroup(feeItemIds)
+        if (ignore) return
         if (result.error) {
           setError(result.error)
           setLoading(false)
@@ -66,6 +68,7 @@ export default function ManageOptInsPanel({
         setSelectedIds(new Set(result.optedInStudentIds))
       } else if (feeItemId) {
         const result = await getOptInsForFeeItem(feeItemId)
+        if (ignore) return
         if (result.error) {
           setError(result.error)
           setLoading(false)
@@ -74,9 +77,12 @@ export default function ManageOptInsPanel({
         setStudents(result.students)
         setSelectedIds(new Set(result.optedInStudentIds))
       }
-      setLoading(false)
+      if (!ignore) setLoading(false)
     }
     load()
+    return () => {
+      ignore = true
+    }
   }, [feeItemId, isGroup, feeItemIds])
 
   // Build per-class amount lookup from groupItems

@@ -13,6 +13,72 @@ import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { applyOptInAdditionToLiveInvoice } from '@/lib/invoicing/addOptInLine'
 
+// Shared by both "bring a cancelled current-term invoice back to life" paths:
+// updateStudentStatus when the target is 'active' (reactivating a withdrawn
+// or graduated student), and the standalone regenerateCancelledInvoice
+// action (an active student's invoice was cancelled by mistake, or the
+// school wants a corrected one for the same term). Because
+// (student_id, billing_cycle_id) is unique, a cancelled
+// invoice permanently occupies that slot — a fresh insert for the same
+// student+cycle is never possible, cancelled or not. cancelInvoice only ever
+// allows cancelling when paid_amount and credit_applied are both zero, so
+// every cancelled invoice is guaranteed safe to recompute from scratch with
+// no clawback risk (2026-09-16 stress test §1.3).
+async function regenerateCancelledInvoiceOnReactivation(
+  supabase: any,
+  schoolId: string,
+  studentId: string
+): Promise<{ error: string } | { regeneratedInvoiceNumber: string | null }> {
+  const { data: activeCycle } = await supabase
+    .from('billing_cycles')
+    .select('id')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .maybeSingle()
+  if (!activeCycle) return { regeneratedInvoiceNumber: null }
+
+  const { data: cancelledInvoice } = await supabase
+    .from('invoices')
+    .select('id, invoice_number')
+    .eq('student_id', studentId)
+    .eq('billing_cycle_id', activeCycle.id)
+    .eq('status', 'cancelled')
+    .maybeSingle()
+  if (!cancelledInvoice) return { regeneratedInvoiceNumber: null }
+
+  // A cancelled invoice can only reach that state with zero payment and zero
+  // credit applied (cancelInvoice's own guard) — safe to recompute from
+  // scratch with no clawback risk.
+  const computed = await computeInvoiceForStudent(
+    supabase, schoolId, studentId, activeCycle.id, undefined, 0, cancelledInvoice.id
+  )
+  if ('error' in computed) return { error: computed.error }
+
+  const newStatus: 'pending' | 'paid' = computed.total === 0 ? 'paid' : 'pending'
+  const { error: recomputeError } = await supabase.rpc('apply_invoice_recompute', {
+    p_invoice_id: cancelledInvoice.id,
+    p_school_id: schoolId,
+    p_student_id: studentId,
+    p_line_items: computed.lineItems,
+    p_subtotal: computed.subtotal,
+    p_discount_amount: computed.discountAmount,
+    p_discount_reason: computed.discountReason || null,
+    p_previous_balance: computed.previousBalance,
+    p_previous_balance_from_invoice_id: computed.previousInvoiceId,
+    p_credit_applied: computed.creditApplied,
+    p_total_amount: computed.total,
+    p_status: newStatus,
+    p_needs_resend: false,
+    p_credit_delta: -computed.creditApplied,
+  })
+  if (recomputeError) return { error: recomputeError.message }
+
+  if (computed.appliedDiscounts.length > 0) {
+    await recordAppliedDiscounts(supabase, schoolId, studentId, cancelledInvoice.id, computed.appliedDiscounts)
+  }
+  return { regeneratedInvoiceNumber: cancelledInvoice.invoice_number }
+}
+
 export async function updateStudentDetails(studentId: string, formData: {
   firstName: string
   lastName: string
@@ -21,9 +87,9 @@ export async function updateStudentDetails(studentId: string, formData: {
   admissionDate: string
   // NOTE: status is deliberately NOT editable here. Lifecycle changes
   // (withdraw/graduate/reactivate) go through updateStudentStatus, which
-  // detects and offers to cancel any open current-term invoice — editing
-  // status here would silently bypass that. See the Danger zone in
-  // StudentSettingsTab.
+  // detects and offers to cancel any open current-term invoice, and — for
+  // reactivation — self-heals a cancelled one. Editing status here would
+  // silently bypass both. See the Danger zone in StudentSettingsTab.
 }) {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -161,6 +227,7 @@ export async function updateStudentStatus(
       success: true
       openInvoices: { id: string; invoiceNumber: string | null; totalAmount: number; outstandingAmount: number }[]
       invoicesNeedingReview: { id: string; invoiceNumber: string | null }[]
+      regeneratedInvoiceNumber: string | null
     }
 > {
   const ctx = await getStudentFeeContext()
@@ -169,10 +236,17 @@ export async function updateStudentStatus(
 
   const { data: currentStudent } = await supabase
     .from('students')
-    .select('first_name, last_name, status')
+    .select('first_name, last_name, status, class_id')
     .eq('id', studentId)
     .eq('school_id', schoolId)
     .single()
+  if (!currentStudent) return { error: 'Student not found' }
+
+  // Reactivating (-> active) needs a class to bill against — everything
+  // else about a withdrawn/graduated student stays untouched until then.
+  if (status === 'active' && !currentStudent.class_id) {
+    return { error: 'Assign this student a class before reactivating them.' }
+  }
 
   const { error } = await supabase
     .from('students')
@@ -186,64 +260,127 @@ export async function updateStudentStatus(
 
   if (error) return { error: error.message }
 
-  // A student marked withdrawn/graduated mid-term may already have an
-  // invoice on the current active cycle — generated before the admin got
-  // round to updating their status. They won't be billed again going
-  // forward (invoice generation only pulls active students), but that
-  // invoice doesn't get touched automatically: the school may still want
-  // the parent to finish paying what's owed for the term. Surface it so
-  // the admin decides — cancel it, or leave it open and collectible.
-  // Reactivation (→ active) has nothing to cancel, so skip the detection.
   const openInvoices: { id: string; invoiceNumber: string | null; totalAmount: number; outstandingAmount: number }[] = []
   const invoicesNeedingReview: { id: string; invoiceNumber: string | null }[] = []
+  let regeneratedInvoiceNumber: string | null = null
 
-  const { data: openInvoicesRaw } = status === 'active'
-    ? { data: [] as any[] }
-    : await supabase
-        .from('invoices')
-        .select('id, invoice_number, total_amount, paid_amount, credit_applied, billing_cycles!inner(status)')
-        .eq('student_id', studentId)
-        .eq('school_id', schoolId)
-        .eq('billing_cycles.status', 'active')
-        .in('status', ['pending', 'partial', 'overdue'])
+  if (status === 'active') {
+    // Reactivation has nothing to cancel — instead, self-heal a cancelled
+    // invoice from the withdraw/graduate that had (student_id,
+    // billing_cycle_id)'s uniqueness permanently stranding it: a student
+    // withdrawn -> cancel invoice -> reactivated could otherwise never be
+    // billed for that term again (real revenue leak, 2026-09-16 stress test
+    // §1.3).
+    const result = await regenerateCancelledInvoiceOnReactivation(supabase, schoolId, studentId)
+    if ('error' in result) return { error: result.error }
+    regeneratedInvoiceNumber = result.regeneratedInvoiceNumber
+  } else {
+    // A student marked withdrawn/graduated mid-term may already have an
+    // invoice on the current active cycle — generated before the admin got
+    // round to updating their status. They won't be billed again going
+    // forward (invoice generation only pulls active students), but that
+    // invoice doesn't get touched automatically: the school may still want
+    // the parent to finish paying what's owed for the term. Surface it so
+    // the admin decides — cancel it, or leave it open and collectible.
+    const { data: openInvoicesRaw } = await supabase
+      .from('invoices')
+      .select('id, invoice_number, total_amount, paid_amount, credit_applied, billing_cycles!inner(status)')
+      .eq('student_id', studentId)
+      .eq('school_id', schoolId)
+      .eq('billing_cycles.status', 'active')
+      .in('status', ['pending', 'partial', 'overdue'])
 
-  for (const inv of openInvoicesRaw || []) {
-    const untouched = Number(inv.paid_amount || 0) <= 0 && Number(inv.credit_applied || 0) <= 0
-    if (untouched) {
-      openInvoices.push({
-        id: inv.id,
-        invoiceNumber: inv.invoice_number,
-        totalAmount: Number(inv.total_amount),
-        outstandingAmount: Number(inv.total_amount) - Number(inv.paid_amount || 0),
-      })
-    } else {
-      // Payment or credit already applied — cancelling isn't a clean option
-      // here (see cancelInvoice's guard), just flag it for manual review.
-      invoicesNeedingReview.push({ id: inv.id, invoiceNumber: inv.invoice_number })
+    for (const inv of openInvoicesRaw || []) {
+      const untouched = Number(inv.paid_amount || 0) <= 0 && Number(inv.credit_applied || 0) <= 0
+      if (untouched) {
+        openInvoices.push({
+          id: inv.id,
+          invoiceNumber: inv.invoice_number,
+          totalAmount: Number(inv.total_amount),
+          outstandingAmount: Number(inv.total_amount) - Number(inv.paid_amount || 0),
+        })
+      } else {
+        // Payment or credit already applied — cancelling isn't a clean option
+        // here (see cancelInvoice's guard), just flag it for manual review.
+        invoicesNeedingReview.push({ id: inv.id, invoiceNumber: inv.invoice_number })
+      }
     }
   }
 
-  const studentName = currentStudent ? `${currentStudent.first_name} ${currentStudent.last_name}`.trim() : studentId
+  const studentName = `${currentStudent.first_name} ${currentStudent.last_name}`.trim()
   await logAuditEvent(supabase, {
     schoolId,
     actorId: userId,
     action: 'student.status_changed',
     targetType: 'student',
     targetId: studentId,
-    summary: `Changed ${studentName}'s status from ${currentStudent?.status || 'unknown'} to ${status}`,
+    summary: `Changed ${studentName}'s status from ${currentStudent.status} to ${status}`
+      + (regeneratedInvoiceNumber ? `; regenerated invoice ${regeneratedInvoiceNumber}` : ''),
     metadata: {
-      oldStatus: currentStudent?.status || null,
+      oldStatus: currentStudent.status,
       newStatus: status,
       openInvoiceIds: openInvoices.map(i => i.id),
       invoicesNeedingReview: invoicesNeedingReview.map(i => i.id),
+      regeneratedInvoiceNumber,
     },
   })
 
   revalidatePath(`/students/${studentId}`)
   revalidatePath('/students')
   revalidatePath('/fees/cycles')
+  if (regeneratedInvoiceNumber) revalidatePath('/invoices')
 
-  return { success: true, openInvoices, invoicesNeedingReview }
+  return { success: true, openInvoices, invoicesNeedingReview, regeneratedInvoiceNumber }
+}
+
+// Lets an admin fix a cancelled current-term invoice for a student who's
+// still active (cancelled by mistake, or the fee structure changed and the
+// old invoice needs replacing) — previously a dead end: StudentFeesTab could
+// only say "reissuing not yet supported" because the unique (student_id,
+// billing_cycle_id) constraint blocks a fresh insert. Reuses the same
+// un-cancel-and-recompute path as reactivation, since a cancelled invoice is
+// always financially clean (see comment above regenerateCancelledInvoiceOnReactivation).
+export async function regenerateCancelledInvoice(studentId: string): Promise<
+  | { error: string }
+  | { success: true; regeneratedInvoiceNumber: string | null }
+> {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: student } = await supabase
+    .from('students')
+    .select('id, first_name, last_name, status')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .single()
+  if (!student) return { error: 'Student not found' }
+  if (student.status !== 'active') {
+    return { error: `Only an active student's invoice can be regenerated this way (this student is ${student.status}). Reactivate them first.` }
+  }
+
+  const result = await regenerateCancelledInvoiceOnReactivation(supabase, schoolId, studentId)
+  if ('error' in result) return result
+  if (!result.regeneratedInvoiceNumber) {
+    return { error: 'No cancelled invoice was found for the current term.' }
+  }
+
+  const studentName = `${student.first_name} ${student.last_name}`.trim()
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'invoice.regenerated',
+    targetType: 'student',
+    targetId: studentId,
+    summary: `Regenerated a cancelled invoice for ${studentName} (invoice ${result.regeneratedInvoiceNumber})`,
+    metadata: { regeneratedInvoiceNumber: result.regeneratedInvoiceNumber },
+  })
+
+  revalidatePath(`/students/${studentId}`)
+  revalidatePath('/invoices')
+  revalidatePath('/fees/cycles')
+
+  return { success: true, regeneratedInvoiceNumber: result.regeneratedInvoiceNumber }
 }
 
 export async function getClassesList() {
@@ -440,11 +577,14 @@ export async function toggleStudentOptIn(studentId: string, feeItemId: string): 
 // branch): the fee already stopped recurring from next term, this only
 // decides what happens to the amount the family already paid for it this
 // term. Crediting is self-serve and safe (offsets future invoices, no money
-// leaves); leaving it as-is takes no action. Actual cash refunds stay
-// manual — contact support to reconcile, same as any other clawback.
+// leaves); leaving it as-is takes no action here — it's meant for the school
+// to refund manually outside the app, so it's recorded in unresolved_credits
+// (not students.credit_balance, which would auto-apply it to the next
+// invoice instead of giving it back) until someone marks it resolved.
 export async function resolveDeferredOptOutOverage(
   studentId: string,
   feeItemId: string,
+  feeItemName: string,
   decision: 'credit' | 'leave',
   overage: number
 ) {
@@ -456,6 +596,14 @@ export async function resolveDeferredOptOutOverage(
   const roundedOverage = Math.max(0, Number(overage) || 0)
   if (decision === 'credit' && roundedOverage > 0) {
     await applyCreditBalanceDelta(supabase, schoolId, studentId, roundedOverage)
+  } else if (decision === 'leave' && roundedOverage > 0) {
+    await supabase.from('unresolved_credits').insert({
+      school_id: schoolId,
+      student_id: studentId,
+      fee_item_name: feeItemName,
+      amount: roundedOverage,
+      created_by: userId,
+    })
   }
 
   await logAuditEvent(supabase, {
@@ -471,6 +619,32 @@ export async function resolveDeferredOptOutOverage(
   })
 
   revalidatePath(`/students/${studentId}`)
+  return { success: true }
+}
+
+// Marks a "leave as-is" opt-out overage as handled (e.g. the family was
+// actually refunded in cash outside the app). Purely a record-keeping flag —
+// no money moves here.
+export async function resolveUnresolvedCredit(id: string) {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: credit } = await supabase
+    .from('unresolved_credits')
+    .select('id, student_id')
+    .eq('id', id)
+    .eq('school_id', schoolId)
+    .single()
+  if (!credit) return { error: 'Not found' }
+
+  await supabase
+    .from('unresolved_credits')
+    .update({ resolved_at: new Date().toISOString(), resolved_by: userId })
+    .eq('id', id)
+    .eq('school_id', schoolId)
+
+  revalidatePath(`/students/${credit.student_id}`)
   return { success: true }
 }
 

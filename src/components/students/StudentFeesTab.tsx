@@ -7,8 +7,10 @@ import { StudentFeesData, StudentFeeItem } from '@/lib/queries/students'
 import {
   toggleStudentOptIn,
   resolveDeferredOptOutOverage,
+  resolveUnresolvedCredit,
   setStudentExemption,
-  removeStudentExemption
+  removeStudentExemption,
+  regenerateCancelledInvoice
 } from '@/app/(app)/students/[id]/actions'
 import {
   generateInvoiceForStudent,
@@ -18,6 +20,7 @@ import { sendInvoiceUpdateNotice } from '@/app/(app)/invoices/actions'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import Toast from '@/components/ui/Toast'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import { formatDate } from '@/lib/format/date'
 
 interface Props {
   data: StudentFeesData
@@ -132,6 +135,7 @@ export default function StudentFeesTab({ data }: Props) {
     const result = await resolveDeferredOptOutOverage(
       data.student.id,
       overageChoice.feeItemId,
+      overageChoice.feeItemName,
       decision,
       overageChoice.overage
     )
@@ -148,6 +152,18 @@ export default function StudentFeesTab({ data }: Props) {
     }
     setResolvingOverage(false)
     setOverageChoice(null)
+  }
+
+  async function handleResolveUnresolvedCredit(id: string) {
+    setPendingId(id)
+    const result = await resolveUnresolvedCredit(id)
+    if ('error' in result && result.error) {
+      setToast({ message: result.error, ok: false })
+    } else {
+      setToast({ message: 'Marked as resolved.', ok: true })
+      router.refresh()
+    }
+    setPendingId(null)
   }
 
   async function handleConfirmOptIn() {
@@ -231,6 +247,19 @@ export default function StudentFeesTab({ data }: Props) {
     setUpdateConfirm(false)
   }
 
+  async function handleRegenerateCancelled() {
+    setError(null)
+    setGenerating(true)
+    const result = await regenerateCancelledInvoice(data.student.id)
+    if ('error' in result) {
+      setToast({ message: result.error, ok: false })
+    } else {
+      setToast({ message: 'A fresh invoice has been generated for this term.', ok: true })
+      router.refresh()
+    }
+    setGenerating(false)
+  }
+
   async function handleNotifyUpdate() {
     if (!existingInvoice) return
     setError(null)
@@ -251,6 +280,30 @@ export default function StudentFeesTab({ data }: Props) {
         {error && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
             {error}
+          </div>
+        )}
+
+        {data.unresolvedCredits.length > 0 && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-xs font-semibold text-amber-800 mb-2">
+              Amounts left as-is for a manual refund outside the app
+            </p>
+            <div className="space-y-1.5">
+              {data.unresolvedCredits.map((credit) => (
+                <div key={credit.id} className="flex items-center justify-between gap-3 text-xs text-amber-800">
+                  <span>
+                    {formatNaira(credit.amount)} — {credit.feeItemName} ({formatDate(credit.createdAt)})
+                  </span>
+                  <button
+                    onClick={() => handleResolveUnresolvedCredit(credit.id)}
+                    disabled={pendingId === credit.id}
+                    className="flex-shrink-0 px-2 py-1 border border-amber-300 text-amber-800 rounded-md hover:bg-amber-100 disabled:opacity-50 font-medium"
+                  >
+                    {pendingId === credit.id ? 'Saving...' : 'Mark as resolved'}
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -301,13 +354,15 @@ export default function StudentFeesTab({ data }: Props) {
                 Invoice up to date
               </span>
             )}
-            {isCancelled && (
-              <span
-                className="px-3 py-2 text-sm text-gray-500 italic"
-                title="Reissuing a fresh invoice for this student and term isn't supported yet — see roadmap."
+            {canManageInvoices && isCancelled && data.student.status === 'active' && (
+              <button
+                onClick={handleRegenerateCancelled}
+                disabled={generating}
+                className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+                title="This invoice was cancelled with no payment or credit against it, so it's safe to regenerate for this same term."
               >
-                Cancelled — reissuing not yet supported
-              </span>
+                {generating ? 'Generating...' : 'Generate new invoice'}
+              </button>
             )}
           </div>
         </div>
@@ -320,7 +375,9 @@ export default function StudentFeesTab({ data }: Props) {
               Cancelled — {formatNaira(existingInvoice.totalAmount)}
             </span>
             <p className="text-xs text-gray-500 mt-2">
-              This invoice was cancelled. Reissuing a fresh invoice for this student and term isn&apos;t supported yet.
+              {data.student.status === 'active'
+                ? "This invoice was cancelled. Use \"Generate new invoice\" above to bill this student again for the same term."
+                : 'This invoice was cancelled. Reactivate this student to bill them again for this term.'}
             </p>
           </div>
         )}
@@ -649,6 +706,26 @@ export default function StudentFeesTab({ data }: Props) {
               <p className="text-sm text-gray-600 mb-4">
                 {data.student.firstName} {data.student.lastName} won&apos;t be charged {formatNaira(exemptionDialog.fee.amount)} for this fee.
               </p>
+
+              {existingInvoice && !isCancelled && existingInvoice.paidAmount > 0
+                && (data.expectedBill - exemptionDialog.fee.amount) < existingInvoice.paidAmount && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-800">
+                    <span className="font-semibold">Heads up:</span> {data.student.firstName} has already paid {formatNaira(existingInvoice.paidAmount)}
+                    {' '}on this term&apos;s invoice — more than this exemption would leave owed. The invoice can&apos;t be regenerated
+                    afterward (that would need a manual refund/credit reconciliation), so it will stay locked at its current amount
+                    until that&apos;s resolved.
+                  </p>
+                </div>
+              )}
+              {existingInvoice && !isCancelled && existingInvoice.paidAmount === 0 && existingInvoice.sentAt && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-800">
+                    <span className="font-semibold">Heads up:</span> this term&apos;s invoice has already been sent to the parent
+                    including this fee. Consider notifying them after regenerating so the new total doesn&apos;t come as a surprise.
+                  </p>
+                </div>
+              )}
 
               <label className="block text-xs text-gray-500 mb-1">Reason (optional)</label>
               <textarea

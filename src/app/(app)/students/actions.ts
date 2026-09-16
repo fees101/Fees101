@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { tryAutoCreateStudentDVA } from '@/lib/payments/provisionDVA'
 import { requirePermission } from '@/lib/auth/permissions'
 import { logAuditEvent } from '@/lib/audit/logAudit'
+import { normalizePhone } from '@/lib/messaging/sendMessage'
 
 interface AddStudentInput {
   firstName: string
@@ -17,6 +18,9 @@ interface AddStudentInput {
   secondaryParentName?: string
   secondaryParentPhone?: string
   secondaryParentEmail?: string
+  // Set once staff have confirmed a name-mismatched phone match is genuinely
+  // the same family (see the needsConfirmation branch below).
+  confirmFamilyLink?: boolean
 }
 
 export async function addStudent(input: AddStudentInput) {
@@ -47,17 +51,33 @@ export async function addStudent(input: AddStudentInput) {
     return { error: `Admission number ${input.admissionNumber} already exists` }
   }
 
-  // Check if a family with the same primary parent phone exists (link instead of duplicate)
+  // Check if a family with the same primary parent phone exists (link instead
+  // of duplicate). Normalized so "0803...", "+234 803...", and "234803..."
+  // all resolve to the same family instead of silently fragmenting into
+  // separate records (2026-09-16 stress test).
+  const normalizedPhone = normalizePhone(input.primaryParentPhone)
   const { data: existingFamily } = await supabase
     .from('families')
-    .select('id')
+    .select('id, primary_parent_name')
     .eq('school_id', schoolId)
-    .eq('primary_parent_phone', input.primaryParentPhone)
+    .eq('primary_parent_phone', normalizedPhone)
     .maybeSingle()
 
   let familyId: string
 
   if (existingFamily) {
+    // A phone match with a different parent name is exactly the
+    // sibling-discount abuse vector flagged in the stress test — someone
+    // (by mistake or on purpose) enters another family's number and
+    // silently inherits their discount tier. Require staff to confirm it's
+    // genuinely the same family before linking.
+    const nameMatches = existingFamily.primary_parent_name.trim().toLowerCase() === input.primaryParentName.trim().toLowerCase()
+    if (!nameMatches && !input.confirmFamilyLink) {
+      return {
+        needsConfirmation: true as const,
+        existingFamilyName: existingFamily.primary_parent_name,
+      }
+    }
     familyId = existingFamily.id
   } else {
     // Create new family
@@ -66,10 +86,10 @@ export async function addStudent(input: AddStudentInput) {
       .insert({
         school_id: schoolId,
         primary_parent_name: input.primaryParentName,
-        primary_parent_phone: input.primaryParentPhone,
+        primary_parent_phone: normalizedPhone,
         primary_parent_email: input.primaryParentEmail || null,
         secondary_parent_name: input.secondaryParentName || null,
-        secondary_parent_phone: input.secondaryParentPhone || null,
+        secondary_parent_phone: input.secondaryParentPhone ? normalizePhone(input.secondaryParentPhone) : null,
         secondary_parent_email: input.secondaryParentEmail || null,
       })
       .select('id')

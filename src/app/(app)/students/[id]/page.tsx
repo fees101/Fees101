@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import StudentActivityTimeline from '@/components/students/StudentActivityTimeline'
+import GenerateInvoiceButton from '@/components/students/GenerateInvoiceButton'
 import StudentSettingsTab from '@/components/students/StudentSettingsTab'
 import StudentPaymentHistoryTab from '@/components/students/StudentPaymentHistoryTab'
 import StudentFeesTab from '@/components/students/StudentFeesTab'
@@ -110,9 +111,11 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
               />
               <ApplyDiscountButton
                 currentInvoiceId={student.currentInvoice?.id ?? null}
-                discounts={student.currentInvoice?.revocableDiscounts ?? []}
+                currentInvoiceSubtotal={student.currentInvoice?.subtotal}
+                currentInvoiceDiscountAmount={student.currentInvoice?.discountAmount}
+                discounts={student.currentInvoice?.revocableDiscounts ?? student.fallbackDiscounts}
                 canAddDiscount={student.currentInvoice?.canAddDiscount ?? false}
-                canFullyRevoke={student.currentInvoice?.canFullyRevokeDiscount ?? false}
+                canFullyRevoke={student.currentInvoice?.canFullyRevokeDiscount ?? student.fallbackCanFullyRevoke}
               />
             </div>
 
@@ -164,12 +167,11 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
               {!student.currentInvoice ? (
                 <div className="py-8 text-center">
                   <p className="text-gray-500 text-sm mb-3">No invoice generated for this term yet.</p>
-                  <button 
-                    disabled
-                    className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg opacity-50 cursor-not-allowed"
-                  >
-                    Generate invoice
-                  </button>
+                  <GenerateInvoiceButton
+                    studentId={student.id}
+                    studentName={`${student.firstName} ${student.lastName}`}
+                    cycleId={student.currentCycleId}
+                  />
                 </div>
               ) : (
                 <>

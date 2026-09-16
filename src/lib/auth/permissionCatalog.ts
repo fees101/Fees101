@@ -78,5 +78,5 @@ export type PermissionKey = (typeof PERMISSIONS)[number]['key']
 // src/lib/reports/reports.ts. The student directory is non-financial (its
 // credit_balance column is dropped when the user lacks see-financial-totals).
 export const FINANCIAL_REPORT_TYPES = new Set<string>([
-  'debtors', 'collections', 'class-summary', 'invoices', 'discounts',
+  'debtors', 'collections', 'class-summary', 'invoices', 'discounts', 'unresolved-credits',
 ])

@@ -135,6 +135,17 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
         </span>
       </header>
 
+      {invoice.studentCreditBalance > 0 && (
+        <div className="bg-mint-light border border-mint/30 rounded-xl p-4 flex items-start gap-3 mb-6">
+          <svg className="w-5 h-5 text-mint flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-sm text-navy">
+            <span className="font-semibold">{formatNaira(invoice.studentCreditBalance)}</span> of this student&apos;s credit balance is unapplied — it will be used automatically the next time an invoice is generated or updated.
+          </p>
+        </div>
+      )}
+
       {/* Row 1: Student / Payment / Invoice details */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
 
@@ -193,9 +204,13 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-500">Outstanding</span>
-              <span className={`text-sm font-semibold ${invoice.outstandingAmount > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-                {formatNaira(invoice.outstandingAmount)}
-              </span>
+              {invoice.status === 'cancelled' ? (
+                <span className="text-sm font-semibold text-gray-400">Cancelled</span>
+              ) : (
+                <span className={`text-sm font-semibold ${invoice.outstandingAmount > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                  {formatNaira(invoice.outstandingAmount)}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -474,6 +489,8 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
       {discountModalOpen && (
         <RequestDiscountModal
           invoiceId={invoice.id}
+          subtotal={invoice.subtotal}
+          existingDiscountAmount={invoice.discountAmount}
           onClose={() => setDiscountModalOpen(false)}
           onSuccess={() => {
             setDiscountModalOpen(false)

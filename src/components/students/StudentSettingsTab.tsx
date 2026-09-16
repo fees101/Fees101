@@ -53,10 +53,6 @@ export default function StudentSettingsTab({ student }: Props) {
   const [reactivating, setReactivating] = useState(false)
   const canManage = useCan('manage-students')
 
-  useEffect(() => {
-    getClassesList().then(setClasses)
-  }, [])
-
   async function handleReactivate() {
     setError(null)
     setReactivating(true)
@@ -68,6 +64,10 @@ export default function StudentSettingsTab({ student }: Props) {
     }
     router.refresh()
   }
+
+  useEffect(() => {
+    getClassesList().then(setClasses)
+  }, [])
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -217,9 +217,24 @@ export default function StudentSettingsTab({ student }: Props) {
 
       </div>
 
-      {/* Right column: Danger zone */}
+      {/* Right column: Reactivate + Danger zone */}
       {canManage && (
-        <div>
+        <div className="space-y-6">
+          {student.status !== 'active' && (
+            <div className="bg-white p-6 rounded-xl border border-mint/30">
+              <h3 className="text-navy font-semibold mb-1">Reactivate student</h3>
+              <p className="text-xs text-gray-500 mb-3">Restores active status and, if a term invoice was cancelled at withdrawal, brings it back so the student can be billed and collected from again.</p>
+              {error && <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
+              <button
+                onClick={handleReactivate}
+                disabled={reactivating}
+                className="px-3 py-1.5 bg-mint text-white text-xs font-medium rounded-lg hover:bg-mint/90 disabled:opacity-50"
+              >
+                {reactivating ? 'Reactivating...' : 'Reactivate'}
+              </button>
+            </div>
+          )}
+
           <div className="bg-white p-6 rounded-xl border border-red-100">
             <h3 className="text-red-700 font-semibold mb-4">Danger zone</h3>
 
@@ -235,7 +250,7 @@ export default function StudentSettingsTab({ student }: Props) {
               </button>
             </div>
 
-            <div className={student.status !== 'active' ? 'pb-4 mb-4 border-b border-gray-100' : ''}>
+            <div>
               <p className="text-sm font-medium text-navy mb-1">Mark as graduated</p>
               <p className="text-xs text-gray-500 mb-3">Move to graduates archive.</p>
               <button
@@ -246,22 +261,6 @@ export default function StudentSettingsTab({ student }: Props) {
                 {student.status === 'graduated' ? 'Already graduated' : 'Mark graduated'}
               </button>
             </div>
-
-            {student.status !== 'active' && (
-              <div>
-                <p className="text-sm font-medium text-navy mb-1">Reactivate student</p>
-                <p className="text-xs text-gray-500 mb-3">Return this student to active lists and billing.</p>
-                <button
-                  onClick={handleReactivate}
-                  disabled={reactivating}
-                  className="px-3 py-1.5 border border-mint text-mint text-xs font-medium rounded-lg hover:bg-mint/10 disabled:opacity-50"
-                >
-                  {reactivating ? 'Reactivating...' : 'Reactivate (mark active)'}
-                </button>
-              </div>
-            )}
-
-            {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
           </div>
         </div>
       )}

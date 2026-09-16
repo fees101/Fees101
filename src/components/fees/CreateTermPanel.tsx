@@ -18,7 +18,7 @@ interface Props {
     studentsWithCarryForward: number
     totalCarryForward: number
     jobId: string | null
-  } | null) => void
+  } | null, unmatchedAdjustments?: { studentId: string; feeItemName: string }[]) => void
 }
 
 export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, forceNewSession, onClose, onSuccess }: Props) {
@@ -120,7 +120,7 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
       return
     }
     if ('summary' in result) {
-      onSuccess(result.summary)
+      onSuccess(result.summary, result.unmatchedAdjustments)
     } else {
       onSuccess(null)
     }

@@ -23,6 +23,7 @@ export type ReportType =
   | 'students'
   | 'invoices'
   | 'discounts'
+  | 'unresolved-credits'
   | 'audit-log'
 
 export interface ReportParams {
@@ -319,6 +320,40 @@ async function buildDiscounts(supabase: any, schoolId: string, p: ReportParams):
 }
 
 // =====================================================================
+// Unresolved credits — one row per opt-out overage left as a manual
+// refund outside the app (see resolveDeferredOptOutOverage on the
+// student page), open and resolved alike, newest first.
+// =====================================================================
+async function buildUnresolvedCredits(supabase: any, schoolId: string, p: ReportParams): Promise<BuiltReport> {
+  const [{ className }, { map: students }] = await Promise.all([
+    loadMaps(supabase, schoolId),
+    loadStudents(supabase, schoolId),
+  ])
+
+  const { data } = await supabase
+    .from('unresolved_credits')
+    .select('student_id, fee_item_name, amount, created_at, resolved_at')
+    .eq('school_id', schoolId)
+    .order('created_at', { ascending: false })
+
+  const rows: CsvValue[][] = (data || []).map((c: any) => {
+    const s = students.get(c.student_id)
+    return [
+      s?.admission_number ?? '', name(s), className.get(s?.class_id) ?? '',
+      c.fee_item_name ?? '', money(c.amount),
+      c.resolved_at ? 'Resolved' : 'Open',
+      (c.created_at || '').slice(0, 10),
+      (c.resolved_at || '').slice(0, 10),
+    ]
+  })
+  return {
+    name: 'unresolved-credits',
+    headers: ['Admission No', 'Student', 'Class', 'Fee', 'Amount', 'Status', 'Raised', 'Resolved'],
+    rows,
+  }
+}
+
+// =====================================================================
 // Audit log — one row per event, newest first, optionally scoped to a
 // created_at date range. Exported from the Reports page; the audit-log
 // settings page filters by module in-view rather than on export.
@@ -377,6 +412,7 @@ const BUILDERS: Record<ReportType, (s: any, id: string, p: ReportParams) => Prom
   'students': buildStudents,
   'invoices': buildInvoices,
   'discounts': buildDiscounts,
+  'unresolved-credits': buildUnresolvedCredits,
   'audit-log': buildAuditLog,
 }
 

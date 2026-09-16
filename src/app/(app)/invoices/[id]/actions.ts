@@ -84,7 +84,7 @@ export async function cancelInvoice(
 
   const { data: invoice } = await supabase
     .from('invoices')
-    .select('id, invoice_number, status, total_amount, paid_amount, credit_applied, student_id, students(first_name, last_name)')
+    .select('id, invoice_number, status, total_amount, paid_amount, credit_applied, student_id, billing_cycle_id, billing_cycles(status), students(first_name, last_name)')
     .eq('id', invoiceId)
     .eq('school_id', schoolId)
     .single()
@@ -99,6 +99,27 @@ export async function cancelInvoice(
     return { error: 'This invoice has a payment or credit applied — resolve that first (refund or credit adjustment) before cancelling.' }
   }
 
+  // Mirrors requestDiscount's guard: a closed-term invoice whose balance has
+  // already carried forward onto a successor invoice is no longer the live
+  // record of what's owed — cancelling it here wouldn't reduce anything the
+  // student actually owes (that lives on the successor now) and would leave
+  // that successor's previous_balance_from_invoice_id pointing at a
+  // cancelled row.
+  if ((invoice.billing_cycles as any)?.status === 'closed') {
+    const { data: successor } = await supabase
+      .from('invoices')
+      .select('id, billing_cycles(name)')
+      .eq('previous_balance_from_invoice_id', invoiceId)
+      .eq('school_id', schoolId)
+      .maybeSingle()
+    if (successor) {
+      const cycleName = (successor.billing_cycles as any)?.name
+      return {
+        error: `This balance carried forward to ${cycleName || 'a later term'} — cancel or adjust that invoice instead. Cancelling this one won't reduce what's actually owed.`,
+      }
+    }
+  }
+
   const { error } = await supabase
     .from('invoices')
     .update({ status: 'cancelled', needs_resend: false })
@@ -110,6 +131,9 @@ export async function cancelInvoice(
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
   revalidatePath(`/students/${invoice.student_id}`)
+  revalidatePath('/fees')
+  revalidatePath('/fees/cycles')
+  if (invoice.billing_cycle_id) revalidatePath(`/fees/cycles/${invoice.billing_cycle_id}`)
 
   const student = invoice.students as unknown as { first_name: string; last_name: string } | null
   const studentName = student ? `${student.first_name} ${student.last_name}`.trim() : invoice.student_id
