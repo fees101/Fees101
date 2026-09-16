@@ -766,17 +766,10 @@ export async function closeTerm(id: string): Promise<CloseTermResult> {
   if (!cycle) return { error: 'Term not found' }
   if (cycle.status === 'closed') return { error: 'Term is already closed' }
 
+  // closeTermAndCarryForward already logs 'term.closed_carried_forward' for this
+  // same term id — do not add a second logAuditEvent call here, it previously
+  // produced two audit rows for one close action (fixed 2026-09-16).
   const summary = await closeTermAndCarryForward(supabase, schoolId, id, userId)
-
-  await logAuditEvent(supabase, {
-    schoolId,
-    actorId: userId,
-    action: 'term.closed',
-    targetType: 'term',
-    targetId: id,
-    summary: `Closed term ${cycle.name}`,
-    metadata: summary,
-  })
 
   revalidatePath('/fees/cycles')
   revalidatePath('/fees')
