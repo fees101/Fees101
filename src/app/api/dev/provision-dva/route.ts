@@ -1,15 +1,24 @@
 // DEV-ONLY: provisions a Monnify DVA for an existing student outside the
 // normal add-student/CSV-import flows, for backend testing of a manually
-// created test student. Refuses to run unless NODE_ENV is development.
+// created test student. Refuses to run unless NODE_ENV is development, and
+// requires an authenticated staff session with payment-config rights on top
+// of that — the NODE_ENV check alone doesn't stop an unauthenticated caller
+// on a misconfigured staging/preview deployment (2026-09-16 stress test).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 import { provisionStudentDVA } from '@/lib/payments/provisionDVA'
+import { requirePermission } from '@/lib/auth/permissions'
 
 export async function POST(request: NextRequest) {
   if (process.env.NODE_ENV !== 'development') {
     return NextResponse.json({ error: 'Not available' }, { status: 404 })
+  }
+
+  const authCtx = await requirePermission('manage-payment-config')
+  if (!authCtx) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
   }
 
   const { studentId } = await request.json()
@@ -22,6 +31,7 @@ export async function POST(request: NextRequest) {
     .from('students')
     .select('id, school_id, first_name, last_name, provider_dva_reference')
     .eq('id', studentId)
+    .eq('school_id', authCtx.schoolId)
     .single()
 
   if (studentErr || !student) {

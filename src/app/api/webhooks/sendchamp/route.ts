@@ -85,19 +85,42 @@ export async function POST(request: NextRequest) {
 
   // No id match (expected today) — fall back to the newest still-'sent'
   // Sendchamp SMS row to this phone number. Fragile (assumes no two
-  // in-flight Sendchamp messages to the same number at once) but the only
-  // option until Sendchamp returns a real per-message id.
+  // in-flight Sendchamp messages to the same number at once, and this
+  // webhook has no per-school identifier to scope by at all — a coincidence
+  // match against a different school's message to the same phone number is
+  // possible in principle, just narrowed to at most one row by the fix
+  // below) but the only option until Sendchamp returns a real per-message id.
+  //
+  // Deliberately a SELECT (to pick the one target row) followed by an
+  // UPDATE by that row's id, not a single .update().order().limit() chain —
+  // PostgREST doesn't reliably support order+limit on an UPDATE the way it
+  // does on a SELECT (confirmed via a 42703 "column ... does not exist"
+  // error on that exact combination even though the column is real and used
+  // the same way elsewhere, e.g. reminders.ts), and — separately — `.limit()`
+  // was never actually enforced on the UPDATE either, so the old query could
+  // silently touch every matching row instead of just one (2026-09-16
+  // stress test).
   if ((!data || !data.length) && phone) {
-    ;({ data, error } = await supabase
+    const { data: candidate, error: findError } = await supabase
       .from('message_logs')
-      .update(update)
+      .select('id')
       .eq('provider', 'sendchamp')
       .eq('channel', 'sms')
       .eq('recipient_phone', phone)
       .eq('status', 'sent')
       .order('created_at', { ascending: false })
       .limit(1)
-      .select('id, school_id, channel, message_type, content, related_student_id, related_invoice_id'))
+      .maybeSingle()
+
+    if (findError) {
+      error = findError
+    } else if (candidate) {
+      ;({ data, error } = await supabase
+        .from('message_logs')
+        .update(update)
+        .eq('id', candidate.id)
+        .select('id, school_id, channel, message_type, content, related_student_id, related_invoice_id'))
+    }
   }
 
   if (error) console.error('[sendchamp webhook] failed to update message_logs', error)
