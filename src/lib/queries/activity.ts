@@ -72,6 +72,27 @@ function describe(row: FeedRow): { title: string; subtitle: string } {
         title: 'Invoice generated',
         subtitle: `${ref ? `Invoice #${ref} ` : ''}for ${student}${cls}`,
       }
+    case 'invoice_cancelled':
+      return {
+        title: 'Invoice cancelled',
+        subtitle:
+          `${ref ? `Invoice #${ref} ` : ''}for ${student}${cls}` +
+          (row.actor_name ? ` · by ${row.actor_name}` : ''),
+      }
+    case 'student_status_changed':
+      return {
+        title: 'Student status changed',
+        subtitle:
+          `${student}${cls} · ${row.reference || 'unknown'} → ${row.status || 'unknown'}` +
+          (row.actor_name ? ` · by ${row.actor_name}` : ''),
+      }
+    case 'credit_balance_adjusted':
+      return {
+        title: 'Credit balance adjusted',
+        subtitle:
+          `Credited to ${student}${cls}'s balance` +
+          (row.actor_name ? ` · by ${row.actor_name}` : ''),
+      }
     case 'discount_requested':
     case 'discount_approved':
     case 'discount_rejected':

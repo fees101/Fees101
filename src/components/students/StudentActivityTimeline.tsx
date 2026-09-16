@@ -37,7 +37,7 @@ export default async function StudentActivityTimeline({
   // Get invoices for this student
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('id, total_amount, generated_at, billing_cycles(name)')
+    .select('id, total_amount, generated_at, sent_at, billing_cycles(name)')
     .eq('student_id', studentId)
     .order('generated_at', { ascending: false })
     .limit(4)
@@ -66,7 +66,7 @@ export default async function StudentActivityTimeline({
     events.push({
       id: `invoice-${invoice.id}`,
       type: 'invoice',
-      description: `Invoice sent to ${parentName}`,
+      description: invoice.sent_at ? `Invoice sent to ${parentName}` : 'Invoice generated',
       // @ts-expect-error — joined object
       detail: invoice.billing_cycles?.name || '',
       timestamp: invoice.generated_at,

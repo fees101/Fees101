@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import type { ActivityRow } from '@/lib/queries/activity'
 import { ACTIVITY_CATEGORIES, ACTIVITY_PAGE_SIZE_OPTIONS } from '@/lib/activity/activityMeta'
-import { formatDate, formatDateTime } from '@/lib/format/date'
+import { formatDateTime } from '@/lib/format/date'
+import RelativeTime from '@/components/activity/RelativeTime'
 
 interface Props {
   rows: ActivityRow[]
@@ -19,20 +20,6 @@ interface Props {
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
-}
-
-function timeAgo(iso: string): string {
-  const then = new Date(iso)
-  const diffMs = Date.now() - then.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMins / 60)
-  const diffDays = Math.floor(diffHours / 24)
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return `${diffDays}d ago`
-  return formatDate(iso)
 }
 
 function getPageNumbers(currentPage: number, totalPages: number): (number | '...')[] {
@@ -206,7 +193,7 @@ export default function ActivityFeed({ rows, total, page, perPage, category, fro
                 return (
                   <tr key={event.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
                     <td className="px-5 py-3.5 align-top whitespace-nowrap text-gray-500" title={formatDateTime(event.occurredAt)}>
-                      {timeAgo(event.occurredAt)}
+                      <RelativeTime iso={event.occurredAt} />
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-start gap-3">
