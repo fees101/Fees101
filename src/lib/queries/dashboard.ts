@@ -85,7 +85,7 @@ export async function getDashboardKPIs() {
     : 0
 
   return {
-    currentCycleName: currentCycle?.name || 'No active term',
+    currentCycleName: currentCycle?.name || null,
     studentsCount: studentsCount || 0,
     totalExpected,
     totalCollected,

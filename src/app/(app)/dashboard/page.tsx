@@ -58,7 +58,7 @@ export default async function Dashboard() {
             {getGreeting()}, {firstName}
           </h1>
           <p className="text-gray-500 mt-1">
-            Here's how {kpis.currentCycleName} is going
+            {kpis.currentCycleName ? `Here's how ${kpis.currentCycleName} is going` : 'No active term yet — create one to start billing.'}
           </p>
         </header>
 
@@ -93,7 +93,12 @@ export default async function Dashboard() {
               <div>
                 <p className="text-gray-500 text-sm mb-1">Total Collected</p>
                 <p className="text-mint text-2xl font-bold">{formatNaira(kpis.totalCollected)}</p>
-                <p className="text-gray-500 text-xs mt-2">{kpis.collectionPercentage}% of expected</p>
+                <p className="text-gray-500 text-xs mt-2" title={kpis.collectionPercentage > 100 ? 'Includes payments received toward other terms, and overpayments — collection is measured by cash received, not by what this term specifically invoiced.' : undefined}>
+                  {kpis.collectionPercentage}% of expected
+                  {kpis.collectionPercentage > 100 && (
+                    <span className="text-amber-600"> (incl. prepayment/overpayment)</span>
+                  )}
+                </p>
               </div>
               <div className="w-8 h-8 rounded-lg bg-mint-light flex items-center justify-center flex-shrink-0">
                 <svg className="w-4 h-4 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

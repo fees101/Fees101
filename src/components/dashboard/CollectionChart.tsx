@@ -36,6 +36,11 @@ function RowTooltip({ cls }: { cls: ClassData }) {
       <p className="text-gray-300 mt-1">
         {cls.studentCount} {cls.studentCount === 1 ? 'student' : 'students'} · {cls.invoicedCount} invoiced
       </p>
+      {cls.percentage > 100 && (
+        <p className="text-amber-300 mt-1 max-w-[200px] whitespace-normal">
+          Over 100% — includes payments toward other terms or overpayments, not just this term&apos;s invoices.
+        </p>
+      )}
     </div>
   )
 }
@@ -57,6 +62,7 @@ export default function CollectionChart({ data }: CollectionChartProps) {
   // nothing ever renders flush against the right edge.
   const scaleMax = Math.ceil((maxPercentage + 20) / 20) * 20
   const targetLeft = (100 / scaleMax) * 100
+  const hasOverCollection = data.some(d => d.percentage > 100)
 
   return (
     <div className="bg-white p-6 rounded-xl border border-gray-200">
@@ -116,7 +122,7 @@ export default function CollectionChart({ data }: CollectionChartProps) {
                   </div>
 
                   <p className="text-sm font-semibold text-navy text-right tabular-nums">
-                    {cls.percentage}%
+                    {cls.percentage}%{cls.percentage > 100 && <span className="text-amber-600">*</span>}
                   </p>
 
                   <RowTooltip cls={cls} />
@@ -126,6 +132,7 @@ export default function CollectionChart({ data }: CollectionChartProps) {
           </div>
           <p className="text-[11px] text-gray-400 mt-3">
             Navy bar = collected. Tick = term target (100%). Band shade = zone (red under 50%, amber 50–79%, green 80%+).
+            {hasOverCollection && ' * = over 100%, includes payments toward other terms or overpayments.'}
           </p>
         </>
       )}
@@ -153,11 +160,18 @@ export default function CollectionChart({ data }: CollectionChartProps) {
                   <td className="py-2 px-1 text-right text-navy tabular-nums">{formatNaira(cls.collected)}</td>
                   <td className="py-2 px-1 text-right text-gray-500 tabular-nums">{formatNaira(cls.expected)}</td>
                   <td className="py-2 px-1 text-right text-gray-500 tabular-nums">{formatNaira(cls.outstanding)}</td>
-                  <td className="py-2 px-1 text-right font-semibold text-navy tabular-nums">{cls.percentage}%</td>
+                  <td className="py-2 px-1 text-right font-semibold text-navy tabular-nums">
+                    {cls.percentage}%{cls.percentage > 100 && <span className="text-amber-600">*</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {hasOverCollection && (
+            <p className="text-[11px] text-gray-400 mt-2">
+              * over 100% — includes payments toward other terms or overpayments.
+            </p>
+          )}
         </div>
       )}
     </div>
