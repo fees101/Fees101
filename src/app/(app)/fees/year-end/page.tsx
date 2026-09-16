@@ -4,6 +4,16 @@ import { getPromotionPreviewAction, getClassesForOverrideAction, getDraftSession
 import YearEndRolloverWizard from '@/components/fees/YearEndRolloverWizard'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
+// Server Actions invoked from this page (startYearEndRollover /
+// resumeYearEndRollover -> continueYearEndRollover) still run their whole
+// per-student promotion/adjustment/invoice-recompute pipeline as one call —
+// bump the page's default Server Action timeout to Vercel Hobby's 60s
+// ceiling (matches JOB_TIME_BUDGET_MS's 50s assumption elsewhere) instead of
+// the platform default, which is well under what a large school's rollover
+// needs. Config only — see the rollover cron-sweep item in ROADMAP.md for
+// the actual timeout-can't-happen fix.
+export const maxDuration = 60
+
 export default async function YearEndPage() {
   const ctx = await getAuthContext()
   if (!ctx) redirect('/login')

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { ACTIVE_JOBS_STORAGE_KEY } from '@/lib/jobs/ActiveJobsProvider'
 
 interface UserMenuProps {
   userName: string
@@ -29,6 +30,11 @@ export default function UserMenu({
 
   async function handleLogout() {
     await fetch('/logout', { method: 'POST' })
+    try {
+      localStorage.removeItem(ACTIVE_JOBS_STORAGE_KEY)
+    } catch {
+      // Private-browsing/storage-blocked contexts — nothing to clean up.
+    }
     window.location.href = '/login'
   }
 

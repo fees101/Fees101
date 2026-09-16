@@ -4,6 +4,12 @@ import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getJob, failJob, type JobType } from '@/lib/jobs/backgroundJobs'
 import { advanceJob } from '@/lib/jobs/advanceJob'
 
+// Vercel Hobby's ceiling — this route's own chunk loop is bounded well under
+// that by JOB_TIME_BUDGET_MS (50s), but declaring it explicitly avoids
+// relying on the platform default for what is deliberately the heaviest
+// route in the app. Config only, no behavior change.
+export const maxDuration = 60
+
 // Authenticated worker route for background_jobs (db/background_jobs.sql).
 // Called by the client right after starting a job, then again on every poll
 // tick (src/lib/jobs/pollJob.ts) — each call advances the job by as many

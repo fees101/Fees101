@@ -3,11 +3,17 @@ import { renderToBuffer, Document } from '@react-pdf/renderer'
 import { createElement } from 'react'
 import { InvoicePage } from '@/components/invoices/InvoicePDF'
 import { getInvoicesByCycleId } from '@/lib/queries/fees'
+import { requirePermission } from '@/lib/auth/permissions'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const ctx = await requirePermission('see-invoices')
+  if (!ctx) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+  }
+
   const { id } = await params
 
   const invoices = await getInvoicesByCycleId(id)

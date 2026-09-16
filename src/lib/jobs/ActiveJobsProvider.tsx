@@ -76,7 +76,10 @@ interface ActiveJobsValue {
 
 const ActiveJobsContext = createContext<ActiveJobsValue | null>(null)
 
-const STORAGE_KEY = 'fees101_active_jobs'
+// Exported so the logout handler can clear it for the next person to use this
+// browser (e.g. a shared front-desk computer) — see UserMenu.tsx.
+export const ACTIVE_JOBS_STORAGE_KEY = 'fees101_active_jobs'
+const STORAGE_KEY = ACTIVE_JOBS_STORAGE_KEY
 
 function readPersisted(): PersistedJob[] {
   try {
@@ -375,11 +378,21 @@ export function ActiveJobsProvider({ children, interruptedJobs = [] }: { childre
                   <div className="h-full bg-mint transition-all duration-500" style={{ width: `${pct}%` }} />
                 </div>
               </div>
+              {!j.cancelling && (
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelJob(j.jobId) }}
+                  aria-label="Cancel"
+                  title="Cancel this job"
+                  className="px-2 py-1 -m-1 rounded-md text-xs font-medium text-red-500 hover:text-red-600 hover:bg-red-50 flex-shrink-0"
+                >
+                  Cancel
+                </button>
+              )}
               {/* Hides the chip only — the job keeps running/polling in the
-                  background. Cancelling the actual job only happens from
-                  inside that job's own modal/panel, where it's an explicit,
-                  labelled action rather than a small corner "x" someone
-                  could mistake for "close this popup". */}
+                  background. This is distinct from Cancel above, which stops
+                  the job itself — kept as its own small "x" so the two
+                  actions (stop the job vs. stop watching it) stay visually
+                  and functionally separate. */}
               <button
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); hideChip(j.jobId) }}
                 aria-label="Hide"

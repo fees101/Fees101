@@ -4,6 +4,12 @@ import CyclesLayout from '@/components/fees/CyclesLayout'
 import { getAllCycles, getSessions } from '@/lib/queries/fees'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
+// Server Actions invoked from this page (createTerm, closeTerm,
+// closeTermAndCarryForward's synchronous portion, etc.) can run long for a
+// large school — bump to Vercel Hobby's 60s ceiling instead of the platform
+// default. Config only, no behavior change.
+export const maxDuration = 60
+
 export default async function CyclesPage() {
   const ctx = await getAuthContext()
   if (!ctx) redirect('/login')

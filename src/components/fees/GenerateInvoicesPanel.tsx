@@ -156,7 +156,7 @@ export default function GenerateInvoicesPanel({ cycleId, onClose, onSuccess }: P
                 onClick={onSuccess}
                 className="w-full px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
               >
-                View invoices
+                Done
               </button>
             </div>
           )}

@@ -9,6 +9,7 @@ import { PromotionDecision } from '@/lib/yearEnd/promotion'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { prepareInvoiceGeneration, prepareInvoiceRegeneration, regenerateStaleInvoicesForCycleSync } from '@/lib/invoicing/invoiceGeneration'
 import { createJob, findRunningJob, getJob, updateJobProgress } from '@/lib/jobs/backgroundJobs'
+import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 
 async function getContext(perm: string = 'manage-fee-structure') {
   // Fee/session/term/cycle edits require manage-fee-structure by default;
@@ -279,6 +280,12 @@ export async function createTerm(form: {
       .select('class_id, name, amount, is_mandatory, is_optional_extra, is_discountable, is_recurring, display_order')
       .eq('billing_cycle_id', form.rollForwardFromCycleId)
       .eq('school_id', schoolId)
+      // Only recurring fees roll forward into the new term — a one-time fee
+      // (is_recurring: false, set via FeeFormPanel's "One-time" toggle) was
+      // charged for a specific term and shouldn't reappear on every future
+      // term just because it's copied here. Shared by both manual roll-forward
+      // and year-end rollover, since continueYearEndRollover calls createTerm.
+      .eq('is_recurring', true)
 
     if (sourceFees && sourceFees.length > 0) {
       const newFees = sourceFees.map(f => ({
@@ -547,12 +554,18 @@ export async function activateTerm(id: string) {
   // while that session stays draft/stale, desyncing session and term status.
   const { data: target } = await supabase
     .from('billing_cycles')
-    .select('id, session_id, name')
+    .select('id, session_id, name, status')
     .eq('id', id)
     .eq('school_id', schoolId)
     .single()
 
   if (!target) return { error: 'Term not found' }
+  // Mirrors closeTerm's already-closed guard: activating an already-active
+  // term would call closeTermAndCarryForward on itself (currentActive.id ===
+  // id below), closing and immediately re-opening the same term — a
+  // self-referential race hit by a double-click or two concurrent activate
+  // calls (2026-09-16 stress test finding).
+  if (target.status === 'active') return { error: 'This term is already active' }
 
   if (target.session_id) {
     const { data: session } = await supabase
@@ -1430,10 +1443,18 @@ export async function startYearEndRollover(form: {
   // Snapshot every decision before any mutation — this is what makes a
   // resume safe: it replays these exact rows, never re-derives them from
   // (by-then-mutated) student.class_id.
+  //
+  // to_class_id is only ever meaningful for 'promote' — defense in depth
+  // against a stale/incorrect targetClassId arriving for 'repeat' (the
+  // wizard itself no longer sends one, see YearEndRolloverWizard's
+  // buildDecisionList, but this is the actual write path and shouldn't
+  // trust the client alone): a 'repeat' row must always leave to_class_id
+  // null so the apply step below's `else if (promo.to_class_id)` guard
+  // skips the class_id update entirely and the student simply stays put.
   const promotionRows = form.decisions.map(d => ({
     run_id: run.id,
     student_id: d.studentId,
-    to_class_id: d.action === 'graduate' ? null : d.targetClassId || null,
+    to_class_id: d.action === 'promote' ? (d.targetClassId || null) : null,
     action: d.action,
   }))
   const { error: promoRowsError } = await supabase.from('rollover_promotions').insert(promotionRows)
@@ -1538,8 +1559,34 @@ export async function cancelYearEndRollover(runId: string): Promise<{ error: str
 async function continueYearEndRollover(runId: string, newTerm?: NewTermInput) {
   const ctx = await getContext('run-year-end')
   if (!ctx) return { error: 'Not authenticated' }
-  const { supabase, schoolId } = ctx
+  return continueYearEndRolloverCore(ctx.supabase, ctx.schoolId, runId, newTerm)
+}
 
+// Service-role entry point for the rollover sweep
+// (src/app/api/admin/rollover-sweep/route.ts) — a cron-triggered request has
+// no user session/cookies to derive an AuthContext from, so this resolves
+// the run's school_id directly with a service-role client instead of going
+// through getContext(), then drives the exact same step machine as the
+// authenticated resume path above.
+//
+// Always called with newTerm undefined. That's a real, deliberate limit: a
+// run stalled at step 'started' with to_cycle_id still null needs the new
+// term/session details typed into the wizard, which are never persisted
+// server-side — continueYearEndRolloverCore's own 'started' branch already
+// requires newTerm before touching anything, so this safely no-ops (returns
+// the same "New term details are required" error the UI shows, leaves the
+// row untouched) rather than resuming. Every later step (cycle_created /
+// promoted / adjustments_carried) only reads/writes already-persisted DB
+// state via the passed-in client and resumes fully automatically — those are
+// also the expensive, per-student-loop steps most likely to actually stall.
+export async function continueYearEndRolloverForSweep(runId: string) {
+  const supabase = createServiceRoleClient()
+  const { data: run } = await supabase.from('rollover_runs').select('school_id').eq('id', runId).single()
+  if (!run) return { error: 'Rollover run not found' }
+  return continueYearEndRolloverCore(supabase, run.school_id, runId, undefined)
+}
+
+async function continueYearEndRolloverCore(supabase: any, schoolId: string, runId: string, newTerm?: NewTermInput) {
   const { data: run } = await supabase
     .from('rollover_runs')
     .select('*')
@@ -1670,7 +1717,7 @@ async function continueYearEndRollover(runId: string, newTerm?: NewTermInput) {
         .select('id')
         .eq('school_id', schoolId)
         .eq('status', 'closed')
-      const closedSessionIds = (closedSessions || []).map(s => s.id)
+      const closedSessionIds = (closedSessions || []).map((s: any) => s.id)
       if (closedSessionIds.length > 0) {
         await supabase
           .from('billing_cycles')
@@ -1700,7 +1747,7 @@ async function continueYearEndRollover(runId: string, newTerm?: NewTermInput) {
 
           for (const stale of staleSessions || []) {
             const { data: staleCycles } = await supabase.from('billing_cycles').select('id').eq('session_id', stale.id)
-            const cycleIds = (staleCycles || []).map(c => c.id)
+            const cycleIds = (staleCycles || []).map((c: any) => c.id)
             let hasInvoices = false
             if (cycleIds.length > 0) {
               const { count } = await supabase.from('invoices').select('id', { count: 'exact', head: true }).in('billing_cycle_id', cycleIds)
@@ -1751,7 +1798,7 @@ async function continueYearEndRollover(runId: string, newTerm?: NewTermInput) {
           .eq('run_id', runId)
           .eq('action', 'graduate')
 
-        const graduatedIds = (graduated || []).map(g => g.student_id)
+        const graduatedIds = (graduated || []).map((g: any) => g.student_id)
         if (graduatedIds.length > 0) {
           const { data: exitInvoices } = await supabase
             .from('invoices')
