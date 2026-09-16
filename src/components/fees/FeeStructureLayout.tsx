@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import FeeFormPanel from './FeeFormPanel'
 import ManageOptInsPanel from './ManageOptInsPanel'
 import EditFeeGroupPanel from './EditFeeGroupPanel'
@@ -283,7 +284,13 @@ export default function FeeStructureLayout({ data, initialView, initialClassId, 
   if (!cycle) {
     return (
       <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
-        <p className="text-gray-500">No active billing cycle. Create a term first.</p>
+        <p className="text-gray-500 mb-4">No active billing cycle. Create a term first.</p>
+        <Link
+          href="/fees/cycles"
+          className="inline-block px-4 py-2 bg-mint text-navy rounded-lg text-sm font-semibold hover:bg-mint/90"
+        >
+          + Create a term
+        </Link>
       </div>
     )
   }
