@@ -597,7 +597,7 @@ function ReviewStep({ rows, summary, onConfirm, onCancel, loading, error }: {
             </svg>
           </div>
           <div>
-            <p className="text-2xl font-bold text-navy">0</p>
+            <p className="text-2xl font-bold text-navy">{rows.reduce((count, row) => count + row.errors.length, 0)}</p>
             <p className="text-xs text-gray-500">Errors</p>
           </div>
         </div>

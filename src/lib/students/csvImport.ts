@@ -1,3 +1,5 @@
+import { normalizePhone } from '@/lib/messaging/sendMessage'
+
 export interface ParsedRow {
   rowNumber: number
   firstName: string
@@ -50,23 +52,52 @@ export async function processCsvImportChunk(
 
   // Resolve families for this chunk in bulk instead of one lookup+insert pair
   // per row — rows sharing a phone within the same chunk also share one
-  // family, same as the old per-row de-dupe did.
-  const uniquePhones = Array.from(new Set(rows.map(r => r.parentPhone)))
+  // family, same as the old per-row de-dupe did. Phones are normalized so
+  // "0803...", "+234 803...", and "234803..." all resolve to the same family
+  // instead of silently fragmenting into separate records, and so the same
+  // household matches consistently whether it was entered here or through
+  // the single Add Student form (2026-09-16 stress test).
+  const phoneByRow = new Map<number, string>(rows.map(r => [r.rowNumber, normalizePhone(r.parentPhone)]))
+  const uniquePhones = Array.from(new Set(phoneByRow.values()))
   const familyIdByPhone = new Map<string, string>()
+  const familyNameByPhone = new Map<string, string>()
 
   const { data: existingFamilies } = await supabase
     .from('families')
-    .select('id, primary_parent_phone')
+    .select('id, primary_parent_name, primary_parent_phone')
     .eq('school_id', schoolId)
     .in('primary_parent_phone', uniquePhones)
 
-  for (const f of existingFamilies || []) familyIdByPhone.set(f.primary_parent_phone, f.id)
+  for (const f of existingFamilies || []) {
+    familyIdByPhone.set(f.primary_parent_phone, f.id)
+    familyNameByPhone.set(f.primary_parent_phone, f.primary_parent_name)
+  }
 
-  const phonesToCreate = uniquePhones.filter(p => !familyIdByPhone.has(p))
+  // A phone matching an existing family under a different parent name is the
+  // same sibling-discount abuse vector as the single Add Student path — but
+  // a bulk import has no one to prompt for confirmation, so flag the row for
+  // manual staff review instead of silently linking it.
+  const nameMismatchRows = new Set<number>()
+  for (const row of rows) {
+    const phone = phoneByRow.get(row.rowNumber)!
+    const existingName = familyNameByPhone.get(phone)
+    if (existingName && existingName.trim().toLowerCase() !== row.parentName.trim().toLowerCase()) {
+      nameMismatchRows.add(row.rowNumber)
+      failed++
+      failedRows.push({
+        row: row.rowNumber,
+        reason: `Phone already belongs to family "${existingName}" — this row's parent name ("${row.parentName}") doesn't match. Review and re-import if this is genuinely the same family.`,
+      })
+    }
+  }
+  rows = rows.filter(r => !nameMismatchRows.has(r.rowNumber))
+
+  const phonesToCreate = uniquePhones.filter(p => !familyIdByPhone.has(p) && rows.some(r => phoneByRow.get(r.rowNumber) === p))
   if (phonesToCreate.length > 0) {
     const firstRowByPhone = new Map<string, ParsedRow>()
     for (const row of rows) {
-      if (!firstRowByPhone.has(row.parentPhone)) firstRowByPhone.set(row.parentPhone, row)
+      const phone = phoneByRow.get(row.rowNumber)!
+      if (!firstRowByPhone.has(phone)) firstRowByPhone.set(phone, row)
     }
 
     const { data: newFamilies, error: familyError } = await supabase
@@ -77,10 +108,10 @@ export async function processCsvImportChunk(
           return {
             school_id: schoolId,
             primary_parent_name: row.parentName,
-            primary_parent_phone: row.parentPhone,
+            primary_parent_phone: phone,
             primary_parent_email: row.parentEmail || null,
             secondary_parent_name: row.secondaryParentName || null,
-            secondary_parent_phone: row.secondaryParentPhone || null,
+            secondary_parent_phone: row.secondaryParentPhone ? normalizePhone(row.secondaryParentPhone) : null,
             secondary_parent_email: row.secondaryParentEmail || null,
             notes: row.notes || null,
           }
@@ -99,10 +130,10 @@ export async function processCsvImportChunk(
           .insert({
             school_id: schoolId,
             primary_parent_name: row.parentName,
-            primary_parent_phone: row.parentPhone,
+            primary_parent_phone: phone,
             primary_parent_email: row.parentEmail || null,
             secondary_parent_name: row.secondaryParentName || null,
-            secondary_parent_phone: row.secondaryParentPhone || null,
+            secondary_parent_phone: row.secondaryParentPhone ? normalizePhone(row.secondaryParentPhone) : null,
             secondary_parent_email: row.secondaryParentEmail || null,
             notes: row.notes || null,
           })
@@ -120,9 +151,9 @@ export async function processCsvImportChunk(
   }
 
   const failedPhones = new Set(phonesToCreate.filter(p => !familyIdByPhone.has(p)))
-  const rowsWithFamily = rows.filter(r => !failedPhones.has(r.parentPhone))
+  const rowsWithFamily = rows.filter(r => !failedPhones.has(phoneByRow.get(r.rowNumber)!))
   for (const row of rows) {
-    if (failedPhones.has(row.parentPhone) && !failedRows.some(f => f.row === row.rowNumber)) {
+    if (failedPhones.has(phoneByRow.get(row.rowNumber)!) && !failedRows.some(f => f.row === row.rowNumber)) {
       failed++
       failedRows.push({ row: row.rowNumber, reason: 'Family creation failed' })
     }
@@ -138,7 +169,7 @@ export async function processCsvImportChunk(
         school_id: schoolId,
         section_id: section.id,
         class_id: row.classId!,
-        family_id: familyIdByPhone.get(row.parentPhone)!,
+        family_id: familyIdByPhone.get(phoneByRow.get(row.rowNumber)!)!,
         first_name: row.firstName,
         last_name: row.lastName,
         admission_number: row.admissionNumber,
@@ -156,7 +187,7 @@ export async function processCsvImportChunk(
             school_id: schoolId,
             section_id: section.id,
             class_id: row.classId!,
-            family_id: familyIdByPhone.get(row.parentPhone)!,
+            family_id: familyIdByPhone.get(phoneByRow.get(row.rowNumber)!)!,
             first_name: row.firstName,
             last_name: row.lastName,
             admission_number: row.admissionNumber,

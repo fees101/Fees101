@@ -18,12 +18,31 @@ export default function AddStudentModal({ classes, onClose, onSuccess }: AddStud
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showSecondary, setShowSecondary] = useState(false)
+  const [confirmFamily, setConfirmFamily] = useState<{ input: Parameters<typeof addStudent>[0]; existingFamilyName: string } | null>(null)
 
-  async function handleSubmit(formData: FormData) {
+  async function submit(input: Parameters<typeof addStudent>[0]) {
     setLoading(true)
     setError(null)
 
-    const result = await addStudent({
+    const result = await addStudent(input)
+
+    if ('needsConfirmation' in result && result.needsConfirmation) {
+      setLoading(false)
+      setConfirmFamily({ input, existingFamilyName: result.existingFamilyName })
+      return
+    }
+
+    if ('error' in result && result.error) {
+      setError(result.error)
+      setLoading(false)
+      return
+    }
+
+    onSuccess()
+  }
+
+  async function handleSubmit(formData: FormData) {
+    await submit({
       firstName: formData.get('firstName') as string,
       lastName: formData.get('lastName') as string,
       admissionNumber: formData.get('admissionNumber') as string,
@@ -36,14 +55,13 @@ export default function AddStudentModal({ classes, onClose, onSuccess }: AddStud
       secondaryParentPhone: (formData.get('secondaryParentPhone') as string) || undefined,
       secondaryParentEmail: (formData.get('secondaryParentEmail') as string) || undefined,
     })
+  }
 
-    if (result.error) {
-      setError(result.error)
-      setLoading(false)
-      return
-    }
-
-    onSuccess()
+  function handleConfirmSameFamily() {
+    if (!confirmFamily) return
+    const input = confirmFamily.input
+    setConfirmFamily(null)
+    submit({ ...input, confirmFamilyLink: true })
   }
 
   const today = new Date().toISOString().split('T')[0]
@@ -251,6 +269,39 @@ export default function AddStudentModal({ classes, onClose, onSuccess }: AddStud
 
         </form>
       </div>
+
+      {/* Name-mismatch confirmation — phone matches an existing family under a different name */}
+      {confirmFamily && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <h3 className="text-navy font-semibold mb-2">Same family as an existing parent?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              A family with this phone number is already on file under the name{' '}
+              <span className="font-medium text-navy">&ldquo;{confirmFamily.existingFamilyName}&rdquo;</span>.
+              If this student is a sibling, linking them will also apply any sibling discount this family qualifies for.
+              If the number was mistyped or belongs to a different family, go back and check it.
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmFamily(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg"
+              >
+                Let me check the number
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSameFamily}
+                disabled={loading}
+                className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+              >
+                {loading ? 'Adding...' : 'Yes, same family'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
