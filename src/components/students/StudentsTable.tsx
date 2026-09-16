@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
+import type { StudentSortDir, StudentSortKey } from '@/lib/queries/students'
 
 interface Student {
   id: string
@@ -28,10 +29,15 @@ interface Class {
 interface StudentsTableProps {
   students: Student[]
   classes: Class[]
+  total: number
+  page: number
+  perPage: number
+  search: string
+  classId: string
+  invoiceStatus: string
+  sortKey: StudentSortKey
+  sortDir: StudentSortDir
 }
-
-type SortKey = 'class' | 'name' | 'parent' | 'phone' | 'total' | 'paid' | 'status'
-type SortDir = 'asc' | 'desc'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 
@@ -77,11 +83,11 @@ function getStatusBadge(status: string) {
   }
 }
 
-function SortIcon({ active, direction }: { active: boolean, direction: SortDir }) {
+function SortIcon({ active, direction }: { active: boolean, direction: StudentSortDir }) {
   return (
-    <svg 
-      className={`w-3 h-3 inline-block ml-1 ${active ? 'text-navy' : 'text-gray-400'}`} 
-      fill="currentColor" 
+    <svg
+      className={`w-3 h-3 inline-block ml-1 ${active ? 'text-navy' : 'text-gray-400'}`}
+      fill="currentColor"
       viewBox="0 0 20 20"
     >
       {active && direction === 'asc' ? (
@@ -95,134 +101,94 @@ function SortIcon({ active, direction }: { active: boolean, direction: SortDir }
   )
 }
 
-export default function StudentsTable({ students, classes }: StudentsTableProps) {
+function getPageNumbers(currentPage: number, totalPages: number): (number | '...')[] {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
+  if (currentPage <= 3) return [1, 2, 3, 4, '...', totalPages]
+  if (currentPage >= totalPages - 2) {
+    return [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages]
+  }
+  return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages]
+}
+
+// Search, class, invoice-status, sort and page are all server-driven (via the
+// URL) rather than filtered/sorted client-side — the roster this fetches from
+// can run into the hundreds, and computing every column client-side would mean
+// downloading and re-sorting the whole thing on every keystroke. Only the
+// current page's worth of students (and their invoice figures) ever gets
+// fetched, matching the pattern already used on the audit log page.
+export default function StudentsTable({
+  students,
+  classes,
+  total,
+  page,
+  perPage,
+  search,
+  classId,
+  invoiceStatus,
+  sortKey,
+  sortDir,
+}: StudentsTableProps) {
   const router = useRouter()
-  const [searchTerm, setSearchTerm] = useState('')
-  const [classFilter, setClassFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [sortKey, setSortKey] = useState<SortKey>('class')
-  const [sortDir, setSortDir] = useState<SortDir>('asc')
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
+  const pathname = usePathname()
+  const [searchInput, setSearchInput] = useState(search)
 
-  // classes is already ordered by display_order (Play Pen → Year 11) —
-  // use its position as the sort weight so "by class" reads the way a
-  // school actually thinks about its roster, not alphabetically.
-  const classOrder = useMemo(() => {
-    const map: Record<string, number> = {}
-    classes.forEach((c, i) => { map[c.id] = i })
-    return map
-  }, [classes])
-
-  function handleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortKey(key)
-      setSortDir('asc')
+  function navigate(patch: Record<string, string>) {
+    const params = new URLSearchParams({
+      page: String(page),
+      perPage: String(perPage),
+      search,
+      class: classId,
+      invoiceStatus,
+      sort: sortKey,
+      dir: sortDir,
+      ...patch,
+    })
+    for (const key of Array.from(params.keys())) {
+      if (!params.get(key) || params.get(key) === 'all') params.delete(key)
     }
-    setCurrentPage(1)
+    router.push(params.toString() ? `${pathname}?${params.toString()}` : pathname)
   }
 
-  const filteredAndSorted = useMemo(() => {
-    const filtered = students.filter(student => {
-      const matchesSearch = 
-        searchTerm === '' ||
-        `${student.firstName} ${student.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.admissionNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.parentName.toLowerCase().includes(searchTerm.toLowerCase())
-      
-      const matchesClass = classFilter === 'all' || student.classId === classFilter
-      const matchesStatus = statusFilter === 'all' || student.invoiceStatus === statusFilter
+  // Debounce the search box so typing doesn't fire a navigation (and a fresh
+  // server fetch) on every keystroke — only once the user pauses.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== search) navigate({ search: searchInput, page: '1' })
+    }, 400)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput])
 
-      return matchesSearch && matchesClass && matchesStatus
-    })
+  useEffect(() => {
+    setSearchInput(search)
+  }, [search])
 
-    return filtered.sort((a, b) => {
-      let valA: string | number
-      let valB: string | number
-
-      switch (sortKey) {
-        case 'class': {
-          const orderA = classOrder[a.classId] ?? 9999
-          const orderB = classOrder[b.classId] ?? 9999
-          if (orderA !== orderB) return sortDir === 'asc' ? orderA - orderB : orderB - orderA
-          valA = `${a.lastName} ${a.firstName}`.toLowerCase()
-          valB = `${b.lastName} ${b.firstName}`.toLowerCase()
-          break
-        }
-        case 'name':
-          valA = `${a.lastName} ${a.firstName}`.toLowerCase()
-          valB = `${b.lastName} ${b.firstName}`.toLowerCase()
-          break
-        case 'parent':
-          valA = a.parentName.toLowerCase()
-          valB = b.parentName.toLowerCase()
-          break
-        case 'phone':
-          valA = a.parentPhone
-          valB = b.parentPhone
-          break
-        case 'total':
-          valA = a.invoiceTotal
-          valB = b.invoiceTotal
-          break
-        case 'paid':
-          valA = a.invoicePaid
-          valB = b.invoicePaid
-          break
-        case 'status':
-          valA = a.invoiceStatus
-          valB = b.invoiceStatus
-          break
-      }
-
-      if (valA < valB) return sortDir === 'asc' ? -1 : 1
-      if (valA > valB) return sortDir === 'asc' ? 1 : -1
-      return 0
-    })
-  }, [students, searchTerm, classFilter, statusFilter, sortKey, sortDir, classOrder])
-
-  // Counts per class within the current filtered set, for the group header rows
-  const classCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    filteredAndSorted.forEach(s => {
-      counts[s.classId] = (counts[s.classId] || 0) + 1
-    })
-    return counts
-  }, [filteredAndSorted])
+  function handleSort(key: StudentSortKey) {
+    if (sortKey === key) {
+      navigate({ sort: key, dir: sortDir === 'asc' ? 'desc' : 'asc', page: '1' })
+    } else {
+      navigate({ sort: key, dir: 'asc', page: '1' })
+    }
+  }
 
   // Class group-header rows are shown when sorting by class with no class
-  // filter — purely visual. Pagination ALWAYS applies now, so a large roster
-  // never renders as one giant list; a class that spans a page boundary simply
-  // shows its header again at the top of the next page.
-  const groupByClass = sortKey === 'class' && classFilter === 'all'
+  // filter — purely visual. The count next to each header is only the
+  // students in that class ON THIS PAGE, not the class's full roster — the
+  // full filtered set no longer lives in the browser, so a page-spanning
+  // class simply repeats its header (with a smaller count) at the top of
+  // the next page.
+  const groupByClass = sortKey === 'class' && classId === 'all'
 
-  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize))
-  const paginatedStudents = filteredAndSorted.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  )
+  const totalPages = Math.max(1, Math.ceil(total / perPage))
+  const rangeStart = total === 0 ? 0 : (page - 1) * perPage + 1
+  const rangeEnd = Math.min(page * perPage, total)
 
-  useMemo(() => {
-    setCurrentPage(1)
-  }, [searchTerm, classFilter, statusFilter, pageSize])
+  const classCountsOnPage: Record<string, number> = {}
+  students.forEach((s) => {
+    classCountsOnPage[s.classId] = (classCountsOnPage[s.classId] || 0) + 1
+  })
 
-  function getPageNumbers(): (number | string)[] {
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1)
-    }
-    
-    if (currentPage <= 3) {
-      return [1, 2, 3, 4, '...', totalPages]
-    }
-    
-    if (currentPage >= totalPages - 2) {
-      return [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages]
-    }
-    
-    return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages]
-  }
+  const selectClass = 'px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20'
 
   return (
     <div className="bg-white rounded-xl border border-gray-200">
@@ -235,15 +201,15 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
           <input
             type="text"
             placeholder="Search by name, admission no., or parent..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20"
           />
         </div>
         <select
-          value={classFilter}
-          onChange={(e) => setClassFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20"
+          value={classId}
+          onChange={(e) => navigate({ class: e.target.value, page: '1' })}
+          className={selectClass}
         >
           <option value="all">All classes</option>
           {classes.map(cls => (
@@ -251,9 +217,9 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
           ))}
         </select>
         <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20"
+          value={invoiceStatus}
+          onChange={(e) => navigate({ invoiceStatus: e.target.value, page: '1' })}
+          className={selectClass}
         >
           <option value="all">All statuses</option>
           <option value="paid">Paid</option>
@@ -264,7 +230,7 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
       </div>
 
       {/* Table */}
-      {filteredAndSorted.length === 0 ? (
+      {total === 0 ? (
         <p className="text-gray-500 text-sm text-center py-12">
           No students match your filters.
         </p>
@@ -292,25 +258,25 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
                   >
                     Parent <SortIcon active={sortKey === 'parent'} direction={sortDir} />
                   </th>
-                  <th 
+                  <th
                     onClick={() => handleSort('phone')}
                     className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 cursor-pointer hover:bg-gray-100 select-none"
                   >
                     Phone <SortIcon active={sortKey === 'phone'} direction={sortDir} />
                   </th>
-                  <th 
+                  <th
                     onClick={() => handleSort('total')}
                     className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 cursor-pointer hover:bg-gray-100 select-none"
                   >
                     Total expected <SortIcon active={sortKey === 'total'} direction={sortDir} />
                   </th>
-                  <th 
+                  <th
                     onClick={() => handleSort('paid')}
                     className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 cursor-pointer hover:bg-gray-100 select-none"
                   >
                     Paid <SortIcon active={sortKey === 'paid'} direction={sortDir} />
                   </th>
-                  <th 
+                  <th
                     onClick={() => handleSort('status')}
                     className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3 cursor-pointer hover:bg-gray-100 select-none"
                   >
@@ -322,14 +288,14 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
                 {(() => {
                   let lastClassId: string | null = null
 
-                  return paginatedStudents.flatMap(student => {
+                  return students.flatMap(student => {
                     const rows = []
                     if (groupByClass && student.classId !== lastClassId) {
                       lastClassId = student.classId
                       rows.push(
                         <tr key={`group-${student.classId}`} className="bg-gray-50/70">
                           <td colSpan={7} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                            {student.className || 'No class'} <span className="text-gray-400 font-normal normal-case">({classCounts[student.classId] || 0})</span>
+                            {student.className || 'No class'} <span className="text-gray-400 font-normal normal-case">({classCountsOnPage[student.classId] || 0} on this page)</span>
                           </td>
                         </tr>
                       )
@@ -395,13 +361,13 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
           <div className="px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center gap-3 justify-between text-sm">
             <div className="flex items-center gap-4">
               <p className="text-gray-500">
-                Showing {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, filteredAndSorted.length)} of {filteredAndSorted.length} students
+                Showing {rangeStart}-{rangeEnd} of {total} students
               </p>
               <label className="flex items-center gap-1.5 text-gray-500">
                 <span className="hidden sm:inline">Per page</span>
                 <select
-                  value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  value={perPage}
+                  onChange={(e) => navigate({ perPage: e.target.value, page: '1' })}
                   className="px-2 py-1 border border-gray-200 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20"
                 >
                   {PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
@@ -411,32 +377,32 @@ export default function StudentsTable({ students, classes }: StudentsTableProps)
             {totalPages > 1 && (
             <div className="flex items-center gap-1">
               <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
+                onClick={() => navigate({ page: String(page - 1) })}
+                disabled={page <= 1}
                 className="px-3 py-1 text-sm text-gray-700 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 ← Previous
               </button>
-              {getPageNumbers().map((page, index) => (
-                page === '...' ? (
+              {getPageNumbers(page, totalPages).map((p, index) => (
+                p === '...' ? (
                   <span key={`ellipsis-${index}`} className="px-2 text-gray-400">...</span>
                 ) : (
                   <button
-                    key={page}
-                    onClick={() => setCurrentPage(page as number)}
+                    key={p}
+                    onClick={() => navigate({ page: String(p) })}
                     className={`min-w-[32px] px-2 py-1 text-sm rounded ${
-                      currentPage === page
+                      page === p
                         ? 'bg-navy text-white font-medium'
                         : 'text-gray-700 hover:bg-gray-50'
                     }`}
                   >
-                    {page}
+                    {p}
                   </button>
                 )
               ))}
               <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
+                onClick={() => navigate({ page: String(page + 1) })}
+                disabled={page >= totalPages}
                 className="px-3 py-1 text-sm text-gray-700 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Next →

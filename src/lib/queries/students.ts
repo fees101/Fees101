@@ -2,22 +2,151 @@ import { getAuthContext } from '@/lib/auth/permissions'
 import { computeInvoiceForStudent } from '@/lib/computeInvoice'
 import { getRecurringDiscounts } from '@/lib/discounts/compute'
 
-export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'graduated' | 'all' = 'active') {
+export const STUDENTS_PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
+
+export type StudentSortKey = 'class' | 'name' | 'parent' | 'phone' | 'total' | 'paid' | 'status'
+export type StudentSortDir = 'asc' | 'desc'
+export type StudentInvoiceStatusFilter = 'all' | 'paid' | 'partial' | 'pending' | 'no_invoice'
+
+const INVOICE_DERIVED_SORT_KEYS = new Set<StudentSortKey>(['total', 'paid', 'status'])
+
+// 'name' is the only sort key backed by a real, top-level column on
+// `students` (last_name/first_name). Every other key lives on a joined
+// table (classes.display_order, families.primary_parent_name/phone) or is
+// computed from a per-cycle invoice lookup — and Postgrest's `.order(col,
+// { foreignTable })` does not reorder the parent query's rows (verified
+// live against this project's Supabase instance: it only reorders items
+// within an embedded array, a no-op for a to-one join). So anything other
+// than 'name' has to be sorted in JS over a lightweight first-pass fetch.
+const JS_SORT_KEYS = new Set<StudentSortKey>(['class', 'parent', 'phone', 'total', 'paid', 'status'])
+
+export interface GetStudentsOptions {
+  statusFilter?: 'active' | 'withdrawn' | 'graduated' | 'all'
+  search?: string
+  classId?: string
+  invoiceStatus?: StudentInvoiceStatusFilter
+  sortKey?: StudentSortKey
+  sortDir?: StudentSortDir
+  page?: number
+  perPage?: number
+}
+
+const STUDENT_ROW_SELECT = `
+  id,
+  first_name,
+  last_name,
+  admission_number,
+  status,
+  classes!inner(id, name, display_order),
+  families!inner(primary_parent_name, primary_parent_phone)
+`
+
+// Postgrest's `or()`/`and()` filter grammar uses "," to separate conditions
+// and "()" for grouping — strip those out of free-text search rather than
+// trying to escape them, since a school admin typing a comma or parenthesis
+// into the search box means it literally, not as a query operator.
+function sanitizeSearchTerm(raw: string): string {
+  return raw.trim().replace(/[,()]/g, '')
+}
+
+// A single `.or()` call can only filter columns on the table being queried —
+// supabase-js's own docs say as much ("not currently possible to do an
+// `.or()` filter across multiple tables"), which a live 400 against this
+// project's Supabase confirmed when `families.primary_parent_name` was
+// mixed into the same clause as `students` columns. Matching a family's
+// parent name therefore has to happen as its own lookup first: resolve
+// which families match, then fold their ids into the `students`-table `or()`
+// via `family_id.in.(...)` — family_id is a real column on `students`, so
+// that part stays within one table and is legal.
+async function resolveSearchFamilyIds(supabase: any, schoolId: string, term: string): Promise<string[]> {
+  const { data } = await supabase
+    .from('families')
+    .select('id')
+    .eq('school_id', schoolId)
+    .ilike('primary_parent_name', `%${term}%`)
+  return (data || []).map((f: any) => f.id as string)
+}
+
+function studentSearchOrClause(term: string, familyIds: string[]): string {
+  const t = `%${term}%`
+  const parts = [`first_name.ilike.${t}`, `last_name.ilike.${t}`, `admission_number.ilike.${t}`]
+  if (familyIds.length) parts.push(`family_id.in.(${familyIds.join(',')})`)
+  return parts.join(',')
+}
+
+// Only ever used for the 'name' key — see JS_SORT_KEYS above for why every
+// other sort key can't go through the database this way.
+function applyNameSort(query: any, sortDir: StudentSortDir) {
+  const ascending = sortDir === 'asc'
+  return query.order('last_name', { ascending }).order('first_name', { ascending })
+}
+
+function mapStudentRow(student: any) {
+  return {
+    id: student.id,
+    firstName: student.first_name,
+    lastName: student.last_name,
+    admissionNumber: student.admission_number,
+    status: student.status,
+    className: student.classes?.name || '',
+    classId: student.classes?.id || '',
+    parentName: student.families?.primary_parent_name || '',
+    parentPhone: student.families?.primary_parent_phone || '',
+  }
+}
+
+export interface StudentListRow extends ReturnType<typeof mapStudentRow> {
+  invoiceTotal: number
+  invoicePaid: number
+  creditApplied: number
+  invoiceStatus: string
+  outstandingBalance: number
+}
+
+// Students page: server-side paginated, filtered and sorted so a roster of
+// any size loads at the same speed — only the current page's worth of rows
+// (and their invoice lookups) are ever fetched, instead of the whole school.
+//
+// Sorting by name maps to real, indexed columns on `students`, so that case
+// goes through a single query with .order()+.range(). Every other sort key,
+// and any invoice-status filter, needs a lightweight first pass first: a
+// narrow projection (id, name, class, family, and — only when actually
+// needed — the current cycle's invoice fields) across the WHOLE filtered
+// set, so the sort order and the filtered count can be worked out in JS
+// before fetching full display data for just the one page being rendered.
+export async function getStudents(options: GetStudentsOptions = {}) {
   const ctx = await getAuthContext()
   if (!ctx) throw new Error('Not authenticated')
   const { supabase, schoolId } = ctx
-  if (!schoolId) return {
-    students: [],
-    classes: [],
+
+  const statusFilter = options.statusFilter ?? 'active'
+  const search = sanitizeSearchTerm(options.search || '')
+  const classId = options.classId && options.classId !== 'all' ? options.classId : null
+  const invoiceStatusFilter = options.invoiceStatus && options.invoiceStatus !== 'all' ? options.invoiceStatus : null
+  const sortKey = options.sortKey ?? 'class'
+  const sortDir = options.sortDir ?? 'asc'
+  const page = Math.max(1, options.page ?? 1)
+  const perPage = STUDENTS_PAGE_SIZE_OPTIONS.includes(options.perPage as number) ? (options.perPage as number) : 50
+
+  const emptyResult = {
+    students: [] as StudentListRow[],
+    classes: [] as { id: string; name: string }[],
     currentTermName: '',
     classCount: 0,
     statusCounts: { active: 0, withdrawn: 0, graduated: 0, all: 0 },
-    activeStatusFilter: statusFilter,
     paymentsConfigured: false,
     studentsWithoutDvaCount: 0,
+    total: 0,
+    page,
+    perPage,
   }
 
-  // These five are independent of one another — fetch in parallel.
+  if (!schoolId) return emptyResult
+
+  // These five are independent of one another and of the filters above —
+  // fetch in parallel. Status counts always reflect every status (not the
+  // active filter/search/class/invoice filters) so the tab counts in the
+  // header never shift under a search.
   const [
     { data: currentCycle },
     { data: classes },
@@ -25,7 +154,6 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
     { data: schoolRow },
     { count: studentsWithoutDvaCount },
   ] = await Promise.all([
-    // Get current billing cycle
     supabase
       .from('billing_cycles')
       .select('id, name')
@@ -34,20 +162,16 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
       .order('start_date', { ascending: false })
       .limit(1)
       .single(),
-    // Get all classes for filter dropdown
     supabase
       .from('classes')
       .select('id, name')
       .eq('school_id', schoolId)
       .eq('is_active', true)
       .order('display_order'),
-    // Get status counts (always all statuses, regardless of filter)
     supabase
       .from('students')
       .select('status')
       .eq('school_id', schoolId),
-    // For the "some students have no payment account" banner — only relevant
-    // once the school has connected a payment provider.
     supabase
       .from('schools')
       .select('payment_provider')
@@ -62,47 +186,126 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
   ])
 
   const statusCounts = {
-    active: allStudentsForCount?.filter(s => s.status === 'active').length || 0,
-    withdrawn: allStudentsForCount?.filter(s => s.status === 'withdrawn').length || 0,
-    graduated: allStudentsForCount?.filter(s => s.status === 'graduated').length || 0,
+    active: allStudentsForCount?.filter((s: any) => s.status === 'active').length || 0,
+    withdrawn: allStudentsForCount?.filter((s: any) => s.status === 'withdrawn').length || 0,
+    graduated: allStudentsForCount?.filter((s: any) => s.status === 'graduated').length || 0,
     all: allStudentsForCount?.length || 0,
   }
-
   const paymentsConfigured = !!schoolRow?.payment_provider
+  const currentTermName = currentCycle?.name || ''
+  const classCount = classes?.length || 0
+  const tail = { classes: classes || [], currentTermName, classCount, statusCounts, paymentsConfigured, studentsWithoutDvaCount: studentsWithoutDvaCount || 0 }
 
-  // Get students with class and family info, filtered by status
-  let studentsQuery = supabase
-    .from('students')
-    .select(`
-      id,
-      first_name,
-      last_name,
-      admission_number,
-      status,
-      classes!inner(id, name),
-      families!inner(primary_parent_name, primary_parent_phone)
-    `)
-    .eq('school_id', schoolId)
+  // Class display order comes from this list, which is already sorted by
+  // the real `display_order` column at the top level (a plain, unjoined
+  // query) — its array position is a safe stand-in for that rank.
+  const classOrder: Record<string, number> = {}
+  ;(classes || []).forEach((c: any, i: number) => { classOrder[c.id] = i })
 
-  if (statusFilter !== 'all') {
-    studentsQuery = studentsQuery.eq('status', statusFilter)
+  const needsInvoiceData = !!invoiceStatusFilter || INVOICE_DERIVED_SORT_KEYS.has(sortKey)
+  const needsFirstPass = JS_SORT_KEYS.has(sortKey) || !!invoiceStatusFilter
+
+  const searchFamilyIds = search ? await resolveSearchFamilyIds(supabase, schoolId, search) : []
+
+  let studentRows: any[] = []
+  let total = 0
+
+  if (needsFirstPass) {
+    // Pass 1: a narrow projection for every student matching the
+    // school/status/class/search filters — cheap enough to run over the
+    // whole filtered set instead of just one page.
+    let q1 = supabase
+      .from('students')
+      .select(
+        `id, last_name, first_name, class_id, families!inner(primary_parent_name, primary_parent_phone)` +
+        (needsInvoiceData ? ', invoices!left(total_amount, paid_amount, status)' : '')
+      )
+      .eq('school_id', schoolId)
+    if (needsInvoiceData) q1 = q1.eq('invoices.billing_cycle_id', currentCycle?.id || '')
+    if (statusFilter !== 'all') q1 = q1.eq('status', statusFilter)
+    if (classId) q1 = q1.eq('class_id', classId)
+    if (search) q1 = q1.or(studentSearchOrClause(search, searchFamilyIds))
+    const { data: rows1 } = await q1
+
+    let derived = (rows1 || []).map((r: any) => {
+      const inv = r.invoices?.[0]
+      return {
+        id: r.id as string,
+        lastName: (r.last_name || '') as string,
+        firstName: (r.first_name || '') as string,
+        classId: (r.class_id || '') as string,
+        parentName: (r.families?.primary_parent_name || '') as string,
+        parentPhone: (r.families?.primary_parent_phone || '') as string,
+        total: inv ? Number(inv.total_amount) : 0,
+        paid: inv ? Number(inv.paid_amount) : 0,
+        status: (inv?.status as string) || 'no_invoice',
+      }
+    })
+    if (invoiceStatusFilter) derived = derived.filter((d: any) => d.status === invoiceStatusFilter)
+    total = derived.length
+
+    if (JS_SORT_KEYS.has(sortKey)) {
+      derived.sort((a: any, b: any) => {
+        let va: string | number
+        let vb: string | number
+        if (sortKey === 'class') {
+          const orderA = classOrder[a.classId] ?? 9999
+          const orderB = classOrder[b.classId] ?? 9999
+          if (orderA !== orderB) return sortDir === 'asc' ? orderA - orderB : orderB - orderA
+          va = `${a.lastName} ${a.firstName}`.toLowerCase()
+          vb = `${b.lastName} ${b.firstName}`.toLowerCase()
+        } else if (sortKey === 'parent') {
+          va = a.parentName.toLowerCase()
+          vb = b.parentName.toLowerCase()
+        } else if (sortKey === 'phone') {
+          va = a.parentPhone
+          vb = b.parentPhone
+        } else {
+          va = a[sortKey as 'total' | 'paid' | 'status']
+          vb = b[sortKey as 'total' | 'paid' | 'status']
+        }
+        if (va < vb) return sortDir === 'asc' ? -1 : 1
+        if (va > vb) return sortDir === 'asc' ? 1 : -1
+        return 0
+      })
+      const pageIds = derived.slice((page - 1) * perPage, page * perPage).map((d: any) => d.id)
+      if (pageIds.length) {
+        const { data: fullRows } = await supabase.from('students').select(STUDENT_ROW_SELECT).in('id', pageIds)
+        const byId = new Map((fullRows || []).map((r: any) => [r.id, r]))
+        studentRows = pageIds.map((id: string) => byId.get(id)).filter(Boolean)
+      }
+    } else {
+      // sortKey === 'name' with an invoice-status filter narrowing the id
+      // set — last_name/first_name are real columns, so the DB can order
+      // and paginate the already-filtered ids directly.
+      const matchingIds = derived.map((d: any) => d.id)
+      if (matchingIds.length) {
+        let q2 = supabase.from('students').select(STUDENT_ROW_SELECT).in('id', matchingIds)
+        q2 = applyNameSort(q2, sortDir)
+        q2 = q2.range((page - 1) * perPage, page * perPage - 1)
+        const { data } = await q2
+        studentRows = data || []
+      }
+    }
+  } else {
+    // sortKey === 'name', no invoice filter — a single query does
+    // filtering, ordering and pagination together.
+    let q = supabase.from('students').select(STUDENT_ROW_SELECT, { count: 'exact' }).eq('school_id', schoolId)
+    if (statusFilter !== 'all') q = q.eq('status', statusFilter)
+    if (classId) q = q.eq('class_id', classId)
+    if (search) q = q.or(studentSearchOrClause(search, searchFamilyIds))
+    q = applyNameSort(q, sortDir)
+    q = q.range((page - 1) * perPage, page * perPage - 1)
+    const { data, count } = await q
+    studentRows = data || []
+    total = count || 0
   }
 
-  const { data: students } = await studentsQuery.order('last_name')
+  if (studentRows.length === 0) return { ...emptyResult, ...tail, total }
 
-  if (!students) return {
-    students: [],
-    classes: classes || [],
-    currentTermName: currentCycle?.name || '',
-    classCount: classes?.length || 0,
-    statusCounts,
-    activeStatusFilter: statusFilter,
-    paymentsConfigured,
-    studentsWithoutDvaCount: studentsWithoutDvaCount || 0,
-  }
-
-  // Get invoices for current cycle
-  const studentIds = students.map(s => s.id)
+  // Invoice + outstanding-balance lookups, bounded to just this page's
+  // students (at most `perPage` ids) instead of the whole roster.
+  const studentIds = studentRows.map((s: any) => s.id)
   const [{ data: invoices }, { data: allOutstandingInvoices }] = await Promise.all([
     supabase
       .from('invoices')
@@ -135,23 +338,11 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
     outstandingBalanceByStudent[inv.student_id] = (outstandingBalanceByStudent[inv.student_id] || 0) + outstanding
   })
 
-  // Merge invoice data into students
-  const studentsWithStatus = students.map(student => {
-    const invoice = invoices?.find(inv => inv.student_id === student.id)
+  const studentsWithStatus = studentRows.map((student: any) => {
+    const invoice = invoices?.find((inv: any) => inv.student_id === student.id)
+    const base = mapStudentRow(student)
     return {
-      id: student.id,
-      firstName: student.first_name,
-      lastName: student.last_name,
-      admissionNumber: student.admission_number,
-      status: student.status,
-      // @ts-expect-error — joined object
-      className: student.classes?.name || '',
-      // @ts-expect-error — joined object
-      classId: student.classes?.id || '',
-      // @ts-expect-error — joined object
-      parentName: student.families?.primary_parent_name || '',
-      // @ts-expect-error — joined object
-      parentPhone: student.families?.primary_parent_phone || '',
+      ...base,
       // Net (post-credit) figures — matches the parent-facing invoice and the
       // school's own collection rule (a credit application isn't new money
       // collected this term, since it was already counted when the cash
@@ -173,13 +364,10 @@ export async function getStudents(statusFilter: 'active' | 'withdrawn' | 'gradua
 
   return {
     students: studentsWithStatus,
-    classes: classes || [],
-    currentTermName: currentCycle?.name || '',
-    classCount: classes?.length || 0,
-    statusCounts,
-    activeStatusFilter: statusFilter,
-    paymentsConfigured,
-    studentsWithoutDvaCount: studentsWithoutDvaCount || 0,
+    ...tail,
+    total,
+    page,
+    perPage,
   }
 }
 
@@ -339,6 +527,39 @@ export async function getStudentById(studentId: string) {
     canFullyRevokeDiscount = !currentInvoice.sent_at && Number(currentInvoice.paid_amount || 0) === 0
   }
 
+  // The current-cycle invoice may have no discount of its own (or not exist
+  // yet) while an earlier invoice does — e.g. a one-off discount applied last
+  // term. Without this, that discount becomes permanently unreachable from
+  // the UI. Only runs when the current invoice didn't already surface something.
+  let fallbackDiscountInvoiceId: string | null = null
+  if (revocableDiscounts.length === 0) {
+    const { data: latest } = await supabase
+      .from('discounts')
+      .select('invoice_id, invoices!inner(id, sent_at, paid_amount, generated_at)')
+      .eq('school_id', schoolId)
+      .eq('student_id', studentId)
+      .eq('status', 'applied')
+      .eq('is_recurring', false)
+      .not('requested_by', 'is', null)
+      .order('generated_at', { ascending: false, foreignTable: 'invoices' })
+      .limit(1)
+      .maybeSingle()
+    if (latest) {
+      const { data: fallbackRows } = await supabase
+        .from('discounts')
+        .select('id, category, reason')
+        .eq('school_id', schoolId)
+        .eq('invoice_id', (latest as any).invoice_id)
+        .eq('status', 'applied')
+        .eq('is_recurring', false)
+        .not('requested_by', 'is', null)
+      const fallbackInvoice = (latest as any).invoices
+      revocableDiscounts = (fallbackRows || []).map((row: any) => ({ id: row.id, category: row.category, reason: row.reason, isRecurring: false }))
+      canFullyRevokeDiscount = !fallbackInvoice?.sent_at && Number(fallbackInvoice?.paid_amount || 0) === 0
+      fallbackDiscountInvoiceId = (latest as any).invoice_id
+    }
+  }
+
   let siblingsWithStatus: Array<{
     id: string
     firstName: string
@@ -402,6 +623,7 @@ export async function getStudentById(studentId: string) {
     siblings: siblingsWithStatus,
     siblingsTotalCount: siblingsTotalCount || 0,
     currentTermName: currentCycle?.name || '',
+    currentCycleId: currentCycle?.id || null,
     currentInvoice: currentInvoice ? {
       id: currentInvoice.id,
       lineItems: currentInvoice.line_items || [],
@@ -419,6 +641,11 @@ export async function getStudentById(studentId: string) {
       canAddDiscount,
       canFullyRevokeDiscount,
     } : null,
+    // Same values as above when there's a current invoice (so they always
+    // agree); populated on their own when there's no current invoice at all.
+    fallbackDiscountInvoiceId,
+    fallbackDiscounts: revocableDiscounts,
+    fallbackCanFullyRevoke: canFullyRevokeDiscount,
     payments,
   }
 }
@@ -568,6 +795,9 @@ export interface StudentFeesData {
   expectedBill: number
   expectedDiscountAmount: number
   expectedDiscountReason: string
+  // Opt-out overages left "as-is" for a manual refund outside the app — see
+  // resolveDeferredOptOutOverage — pending someone marking them resolved.
+  unresolvedCredits: { id: string; feeItemName: string; amount: number; createdAt: string }[]
   existingInvoice: {
     id: string
     totalAmount: number
@@ -610,6 +840,21 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
 
   if (!studentData) return null
 
+  const { data: unresolvedCreditsData } = await supabase
+    .from('unresolved_credits')
+    .select('id, fee_item_name, amount, created_at')
+    .eq('school_id', schoolId)
+    .eq('student_id', studentId)
+    .is('resolved_at', null)
+    .order('created_at', { ascending: true })
+
+  const unresolvedCredits = (unresolvedCreditsData || []).map(c => ({
+    id: c.id,
+    feeItemName: c.fee_item_name,
+    amount: Number(c.amount),
+    createdAt: c.created_at,
+  }))
+
   const student = {
     id: studentData.id,
     firstName: studentData.first_name,
@@ -643,6 +888,7 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
       expectedCreditApplied: 0,
       expectedDiscountAmount: 0,
       expectedDiscountReason: '',
+      unresolvedCredits,
       existingInvoice: null,
     }
   }
@@ -810,6 +1056,7 @@ return {
     expectedCreditApplied,
     expectedDiscountAmount,
     expectedDiscountReason,
+    unresolvedCredits,
     existingInvoice: existingInvoiceInfo,
   }
 }

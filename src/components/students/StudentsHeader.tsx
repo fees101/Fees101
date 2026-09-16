@@ -57,7 +57,8 @@ export default function StudentsHeader({
         <div className="flex-1">
           <h1 className="text-3xl font-bold text-navy">Students</h1>
           <p className="text-gray-500 mt-2 text-sm">
-            {studentCount} {filterLabel.toLowerCase()} {studentCount === 1 ? 'student' : 'students'} across {classCount} {classCount === 1 ? 'class' : 'classes'} <span className="text-gray-400 font-bold">·</span> {currentTermName}
+            {studentCount} {filterLabel.toLowerCase()} {studentCount === 1 ? 'student' : 'students'} across {classCount} {classCount === 1 ? 'class' : 'classes'}
+            {currentTermName && <> <span className="text-gray-400 font-bold">·</span> {currentTermName}</>}
           </p>
         </div>
 
