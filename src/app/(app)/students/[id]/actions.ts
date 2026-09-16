@@ -123,8 +123,8 @@ export async function updateStudentDetails(studentId: string, formData: {
   const { error } = await supabase
     .from('students')
     .update({
-      first_name: formData.firstName,
-      last_name: formData.lastName,
+      first_name: formData.firstName.trim(),
+      last_name: formData.lastName.trim(),
       admission_number: formData.admissionNumber,
       class_id: formData.classId,
       admission_date: formData.admissionDate,
