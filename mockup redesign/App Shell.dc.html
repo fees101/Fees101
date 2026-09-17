@@ -65,6 +65,23 @@
   .chip-ink[data-on="1"] { background: #f3f2f2; border-color: #f3f2f2; color: #201e1d; }
   .chip:focus-visible, .chip-ink:focus-visible { outline: 2px solid #ec3013; outline-offset: 2px; }
 
+  .step { background: transparent; border: 0; border-right: 1px solid #d7d3d3; padding: 14px 16px; font-family: Archivo, sans-serif; text-align: left; cursor: pointer; color: #201e1d; transition: background 120ms linear; }
+  .step:last-child { border-right: 0; }
+  .step:hover { background: #eae7e7; }
+  .step[data-on="1"] { background: #201e1d; color: #f3f2f2; }
+  .step:focus-visible { outline: 2px solid #ec3013; outline-offset: -2px; }
+
+  .opt { display: flex; gap: 10px; padding: 11px 12px; border-bottom: 1px solid #d7d3d3; cursor: pointer; align-items: center; }
+  .opt:last-child { border-bottom: 0; }
+  .opt:hover { background: #eae7e7; }
+  .opt[data-on="1"] { background: #eae7e7; }
+  .opt .mk { width: 14px; height: 14px; border: 2px solid #201e1d; flex-shrink: 0; }
+  .opt[data-on="1"] .mk { background: #201e1d; box-shadow: inset 0 0 0 2px #fff; }
+
+  .txt { background: none; border: 0; padding: 0; font-family: Archivo, sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #605d5d; cursor: pointer; border-bottom: 1px solid transparent; transition: color 120ms linear, border-color 120ms linear; }
+  .txt:hover { color: #201e1d; border-bottom-color: #201e1d; }
+  .txt:focus-visible { outline: 2px solid #ec3013; outline-offset: 3px; }
+
   .trow { display: grid; align-items: baseline; cursor: pointer; transition: background 120ms cubic-bezier(.2,0,0,1); }
   .trow:hover { background: #eae7e7; }
   .trow-ink:hover { background: #2d2b2b; }
@@ -95,7 +112,9 @@
           <span class="cnt">{{ n.count }}</span>
         </button>
       </sc-for>
-      <p style="font-size: 10px; letter-spacing: 0.18em; color: #9b9797; margin: 18px 0 6px; padding: 0 16px;">CONFIGURE</p>
+      <sc-if value="{{ hasConfig }}" hint-placeholder-val="{{ true }}">
+        <p style="font-size: 10px; letter-spacing: 0.18em; color: #9b9797; margin: 18px 0 6px; padding: 0 16px;">CONFIGURE</p>
+      </sc-if>
       <sc-for list="{{ navConfig }}" as="n" hint-placeholder-count="2">
         <button class="nav-i" data-on="{{ n.on }}" onClick="{{ n.go }}">
           <span class="bar"></span>
@@ -111,12 +130,21 @@
     </button>
 
     <div style="border-top: 2px solid #444141; padding: 14px 16px;">
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span style="width: 32px; height: 32px; background: #ec3013; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; flex-shrink: 0;">AA</span>
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+        <span style="width: 32px; height: 32px; background: #ec3013; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; flex-shrink: 0;">{{ viewerInitials }}</span>
         <div style="min-width: 0;">
-          <p style="font-size: 13px; font-weight: 600; margin: 0; color: #f3f2f2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Abdullahi A.</p>
-          <p style="font-size: 11px; margin: 1px 0 0; color: #9b9797; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Owner · Grace Academy</p>
+          <p style="font-size: 13px; font-weight: 600; margin: 0; color: #f3f2f2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ viewerName }}</p>
+          <p style="font-size: 11px; margin: 1px 0 0; color: #9b9797; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ viewerRole }}</p>
         </div>
+      </div>
+      <div style="border-top: 1px dashed #605d5d; padding-top: 11px;">
+        <p style="font-size: 10px; letter-spacing: 0.16em; color: #9b9797; margin: 0 0 7px;">PREVIEW AS — DESIGN TOOL</p>
+        <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px;">
+          <sc-for list="{{ viewers }}" as="v" hint-placeholder-count="4">
+            <button class="chip-ink" data-on="{{ v.on }}" onClick="{{ v.go }}" style="padding: 4px 8px; font-size: 11px;">{{ v.label }}</button>
+          </sc-for>
+        </div>
+        <p style="font-size: 11px; color: #9b9797; margin: 0; line-height: 1.4;">{{ viewerCount }}</p>
       </div>
     </div>
   </aside>
@@ -178,8 +206,21 @@
             <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 12px;">NEXT — REWORK</p>
           </sc-if>
 
+          <sc-if value="{{ noTotals }}" hint-placeholder-val="{{ false }}">
+            <div style="border-top: 2px solid #201e1d; padding-top: 18px; margin-bottom: 28px;">
+              <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 8px;">COLLECTED · SECOND TERM</p>
+              <div style="border-left: 5px solid #d7d3d3; background: #eae7e7; padding: 18px 20px; max-width: 620px;">
+                <p style="font-size: 17px; font-weight: 700; margin: 0 0 5px;">Money figures are not part of your role.</p>
+                <p style="font-size: 14px; line-height: 1.55; color: #444141; margin: 0 0 4px;">You can see students, invoices and what each family owes — but not school-wide totals, collection rates or analytics. Nothing is hidden from you about a child; the aggregate view belongs to the bursar and the owner.</p>
+                <p style="font-size: 13px; color: #605d5d; margin: 0;">Needs the <strong>See financial totals</strong> key. Ask Mr Adeyemi or the owner.</p>
+              </div>
+              <p style="font-size: 13px; color: #605d5d; margin: 14px 0 0;">Your view covers {{ todayScope }}.</p>
+            </div>
+          </sc-if>
+
           <div style="display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 36px;">
             <div>
+              <sc-if value="{{ seeTotals }}" hint-placeholder-val="{{ true }}">
               <div style="border-top: 2px solid #201e1d; padding-top: 18px; margin-bottom: 28px;">
                 <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 16px;">
                   <div>
@@ -202,13 +243,20 @@
                   <span style="color: #605d5d;">37 days to term close</span>
                 </div>
               </div>
+              </sc-if>
 
               <div style="border-top: 2px solid #201e1d; padding-top: 18px;">
                 <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px;">
                   <h2 style="font-size: 22px; font-weight: 800; margin: 0;">Needs you</h2>
-                  <span style="font-size: 12px; letter-spacing: 0.08em; color: #605d5d;">4 ITEMS</span>
+                  <span style="font-size: 12px; letter-spacing: 0.08em; color: #605d5d;">{{ queueCount }}</span>
                 </div>
-                <p style="font-size: 14px; color: #444141; margin: 0 0 8px; max-width: 58ch;">Ordered by money at risk, not by recency. Everything here is one click from resolution.</p>
+                <p style="font-size: 14px; color: #444141; margin: 0 0 8px; max-width: 58ch;">{{ queueLede }}</p>
+                <sc-if value="{{ queueEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div style="border-top: 1px solid #d7d3d3; padding: 22px 0;">
+                    <p style="font-size: 15px; font-weight: 600; margin: 0 0 4px;">Nothing is waiting on you.</p>
+                    <p style="font-size: 14px; color: #444141; margin: 0; line-height: 1.5; max-width: 58ch;">Your role does not carry any of the actions that queue here. Your students and their balances are under Students.</p>
+                  </div>
+                </sc-if>
                 <sc-for list="{{ queue }}" as="q" hint-placeholder-count="4">
                   <div class="trow" style="grid-template-columns: minmax(0,1fr) auto auto; gap: 16px; padding: 14px 0; border-top: 1px solid #d7d3d3;">
                     <div style="min-width: 0;">
@@ -221,6 +269,7 @@
                 </sc-for>
               </div>
 
+              <sc-if value="{{ seeTotals }}" hint-placeholder-val="{{ true }}">
               <div style="border-top: 2px solid #201e1d; margin-top: 28px; padding-top: 18px;">
                 <h2 style="font-size: 22px; font-weight: 800; margin: 0 0 4px;">Collection by class</h2>
                 <p style="font-size: 14px; color: #444141; margin: 0 0 16px;">Green is collected, ochre is outstanding. Sorted worst first — the point of the chart is to find the problem class.</p>
@@ -235,9 +284,11 @@
                   </div>
                 </sc-for>
               </div>
+              </sc-if>
             </div>
 
             <div>
+              <sc-if value="{{ seeActivity }}" hint-placeholder-val="{{ true }}">
               <div style="border-top: 2px solid #201e1d; padding-top: 18px;">
                 <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px;">
                   <h2 style="font-size: 18px; font-weight: 800; margin: 0;">Record</h2>
@@ -253,6 +304,8 @@
                   </div>
                 </sc-for>
               </div>
+
+              </sc-if>
 
               <div style="border-top: 2px solid #201e1d; margin-top: 28px; padding-top: 18px;">
                 <h2 style="font-size: 18px; font-weight: 800; margin: 0 0 12px;">Term</h2>
@@ -329,6 +382,94 @@
                 <button class="bg">Older →</button>
               </div>
             </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showImport }}" hint-placeholder-val="{{ false }}">
+        <div style="animation: wipeUp 320ms cubic-bezier(.2,0,0,1) both;">
+          <div style="border-top: 2px solid #201e1d; padding-top: 18px; max-width: 900px;">
+            <h2 style="font-size: 25px; font-weight: 800; margin: 0 0 6px;">Import students from a spreadsheet</h2>
+            <p style="font-size: 15px; line-height: 1.5; color: #444141; margin: 0 0 22px; max-width: 74ch;">Four steps. Nothing is written until the last one, and the whole run is reversible for 24 hours.</p>
+
+            <div style="display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0; border-top: 2px solid #201e1d; border-bottom: 2px solid #201e1d; margin-bottom: 26px;">
+              <sc-for list="{{ impSteps }}" as="t" hint-placeholder-count="4">
+                <button class="step" data-on="{{ t.on }}" onClick="{{ t.go }}">
+                  <span style="font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: {{ t.ink }}; display: block; margin-bottom: 3px;">{{ t.n }}</span>
+                  <span style="font-size: 14px; font-weight: 600;">{{ t.label }}</span>
+                </button>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ impAt0 }}" hint-placeholder-val="{{ true }}">
+              <div style="border: 2px dashed #201e1d; background: #fff; padding: 36px 24px; margin-bottom: 20px;">
+                <p style="font-size: 17px; font-weight: 700; margin: 0 0 4px;">Drop your spreadsheet here</p>
+                <p style="font-size: 13px; color: #605d5d; margin: 0 0 16px; line-height: 1.5;">CSV or XLSX. One row per student. A header row is expected — the column names do not have to match ours.</p>
+                <button class="bo">Choose a file</button>
+              </div>
+              <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; align-items: center; border-top: 1px solid #d7d3d3; padding: 14px 0; border-bottom: 1px solid #d7d3d3; margin-bottom: 22px;">
+                <div>
+                  <p style="font-size: 14px; font-weight: 600; margin: 0 0 2px;">students-jan-2026.csv</p>
+                  <p style="font-size: 13px; color: #605d5d; margin: 0;">124 rows · 9 columns detected · read in 0.4s</p>
+                </div>
+                <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #0a6b3d;">READ</span>
+              </div>
+              <button class="bi" onClick="{{ impNext }}">Map the columns</button>
+            </sc-if>
+
+            <sc-if value="{{ impAt1 }}" hint-placeholder-val="{{ false }}">
+              <p style="font-size: 14px; color: #444141; margin: 0 0 14px; max-width: 74ch;">8 of 9 matched automatically. Confirm the one we guessed, or change any mapping.</p>
+              <div style="display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1.2fr) 110px; gap: 14px; padding: 0 0 8px; border-bottom: 2px solid #201e1d;">
+                <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; color: #605d5d;">YOUR COLUMN</span>
+                <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; color: #605d5d;">MAPS TO</span>
+                <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; color: #605d5d; text-align: right;">STATE</span>
+              </div>
+              <sc-for list="{{ impMap }}" as="m" hint-placeholder-count="9">
+                <div style="display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1.2fr) 110px; gap: 14px; padding: 10px 0; border-bottom: 1px solid #d7d3d3; align-items: baseline;">
+                  <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #444141;">{{ m.col }}</span>
+                  <span style="font-size: 14px; font-weight: 600;">{{ m.to }}</span>
+                  <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-align: right; color: {{ m.ink }};">{{ m.state }}</span>
+                </div>
+              </sc-for>
+              <div style="display: flex; gap: 10px; margin-top: 22px;">
+                <button class="bi" onClick="{{ impNext }}">Confirm mapping</button>
+                <button class="bo" onClick="{{ impBack }}">Back</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ impAt2 }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: baseline; border-bottom: 2px solid #201e1d; padding-bottom: 14px; margin-bottom: 4px;">
+                <div><p style="font-size: 11px; letter-spacing: 0.14em; color: #605d5d; margin: 0 0 4px;">READY</p><p style="font-size: 30px; font-weight: 800; margin: 0; color: #0a6b3d; font-variant-numeric: tabular-nums;">118</p></div>
+                <div><p style="font-size: 11px; letter-spacing: 0.14em; color: #605d5d; margin: 0 0 4px;">PROBLEMS</p><p style="font-size: 30px; font-weight: 800; margin: 0; color: #8a4805; font-variant-numeric: tabular-nums;">6</p></div>
+                <p style="font-size: 13px; color: #444141; margin: 0; max-width: 42ch; line-height: 1.5;">Problem rows are skipped, not guessed at. Fix them in the file and import again, or carry on without them.</p>
+              </div>
+              <sc-for list="{{ impProblems }}" as="p" hint-placeholder-count="6">
+                <div style="display: grid; grid-template-columns: 90px minmax(0,1.4fr) minmax(0,1.2fr); gap: 14px; padding: 11px 0; border-bottom: 1px solid #d7d3d3; align-items: baseline;">
+                  <span style="font-size: 13px; font-weight: 600; color: #8a4805;">{{ p.row }}</span>
+                  <span style="font-size: 14px;">{{ p.what }}</span>
+                  <span style="font-size: 13px; color: #605d5d;">{{ p.fix }}</span>
+                </div>
+              </sc-for>
+              <div style="display: flex; gap: 10px; margin-top: 22px;">
+                <button class="bi" onClick="{{ impNext }}">Continue with 118</button>
+                <button class="bo" onClick="{{ impBack }}">Back</button>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ impAt3 }}" hint-placeholder-val="{{ false }}">
+              <p style="font-size: 15px; line-height: 1.5; margin: 0 0 18px; max-width: 74ch;">This writes <strong>118 students</strong> and <strong>96 families</strong>. No invoices are generated — that stays a separate, deliberate step.</p>
+              <div style="border-top: 2px solid #201e1d;">
+                <div style="display: grid; grid-template-columns: minmax(0,1fr) 120px; gap: 16px; padding: 11px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 14px;">Students created</span><span style="font-size: 14px; text-align: right; font-variant-numeric: tabular-nums;">118</span></div>
+                <div style="display: grid; grid-template-columns: minmax(0,1fr) 120px; gap: 16px; padding: 11px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 14px;">Families linked</span><span style="font-size: 14px; text-align: right; font-variant-numeric: tabular-nums;">96</span></div>
+                <div style="display: grid; grid-template-columns: minmax(0,1fr) 120px; gap: 16px; padding: 11px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 14px;">Rows skipped</span><span style="font-size: 14px; text-align: right; color: #8a4805; font-variant-numeric: tabular-nums;">6</span></div>
+                <div style="display: grid; grid-template-columns: minmax(0,1fr) 120px; gap: 16px; padding: 11px 0; border-bottom: 2px solid #201e1d;"><span style="font-size: 14px;">Invoices generated</span><span style="font-size: 14px; text-align: right; color: #605d5d;">None</span></div>
+              </div>
+              <p style="font-size: 13px; color: #444141; margin: 16px 0 0; max-width: 74ch; line-height: 1.5;">Reversible for 24 hours from Team &amp; Trust → Audit log. After that, students must be removed one at a time.</p>
+              <div style="display: flex; gap: 10px; margin-top: 22px;">
+                <button class="bi" onClick="{{ impRun }}">Create 118 students</button>
+                <button class="bo" onClick="{{ impBack }}">Back</button>
+              </div>
+            </sc-if>
           </div>
         </div>
       </sc-if>
@@ -675,7 +816,7 @@
                 <p style="font-size: 13px; color: #605d5d; margin: 6px 0 0;">9 fees across 7 classes · before discounts</p>
               </div>
               <div style="display: flex; gap: 8px;">
-                <button class="bo">Add fee</button>
+                <button class="bi" onClick="{{ openNewFee }}">Add fee</button>
                 <button class="bi">Copy from last term</button>
               </div>
             </div>
@@ -777,7 +918,7 @@
                   <div style="text-align: right;">
                     <p style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; margin: 0 0 8px; color: {{ s.stateInk }};">{{ s.state }}</p>
                     <sc-if value="{{ s.action }}" hint-placeholder-val="{{ false }}">
-                      <button class="{{ s.btn }}">{{ s.action }}</button>
+                      <button class="{{ s.btn }}" onClick="{{ s.go }}">{{ s.action }}</button>
                     </sc-if>
                   </div>
                 </div>
@@ -1303,7 +1444,14 @@
                 </div>
                 <span style="font-size: 13px; color: #444141;">{{ r.b }}</span>
                 <span style="font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; color: {{ r.cInk }};">{{ r.c }}</span>
-                <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-align: right; color: {{ r.dInk }};">{{ r.d }}</span>
+                <div style="text-align: right;">
+                  <sc-if value="{{ r.live }}" hint-placeholder-val="{{ false }}">
+                    <button class="txt" onClick="{{ r.go }}">{{ r.d }}</button>
+                  </sc-if>
+                  <sc-if value="{{ r.static }}" hint-placeholder-val="{{ true }}">
+                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: {{ r.dInk }};">{{ r.d }}</span>
+                  </sc-if>
+                </div>
               </div>
             </sc-for>
             <sc-if value="{{ tblFoot }}" hint-placeholder-val="{{ false }}">
@@ -1325,7 +1473,14 @@
                   <p style="font-size: 13px; color: #605d5d; margin: 3px 0 0; line-height: 1.5;">{{ r.hint }}</p>
                 </div>
                 <p style="font-size: 14px; margin: 0; color: {{ r.ink }}; font-variant-numeric: tabular-nums;">{{ r.value }}</p>
-                <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #605d5d;">{{ r.action }}</span>
+                <div style="text-align: right;">
+                  <sc-if value="{{ r.live }}" hint-placeholder-val="{{ true }}">
+                    <button class="txt" onClick="{{ r.go }}">{{ r.action }}</button>
+                  </sc-if>
+                  <sc-if value="{{ r.static }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: #9b9797;">{{ r.action }}</span>
+                  </sc-if>
+                </div>
               </div>
             </sc-for>
           </div>
@@ -1337,6 +1492,15 @@
           <div style="border-top: 2px solid #201e1d; padding-top: 18px;">
             <h2 style="font-size: 25px; font-weight: 800; margin: 0 0 6px;">Who can do what</h2>
             <p style="font-size: 15px; line-height: 1.5; color: #444141; margin: 0 0 6px; max-width: 74ch;">Twenty-one permissions across four roles — the densest surface in the product. The catalog splits in two: nine SEE keys govern what a role can look at, twelve DO keys govern what it can change. Owner bypasses every switch and cannot be edited.</p>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 20px;">
+              <button class="bi" onClick="{{ openNewRole }}">Add a role</button>
+              <button class="bo">Export this matrix</button>
+            </div>
+            <div style="border-left: 5px solid #201e1d; padding: 12px 16px; background: #eae7e7; margin: 0 0 20px; max-width: 74ch;">
+              <p style="font-size: 13px; line-height: 1.55; margin: 0 0 6px;"><strong>Roles are the school's own, not ours.</strong> There is no fixed set — a school creates as many as it needs, and each one is these same 21 switches. The four below are only what a new school is seeded with.</p>
+              <p style="font-size: 13px; line-height: 1.55; margin: 0 0 6px;"><strong>Owner is a bypass, not a column of grants.</strong> A role flagged as owner clears every check regardless of its switches, so its dots are shown hollow — they are not doing the work.</p>
+              <p style="font-size: 13px; line-height: 1.55; margin: 0;"><strong>Changes land on the next click.</strong> Permissions are read per request, so a switch flipped here reaches that person without them signing out.</p>
+            </div>
             <p style="font-size: 14px; color: #444141; margin: 0 0 20px; max-width: 74ch;">Read down a column to understand a role, across a row to see who holds a power. A filled dot is granted, a dash is not.</p>
             <div style="overflow-x: auto;">
               <div style="display: grid; grid-template-columns: 296px repeat(4, 96px); gap: 12px; min-width: 728px; padding: 0 0 8px; border-bottom: 2px solid #201e1d;">
@@ -1353,7 +1517,12 @@
                 </sc-if>
                 <sc-if value="{{ p.isRow }}" hint-placeholder-val="{{ true }}">
                   <div class="trow" style="grid-template-columns: 296px repeat(4, 96px); gap: 12px; min-width: 728px; padding: 9px 0; border-bottom: 1px solid #d7d3d3;">
-                    <span style="font-size: 13px;">{{ p.name }}</span>
+                    <div style="min-width: 0;">
+                      <span style="font-size: 13px;">{{ p.name }}</span>
+                      <sc-if value="{{ p.hasDep }}" hint-placeholder-val="{{ false }}">
+                        <p style="font-size: 12px; color: #8a4805; margin: 2px 0 0; line-height: 1.45;">{{ p.dep }}</p>
+                      </sc-if>
+                    </div>
                     <sc-for list="{{ p.cells }}" as="c" hint-placeholder-count="4">
                       <span style="text-align: center; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: {{ c.ink }};">{{ c.v }}</span>
                     </sc-for>
@@ -1412,6 +1581,292 @@
         </div>
       </sc-if>
 
+      <sc-if value="{{ isNewFee }}" hint-placeholder-val="{{ false }}">
+        <div style="border-top: 2px solid #201e1d; padding-top: 16px;">
+          <div style="margin-bottom: 14px;">
+            <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">FEE NAME</span>
+            <input class="fi" style="width: 100%; box-sizing: border-box;" placeholder="Laboratory fee" />
+            <span style="display: block; font-size: 12px; color: #605d5d; margin-top: 4px; line-height: 1.45;">Parents see this exact wording as a line on their invoice.</span>
+          </div>
+
+          <div style="margin-bottom: 18px;">
+            <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">AMOUNT PER STUDENT</span>
+            <div style="display: flex; align-items: stretch;">
+              <span style="background: #201e1d; color: #f3f2f2; font-size: 14px; font-weight: 700; padding: 10px 12px; display: flex; align-items: center;">₦</span>
+              <input class="fi" style="flex: 1; min-width: 0; border-left: 0;" placeholder="7,500" />
+            </div>
+          </div>
+
+          <div style="margin-bottom: 18px;">
+            <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">HOW IT IS BILLED</span>
+            <div style="border: 2px solid #201e1d; background: #fff;">
+              <sc-for list="{{ feeKind }}" as="k" hint-placeholder-count="2">
+                <label class="opt" data-on="{{ k.on }}" onClick="{{ k.go }}" style="align-items: flex-start;">
+                  <span class="mk" style="margin-top: 2px;"></span>
+                  <span><span style="font-size: 14px; font-weight: 600; display: block;">{{ k.label }}</span><span style="font-size: 12px; color: #605d5d;">{{ k.hint }}</span></span>
+                </label>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 18px;">
+            <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">WHEN</span>
+            <div style="border: 2px solid #201e1d; background: #fff;">
+              <sc-for list="{{ feeWhen }}" as="w" hint-placeholder-count="3">
+                <label class="opt" data-on="{{ w.on }}" onClick="{{ w.go }}" style="align-items: flex-start;">
+                  <span class="mk" style="margin-top: 2px;"></span>
+                  <span><span style="font-size: 14px; font-weight: 600; display: block;">{{ w.label }}</span><span style="font-size: 12px; color: #605d5d;">{{ w.hint }}</span></span>
+                </label>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 18px;">
+            <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">WHICH CLASSES</span>
+            <div style="border-top: 1px solid #d7d3d3;">
+              <sc-for list="{{ newFeeClasses }}" as="c" hint-placeholder-count="7">
+                <label class="opt" data-on="{{ c.on }}" onClick="{{ c.go }}" style="padding: 8px 0; border-bottom: 1px solid #d7d3d3; justify-content: space-between;">
+                  <span style="display: flex; gap: 10px; align-items: center;">
+                    <span class="mk" style="background: {{ c.mark }};"></span>
+                    <span style="font-size: 14px;">{{ c.name }}</span>
+                  </span>
+                  <span style="font-size: 12px; color: #605d5d; font-variant-numeric: tabular-nums;">{{ c.n }}</span>
+                </label>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="border-top: 2px solid #201e1d; padding-top: 14px; margin-bottom: 18px;">
+            <p style="font-size: 11px; letter-spacing: 0.14em; color: #605d5d; margin: 0 0 10px;">WHAT THIS WILL DO</p>
+            <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px 16px; align-items: baseline;">
+              <span style="font-size: 14px;">Students billed</span>
+              <span style="font-size: 14px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums;">{{ feeHeads }}</span>
+              <span style="font-size: 14px;">Added to gross potential</span>
+              <span style="font-size: 14px; font-weight: 600; text-align: right; color: #0a6b3d; font-variant-numeric: tabular-nums;">{{ feeGross }}</span>
+              <span style="font-size: 14px;">Invoices already sent</span>
+              <span style="font-size: 14px; font-weight: 600; text-align: right; color: #8a4805;">{{ feeReissue }}</span>
+            </div>
+            <p style="font-size: 12px; color: #605d5d; margin: 12px 0 0; line-height: 1.5;">Adding a fee does not change an invoice a parent is already holding. You choose when to re-issue, from Fees → Cycles.</p>
+          </div>
+
+          <div style="display: flex; gap: 10px;">
+            <button class="bi" onClick="{{ saveFee }}" style="flex: 1;">Add fee</button>
+            <button class="bo" onClick="{{ closeDrawer }}">Cancel</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isNewRole }}" hint-placeholder-val="{{ false }}">
+        <div style="border-top: 2px solid #201e1d; padding-top: 16px;">
+          <div style="margin-bottom: 14px;">
+            <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">ROLE NAME</span>
+            <input class="fi" style="width: 100%; box-sizing: border-box;" placeholder="Senior clerk" />
+            <span style="display: block; font-size: 12px; color: #605d5d; margin-top: 4px; line-height: 1.45;">Staff see this name on their profile, so use the school's own word for the job.</span>
+          </div>
+
+          <div style="margin-bottom: 18px;">
+            <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">START FROM</span>
+            <div style="border: 2px solid #201e1d; background: #fff;">
+              <sc-for list="{{ roleBase }}" as="b" hint-placeholder-count="4">
+                <label class="opt" data-on="{{ b.on }}" onClick="{{ b.go }}">
+                  <span class="mk"></span>
+                  <span style="font-size: 14px;">{{ b.label }}</span>
+                </label>
+              </sc-for>
+            </div>
+            <span style="display: block; font-size: 12px; color: #605d5d; margin-top: 4px; line-height: 1.45;">Copying is safer than starting empty — you adjust from a role that already works.</span>
+          </div>
+
+          <div style="border-top: 2px solid #201e1d; padding-top: 14px; margin-bottom: 18px;">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px;">
+              <p style="font-size: 11px; letter-spacing: 0.14em; color: #605d5d; margin: 0;">PERMISSIONS</p>
+              <p style="font-size: 12px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums;">{{ roleCount }}</p>
+            </div>
+            <sc-for list="{{ roleKeys }}" as="k" hint-placeholder-count="23">
+              <sc-if value="{{ k.isGroup }}" hint-placeholder-val="{{ false }}">
+                <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.14em; margin: 14px 0 6px; padding-bottom: 5px; border-bottom: 1px solid #d7d3d3;">{{ k.group }}</p>
+              </sc-if>
+              <sc-if value="{{ k.isRow }}" hint-placeholder-val="{{ true }}">
+                <label class="opt" data-on="{{ k.on }}" onClick="{{ k.go }}" style="padding: 8px 0; border-bottom: 1px solid #d7d3d3;">
+                  <span class="mk" style="background: {{ k.mark }};"></span>
+                  <span style="font-size: 13px;">{{ k.name }}</span>
+                </label>
+              </sc-if>
+            </sc-for>
+          </div>
+
+          <div style="border-top: 1px solid #d7d3d3; padding-top: 14px; margin-bottom: 18px;">
+            <p style="font-size: 12px; color: #605d5d; margin: 0; line-height: 1.5;">Creating a role changes nothing on its own — no one holds it until you assign it from Users. Every grant is recorded in the audit log.</p>
+          </div>
+
+          <div style="display: flex; gap: 10px;">
+            <button class="bi" onClick="{{ saveRole }}" style="flex: 1;">Create role</button>
+            <button class="bo" onClick="{{ closeDrawer }}">Cancel</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isGeneric }}" hint-placeholder-val="{{ false }}">
+        <div style="border-top: 2px solid #201e1d; padding-top: 16px;">
+          <div style="margin-bottom: 16px;">
+            <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">CURRENT</span>
+            <div style="background: #eae7e7; border: 2px solid #d7d3d3; padding: 10px 12px; font-size: 14px;">{{ genValue }}</div>
+          </div>
+          <sc-if value="{{ genIsImage }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">NEW LOGO</span>
+              <div style="border: 2px dashed #201e1d; background: #fff; padding: 24px 18px;">
+                <p style="font-size: 14px; font-weight: 600; margin: 0 0 4px;">Drop an image here</p>
+                <p style="font-size: 12px; color: #605d5d; margin: 0 0 14px;">PNG or SVG · square · at least 512px</p>
+                <button class="bo">Choose a file</button>
+              </div>
+            </div>
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 6px;">HOW IT WILL PRINT</span>
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <div style="width: 56px; height: 56px; background: #eae7e7; border: 1px solid #d7d3d3; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #605d5d; flex-shrink: 0;">now</div>
+                <div style="width: 56px; height: 56px; background: #201e1d; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #9b9797; flex-shrink: 0;">mono</div>
+                <p style="font-size: 12px; color: #605d5d; margin: 0; line-height: 1.45;">Invoices print black and white. A logo that relies on colour disappears.</p>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ genIsText }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">NEW VALUE</span>
+              <input class="fi" style="width: 100%; box-sizing: border-box;" placeholder="{{ genPh }}" />
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ genIsArea }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">NEW ADDRESS</span>
+              <textarea class="fi" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;" placeholder="{{ genPh }}"></textarea>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ genIsMoney }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">NEW AMOUNT</span>
+              <div style="display: flex; align-items: stretch;">
+                <span style="background: #201e1d; color: #f3f2f2; font-size: 14px; font-weight: 700; padding: 10px 12px; display: flex; align-items: center;">₦</span>
+                <input class="fi" style="flex: 1; min-width: 0; border-left: 0;" placeholder="{{ genPh }}" />
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ genIsPercent }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">NEW RATE</span>
+              <div style="display: flex; align-items: stretch;">
+                <input class="fi" style="flex: 1; min-width: 0;" placeholder="{{ genPh }}" />
+                <span style="background: #201e1d; color: #f3f2f2; font-size: 14px; font-weight: 700; padding: 10px 12px; display: flex; align-items: center;">%</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ genIsChoice }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">CHOOSE ONE</span>
+              <div style="border: 2px solid #201e1d; background: #fff;">
+                <sc-for list="{{ genOpts }}" as="o" hint-placeholder-count="3">
+                  <label class="opt" data-on="{{ o.on }}" onClick="{{ o.go }}">
+                    <span class="mk"></span>
+                    <span style="font-size: 14px;">{{ o.label }}</span>
+                  </label>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ genIsMulti }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">TICK EVERYONE ALLOWED</span>
+              <div style="border: 2px solid #201e1d; background: #fff;">
+                <sc-for list="{{ genMulti }}" as="o" hint-placeholder-count="4">
+                  <label class="opt" data-on="{{ o.on }}" onClick="{{ o.go }}">
+                    <span class="mk" style="background: {{ o.mark }};"></span>
+                    <span style="font-size: 14px;">{{ o.label }}</span>
+                  </label>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ genIsClassList }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">CLASSES, IN PROMOTION ORDER</span>
+              <div style="border-top: 1px solid #d7d3d3;">
+                <sc-for list="{{ genClassList }}" as="c" hint-placeholder-count="7">
+                  <div style="display: grid; grid-template-columns: 26px minmax(0,1fr) auto; gap: 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid #d7d3d3;">
+                    <span style="font-size: 12px; font-weight: 700; color: #9b9797; font-variant-numeric: tabular-nums;">{{ c.pos }}</span>
+                    <span style="font-size: 14px; font-weight: 600;">{{ c.name }}</span>
+                    <span style="font-size: 12px; color: #605d5d; font-variant-numeric: tabular-nums;">{{ c.n }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 12px;">
+                <button class="bo" style="padding: 6px 12px; font-size: 12px;">Add a class</button>
+                <button class="bo" style="padding: 6px 12px; font-size: 12px;">Reorder</button>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ genIsBank }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 14px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">BANK</span>
+              <div style="border: 2px solid #201e1d; background: #fff;">
+                <sc-for list="{{ genBanks }}" as="b" hint-placeholder-count="5">
+                  <label class="opt" data-on="{{ b.on }}" onClick="{{ b.go }}">
+                    <span class="mk"></span>
+                    <span style="font-size: 14px;">{{ b.label }}</span>
+                  </label>
+                </sc-for>
+              </div>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">ACCOUNT NUMBER</span>
+              <input class="fi" style="width: 100%; box-sizing: border-box;" placeholder="0123456789" />
+            </div>
+            <div style="border: 2px solid #d7d3d3; background: #eae7e7; padding: 10px 12px; margin-bottom: 14px;">
+              <p style="font-size: 11px; letter-spacing: 0.1em; color: #605d5d; margin: 0 0 3px;">NAME ON ACCOUNT</p>
+              <p style="font-size: 14px; font-weight: 600; margin: 0;">GRACE ACADEMY LTD</p>
+              <p style="font-size: 12px; color: #605d5d; margin: 3px 0 0;">Verified with the bank. You cannot edit this — it comes from them.</p>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ genIsAssign }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">CLASS TEACHERS</span>
+              <div style="border-top: 1px solid #d7d3d3;">
+                <sc-for list="{{ genClasses }}" as="c" hint-placeholder-count="7">
+                  <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid #d7d3d3;">
+                    <span style="font-size: 14px; font-weight: 600;">{{ c.name }}</span>
+                    <span style="font-size: 13px; color: #605d5d;">{{ c.who }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="margin-bottom: 16px;">
+            <span style="display: block; font-size: 12px; color: #605d5d; line-height: 1.45;">{{ genNote }}</span>
+          </div>
+
+          <div style="margin-bottom: 18px;">
+            <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">REASON (OPTIONAL)</span>
+            <input class="fi" style="width: 100%; box-sizing: border-box;" placeholder="Shown in the audit log" />
+          </div>
+          <div style="border-top: 1px solid #d7d3d3; padding-top: 14px; margin-bottom: 18px;">
+            <p style="font-size: 12px; color: #605d5d; margin: 0; line-height: 1.5;">Recorded as <strong>Abdullahi A.</strong> in Team &amp; Trust → Audit log.</p>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="bi" onClick="{{ saveDrawer }}" style="flex: 1;">{{ genCta }}</button>
+            <button class="bo" onClick="{{ closeDrawer }}">Cancel</button>
+          </div>
+        </div>
+      </sc-if>
+
       <sc-if value="{{ isBulkSend }}" hint-placeholder-val="{{ false }}">
         <div style="border-top: 2px solid #201e1d; padding-top: 16px;">
           <p style="font-size: 11px; letter-spacing: 0.14em; color: #605d5d; margin: 0 0 8px;">WILL BE SENT</p>
@@ -1460,6 +1915,22 @@
     </aside>
   </sc-if>
 
+  <sc-if value="{{ dialogOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; inset: 0; z-index: 80; background: rgba(32,30,29,0.55); display: flex; align-items: center; justify-content: center; padding: 24px;">
+      <div style="background: #f3f2f2; border: 2px solid #201e1d; max-width: 520px; width: 100%; padding: 28px; animation: wipeUp 240ms cubic-bezier(.2,0,0,1) both;">
+        <h3 style="font-size: 24px; font-weight: 800; margin: 0 0 10px; letter-spacing: -0.01em;">{{ dialogTitle }}</h3>
+        <p style="font-size: 15px; line-height: 1.55; color: #444141; margin: 0 0 12px;">{{ dialogBody }}</p>
+        <div style="border-top: 2px solid #201e1d; padding-top: 14px; margin-bottom: 22px;">
+          <p style="font-size: 14px; line-height: 1.55; margin: 0;">{{ dialogDetail }}</p>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button class="{{ dialogBtn }}" onClick="{{ doConfirm }}">{{ dialogConfirm }}</button>
+          <button class="bo" onClick="{{ closeDialog }}">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
   <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
     <div style="position: fixed; left: 24px; bottom: 24px; z-index: 60; background: #201e1d; color: #f3f2f2; padding: 14px 18px; border-left: 5px solid #0a6b3d; max-width: 360px; animation: slabIn 320ms cubic-bezier(.2,0,0,1) both;">
       <p style="font-size: 14px; font-weight: 600; margin: 0;">{{ toastTitle }}</p>
@@ -1470,7 +1941,137 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900}}">
 class Component extends DCLogic {
-  state = { ws: 'today', mode: 0, stream: false, compare: false, job: 0, jobRunning: false, toast: false, filter: 1, rec: 0, per: 0, sub: 0, stu: false, inv: false, drawer: null };
+  state = { ws: 'today', mode: 0, stream: false, compare: false, job: 0, jobRunning: false, toast: false, filter: 1, rec: 0, per: 0, sub: 0, stu: false, inv: false, drawer: null, dialog: null, toastT: '', toastB: '', edits: {}, imp: 0 };
+
+  fire = (t, b) => {
+    clearTimeout(this._tt);
+    this.setState({ toast: true, toastT: t, toastB: b });
+    this._tt = setTimeout(() => this.setState({ toast: false }), 5200);
+  };
+
+  RUNS = {
+    'RUN NOW': {
+      title: 'Run reconciliation now?',
+      body: 'Matches every unmatched transfer received since the last run at 08:05.',
+      detail: 'Transfers that match an invoice exactly are settled automatically. Anything ambiguous is left for a person and appears in Money → Collections.',
+      confirm: 'Run now',
+      done: ['Reconciliation complete', '9 transfers matched · ₦412,000 settled. 2 left for review.'],
+    },
+    'PROVISION': {
+      title: 'Provision 56 accounts?',
+      body: '56 students have no account to pay into, so no transfer from their parents can reconcile.',
+      detail: 'Creates a virtual account per student with Monnify. Runs in the background and survives you leaving the page. Parents are not notified — the account appears on their next invoice.',
+      confirm: 'Provision 56',
+      done: ['Provisioning started', '56 accounts queued. This runs in the background; the stream will confirm.'],
+    },
+  };
+
+  toggleSetting = (row) => {
+    const now = (row.value || '').toLowerCase() === 'on';
+    const next = now ? 'Off' : 'On';
+    this.setState(st => ({ edits: Object.assign({}, st.edits, { [row.label]: next }) }));
+    this.fire(row.label + ' — ' + next.toLowerCase(),
+      now ? 'No parent will be chased automatically until this is turned back on.' : 'Automatic chasing resumes on the next scheduled run.');
+  };
+
+  openRow = (row) => {
+    const a = (row.action || '').toUpperCase();
+    if (a === 'FIXED') return;
+    if (a === 'TOGGLE') return this.toggleSetting(row);
+    if (this.RUNS[a]) return this.setState({ dialog: this.RUNS[a] });
+    if (a === 'REQUEST' || a === 'EXPORT' || a === 'ROTATE') {
+      this.setState({ dialog: {
+        title: a === 'EXPORT' ? 'Export everything' : row.label,
+        body: row.hint,
+        detail: a === 'EXPORT'
+          ? 'A CSV of every student, invoice, payment and audit entry. It contains parent phone numbers, so it is logged against your name.'
+          : 'This cannot be undone from inside Fees101. You will be asked to confirm again by email.',
+        confirm: a === 'EXPORT' ? 'Export now' : a === 'ROTATE' ? 'Rotate keys' : 'Request this change',
+        danger: a !== 'EXPORT',
+        done: a === 'EXPORT' ? ['Export started', '648 students · 3,204 invoices. The file will email to you in a few minutes.']
+          : ['Request sent', 'The owner has been notified and must approve before anything changes.'],
+      } });
+    } else {
+      this.setState({ genPick: null, genOn: null, drawer: Object.assign({ kind: 'generic', title: row.label, body: row.hint, value: row.value, action: a }, this.fieldFor(row.label)) });
+    }
+  };
+
+  FIELDS = {
+    'School logo': { field: 'image', note: 'Square, at least 512px. Appears on invoices, receipts and the parent portal. Printed in black and white on PDFs — check it still reads.' },
+    'School name': { field: 'text', ph: 'Grace Academy', note: 'Appears at the top of every invoice, receipt and parent message.' },
+    'Address': { field: 'area', ph: '14 Opebi Road, Ikeja, Lagos', note: 'Printed in the header of invoices and receipts.' },
+    'Terms per session': { field: 'number', ph: '3', note: 'Changing this does not alter terms that already exist.' },
+    'Current term': { field: 'choice', opts: ['First Term 2025/26', 'Second Term 2025/26 · closes 28 Mar', 'Third Term 2025/26'], note: 'New invoices are generated into whichever term is current.' },
+    'Classes': { field: 'classlist', note: 'Order matters — year-end promotion moves each student to the next class down this list.' },
+    'Current session': { field: 'choice', opts: ['2024/25', '2025/26', '2026/27'], note: 'Invoices are filed under the session current at the time they are generated.' },
+    'Provider': { field: 'choice', opts: ['Monnify · live', 'Paystack', 'Flutterwave', 'No provider — record payments by hand'], note: 'Switching provider does not move existing virtual accounts. Students keep the account they already have until you re-provision.' },
+    'Settlement account': { field: 'bank', note: 'Collected money lands here, usually the next working day. Changing it requires the owner to confirm by email.' },
+    'Advance reminder': { field: 'choice', opts: ['1 day before', '3 days before', '7 days before', '14 days before'], note: 'Sent once, to parents with anything outstanding.' },
+    'Overdue repeats': { field: 'choice', opts: ['Every 3 days', 'Every 7 days', 'Every 14 days', 'Never repeat'], note: 'The first SMS recovers 41% within seven days. A third adds almost nothing.' },
+    'Maximum overdue reminders': { field: 'choice', opts: ['1', '2 · recommended', '3', '5'], note: 'Chasing stops after this many, whatever the balance.' },
+    'Channel': { field: 'multi', opts: ['SMS', 'Email', 'WhatsApp'], on: ['SMS', 'Email'], note: 'SMS costs roughly ₦4 per parent per send. Email is free.' },
+    'Who can approve': { field: 'multi', opts: ['Owner', 'Bursar', 'Accounts clerk', 'Class teacher'], on: ['Owner', 'Bursar'], note: 'Anyone ticked can grant a discount up to the threshold below.' },
+    'Who can export': { field: 'multi', opts: ['Owner', 'Bursar', 'Accounts clerk', 'Class teacher'], on: ['Owner', 'Bursar'], note: 'Exports carry parent phone numbers. Every export is logged against a name.' },
+    'Approval threshold': { field: 'money', ph: '100,000', note: 'Above this amount the owner must approve, whoever raised it.' },
+    'Hardship expiry': { field: 'choice', opts: ['Expires at term end', 'Expires at session end', 'Never expires'], note: 'Controls whether a hardship discount rolls into the next cycle automatically.' },
+    'Data retention': { field: 'choice', opts: ['3 years, then archived', '7 years, then archived', 'Keep indefinitely'], note: 'Applies to graduated and withdrawn students only. Payments are always kept for the ledger.' },
+    'Sibling discount': { field: 'percent', ph: '15', note: 'Applied from the second child in a family. 84 students currently qualify.' },
+    'Staff children': { field: 'percent', ph: '50', note: 'Applied to children of any staff member on all fees.' },
+  };
+
+  fieldFor = (label) => {
+    const f = this.FIELDS[label];
+    if (f) return f;
+    const l = (label || '').toLowerCase();
+    if (/logo|crest|photo|image|picture/.test(l)) return { field: 'image', note: '' };
+    if (/provider|keys|account|bank/.test(l)) return { field: 'text', ph: '', note: 'Live credentials. Money cannot reach the school if these are wrong.' };
+    if (/threshold|amount|fee|₦/.test(l)) return { field: 'money', ph: '', note: '' };
+    if (/reminder|day|expiry|retention|term|cycle/.test(l)) return { field: 'choice', opts: ['Option A', 'Option B'], note: '' };
+    return { field: 'text', ph: '', note: '' };
+  };
+
+  CYCLE_ACTS = {
+    'Generate 8 missing': {
+      title: 'Generate 8 missing invoices?',
+      body: '8 students admitted after 12 January have no invoice for this term.',
+      detail: 'Each gets the standard Second Term structure for their class, minus any discount already on their record. Nothing is sent to parents until you send it.',
+      confirm: 'Generate 8',
+      done: ['8 invoices generated', 'Ready to send. They are unsent until you choose to send them.'],
+    },
+    'Send 14': {
+      title: 'Send 14 changed invoices?',
+      body: 'These 14 parents are holding figures that changed after the sibling-discount edit.',
+      detail: 'Email and SMS, with the current amount and the reason it changed. The old invoice is superseded, not deleted.',
+      confirm: 'Send 14 now',
+      done: ['14 invoices sent', 'Parents notified by email and SMS. 0 failures.'],
+    },
+    'Review close': {
+      title: 'Close Second Term?',
+      body: '214 students carry ₦4,182,500 forward onto next term.',
+      detail: 'This locks the term: no new invoices, no edits to existing ones. Unpaid balances are added to next term\u2019s invoice. It cannot be undone.',
+      confirm: 'Review the 214 first',
+      danger: true,
+      done: ['Close review opened', 'Nothing has changed yet — you are looking at what would move.'],
+    },
+  };
+
+  withCycleActions = (steps) => steps.map(x => {
+    const cfg = this.CYCLE_ACTS[x.action];
+    return Object.assign({}, x, { go: cfg ? () => this.setState({ dialog: cfg }) : () => {} });
+  });
+
+  saveDrawer = () => {
+    const d = this.state.drawer;
+    if (!d || typeof d !== 'object') return;
+    this.setState(st => ({ drawer: null, edits: Object.assign({}, st.edits, { [d.title]: true }) }));
+    this.fire(d.action === 'ASSIGN' ? 'Assigned' : 'Change saved', d.title + ' — recorded in the audit log against your name.');
+  };
+
+  confirmDialog = () => {
+    const g = this.state.dialog;
+    this.setState({ dialog: null });
+    if (g && g.done) this.fire(g.done[0], g.done[1]);
+  };
 
   componentWillUnmount() { clearInterval(this._t); }
 
@@ -1484,7 +2085,7 @@ class Component extends DCLogic {
         if (next >= 640) {
           clearInterval(this._t);
           setTimeout(() => this.setState({ toast: false }), 6000);
-          return { job: 640, jobRunning: false, toast: true };
+          return { job: 640, jobRunning: false, toast: true, toastT: '640 invoices sent', toastB: 'Parents notified by email and SMS. 0 failures.' };
         }
         return { job: next };
       });
@@ -1516,7 +2117,7 @@ class Component extends DCLogic {
     const k = s.ws + ':' + s.mode;
 
     const SEQ = {
-      'students:1': {
+      'students:1_retired': {
         title: 'Import students from a spreadsheet',
         body: 'Four steps, all visible at once, so you always know how far the import got and what it will create. Nothing is written until the last step — and the whole run is reversible for 24 hours.',
         warn: '', ledger: false,
@@ -1663,7 +2264,6 @@ class Component extends DCLogic {
         ['Current session', 'The academic year invoices belong to', '2025/26', ink, 'EDIT'],
         ['Terms per session', 'Determines how many billing cycles a year', '3', ink, 'EDIT'],
         ['Current term', 'Where new invoices are generated', 'Second Term · closes 28 Mar', ink, 'MANAGE'],
-        ['Class teachers', 'Controls which students a teacher can see', '5 of 7 assigned', ochre, 'ASSIGN'],
       ]},
       'school:2': { title: 'Payments', body: 'How money reaches the school. Without a provider, no student can be given an account to pay into.', rows: [
         ['Provider', 'Creates a virtual account per student', 'Monnify · live', green, 'CHANGE'],
@@ -1723,14 +2323,162 @@ class Component extends DCLogic {
       tblFigure: tbl ? tbl.figure : '', tblFigureLabel: tbl ? tbl.figureLabel : '', tblFigureInk: tbl ? tbl.figureInk : ink,
       tblFoot: tbl ? tbl.foot : '',
       tblHead: (tbl ? tbl.head : []).map(h => ({ label: h[0], align: h[1] })),
-      tblRows: (tbl ? tbl.rows : []).map(x => ({ a: x[0], aSub: x[1], b: x[2], c: x[3], cInk: x[4], dInk: x[7], d: x[6] })),
+      tblRows: (tbl ? tbl.rows : []).map(x => {
+        const r = { a: x[0], aSub: x[1], b: x[2], c: x[3], cInk: x[4], dInk: x[7], d: x[6] };
+        const act = (r.d || '').toUpperCase();
+        r.live = act === 'DECIDE' || act === 'REVIEW' || act === 'RESEND';
+        r.static = !r.live;
+        r.go = r.live ? () => this.setState({ dialog: {
+          title: act === 'DECIDE' ? 'Approve this discount?' : r.a,
+          body: r.a + ' — ' + r.b,
+          detail: act === 'DECIDE'
+            ? 'Approving reduces what this family owes by ' + r.c + ' for the current term, and re-issues their invoice. The parent is notified.'
+            : 'The parent is sent the current invoice again. Nothing about the amount changes.',
+          confirm: act === 'DECIDE' ? 'Approve ' + r.c : 'Resend',
+          danger: false,
+          done: act === 'DECIDE'
+            ? ['Discount approved', r.a + ' — ' + r.c + ' off this term. Invoice re-issued and the parent notified.']
+            : ['Invoice resent', r.a + ' — sent by email and SMS.'],
+        } }) : () => {};
+        return r;
+      }),
 
       secTitle: sec ? sec.title : '', secBody: sec ? sec.body : '',
-      secRows: (sec ? sec.rows : []).map(x => ({ label: x[0], hint: x[1], value: x[2], ink: x[3], action: x[4] })),
+      secRows: (sec ? sec.rows : []).map(x => {
+        const row = { label: x[0], hint: x[1], value: x[2], ink: x[3], action: x[4] };
+        const ed = s.edits[x[0]];
+        if (typeof ed === 'string') { row.value = ed; row.ink = ed === 'Off' ? '#605d5d' : '#0a6b3d'; }
+        row.live = row.action !== 'FIXED';
+        row.static = !row.live;
+        row.go = () => this.openRow(row);
+        return row;
+      }),
+
+      dialogOpen: !!s.dialog,
+      dialogTitle: s.dialog ? s.dialog.title : '',
+      dialogBody: s.dialog ? s.dialog.body : '',
+      dialogDetail: s.dialog ? s.dialog.detail : '',
+      dialogConfirm: s.dialog ? s.dialog.confirm : '',
+      dialogBtn: s.dialog && s.dialog.danger ? 'br' : 'bi',
+      closeDialog: () => this.setState({ dialog: null }),
+      doConfirm: this.confirmDialog,
 
       roles: ['Bursar', 'Clerk', 'Teacher', 'Owner'],
+      openNewFee: () => this.setState({ drawer: 'fee', feeCls: this.state.feeCls || this.DEFAULT_CLS() }),
+      isNewFee: s.drawer === 'fee',
+      feeKind: ['Compulsory', 'Opt-in'].map((label, i) => ({
+        label, hint: i === 0 ? 'Billed to every student in the classes you pick' : 'Only billed where a parent has opted the child in',
+        on: (s.feeKindI || 0) === i ? '1' : '0', go: () => this.setState({ feeKindI: i }),
+      })),
+      feeWhen: ['Every term', 'Once a session', 'This term only'].map((label, i) => ({
+        label, hint: ['Appears on all three invoices', 'First Term only', 'Does not carry into next session'][i],
+        on: (s.feeWhenI || 0) === i ? '1' : '0', go: () => this.setState({ feeWhenI: i }),
+      })),
+      newFeeClasses: this.CLASSES.map(c => {
+        const sel = (s.feeCls || this.DEFAULT_CLS())[c.name];
+        return { name: c.name, n: String(c.n), on: sel ? '1' : '0', mark: sel ? '#201e1d' : 'transparent',
+          go: () => this.setState(st => {
+            const cur = Object.assign({}, st.feeCls || this.DEFAULT_CLS());
+            if (cur[c.name]) { delete cur[c.name]; } else { cur[c.name] = true; }
+            return { feeCls: cur };
+          }) };
+      }),
+      feeHeads: this.feeHeadcount(s),
+      feeGross: '₦' + (this.feeHeadcount(s) * 7500).toLocaleString('en-NG'),
+      feeReissue: this.feeHeadcount(s) + ' need re-issuing',
+      saveFee: () => { const n = this.feeHeadcount(this.state); this.setState({ drawer: null }); this.fire('Fee added', 'Laboratory fee · ₦7,500 · ' + n + ' students. Invoices already sent are unchanged until you re-issue them.'); },
+
+      openNewRole: () => this.setState({ drawer: 'role' }),
+      isNewRole: s.drawer === 'role',
+      roleBase: ['Start from nothing', 'Copy Bursar', 'Copy Accounts clerk', 'Copy Class teacher'].map((o, i) => ({
+        label: o, on: (s.roleBaseI == null ? 2 : s.roleBaseI) === i ? '1' : '0',
+        go: () => this.setState({ roleBaseI: i, roleGrant: this.baseGrant(i) }),
+      })),
+      roleKeys: this.roleKeyList(s.roleGrant || this.baseGrant(s.roleBaseI == null ? 2 : s.roleBaseI)),
+      roleCount: Object.keys(s.roleGrant || this.baseGrant(s.roleBaseI == null ? 2 : s.roleBaseI)).length + ' of 21 granted',
+      saveRole: () => {
+        const n = Object.keys(this.state.roleGrant || this.baseGrant(2)).length;
+        this.setState({ drawer: null });
+        this.fire('Role created', 'Senior clerk — ' + n + ' of 21 keys granted. No one holds it yet; assign it from Users.');
+      },
       perms: this.permRows(),
     };
+  }
+
+  queueFor(v, ochre) {
+    const has = (k) => v.owner || v.keys.indexOf(k) >= 0;
+    const money = has('see-financial-totals');
+    const out = [];
+    if (has('manage-invoices')) out.push({ title: '14 invoices changed and not resent', sub: 'Sibling discount edited 2 days ago — parents hold old figures', amount: money ? '₦1,842,000' : '', state: 'NEEDS RESEND', ink: ochre });
+    if (has('manage-invoices')) out.push({ title: '38 invoices overdue past 14 days', sub: 'JSS 2 and SS 1 account for 24 of them', amount: money ? '₦1,502,500' : '', state: 'OVERDUE', ink: ochre });
+    if (has('approve-discounts')) out.push({ title: '7 discount requests awaiting you', sub: 'Raised by Mrs Okafor and 2 others', amount: money ? '₦412,000' : '', state: 'PENDING', ink: ochre });
+    if (has('manage-invoices')) out.push({ title: '8 students have no invoice this term', sub: 'Admitted after generation ran on 12 Jan', amount: money ? '₦156,000' : '', state: 'NOT BILLED', ink: ochre });
+    if (has('manage-students') && !has('manage-invoices')) out.push({ title: '6 students have no payment account', sub: 'Nothing their parents transfer can reconcile', amount: '', state: 'PROVISION', ink: ochre });
+    if (has('request-discounts') && !has('approve-discounts')) {
+      const scoped = v.scope.indexOf('JSS') >= 0;
+      out.push({ title: scoped ? '9 families in your classes are behind' : '31 families are behind on this term', sub: scoped ? 'JSS 2 and JSS 3 · unpaid 14 days or more' : 'Unpaid 14 days or more', amount: money ? '₦604,000' : '', state: 'CHASE', ink: ochre });
+      out.push({ title: '2 discount requests you raised', sub: 'Waiting on the bursar — no action needed from you', amount: '', state: 'WITH BURSAR', ink: '#605d5d' });
+    }
+    return out;
+  }
+
+  VIEWERS = [
+    { name: 'Abdullahi A.', initials: 'AA', role: 'Owner · Grace Academy', owner: true, keys: [],
+      scope: 'the whole school' },
+    { name: 'Mr Adeyemi', initials: 'AT', role: 'Bursar · Grace Academy', owner: false,
+      scope: 'the whole school',
+      keys: ['see-financial-totals', 'see-analytics', 'see-reports', 'see-students', 'see-discounts',
+        'see-fee-structure', 'see-invoices', 'see-activity', 'manage-students', 'manage-fee-structure',
+        'manage-invoices', 'request-discounts', 'approve-discounts', 'manage-academic-structure', 'manage-reminder-config'] },
+    { name: 'Mr Balogun', initials: 'BS', role: 'Accounts clerk · Grace Academy', owner: false,
+      scope: 'the whole school',
+      keys: ['see-students', 'see-discounts', 'see-fee-structure', 'see-invoices', 'see-activity',
+        'manage-students', 'request-discounts'] },
+    { name: 'Mrs Okafor', initials: 'ON', role: 'Class teacher · JSS 2, JSS 3', owner: false,
+      scope: 'JSS 2 and JSS 3 only',
+      keys: ['see-students', 'see-discounts', 'see-fee-structure', 'see-invoices', 'request-discounts'] },
+  ];
+
+  CLASSES = [
+    { name: 'Primary 1–3', n: 186 }, { name: 'Primary 4–6', n: 164 }, { name: 'JSS 1', n: 71 },
+    { name: 'JSS 2', n: 62 }, { name: 'JSS 3', n: 58 }, { name: 'SS 1', n: 54 }, { name: 'SS 2', n: 53 },
+  ];
+
+  DEFAULT_CLS = () => ({ 'Primary 1–3': true, 'Primary 4–6': true, 'JSS 1': true, 'JSS 2': true });
+
+  feeHeadcount = (s) => {
+    const sel = s.feeCls || this.DEFAULT_CLS();
+    return this.CLASSES.reduce((t, c) => t + (sel[c.name] ? c.n : 0), 0);
+  };
+
+  SEE_KEYS = ['See financial totals', 'See analytics', 'See & download reports', 'See students', 'See discounts', 'See fee structure & cycles', 'See invoices', 'See audit log', 'See recent activity'];
+  DO_KEYS = ['Add, edit & import students', 'Manage fee structure, sessions & cycles', 'Generate & send invoices', 'Request discounts', 'Approve discounts', 'Run year-end rollover', 'Manage school profile', 'Manage classes & sections', 'Manage payment provider settings', 'Manage discount policy', 'Manage reminder settings', 'Manage users & roles'];
+
+  baseGrant = (i) => {
+    const mk = (arr) => arr.reduce((o, k) => { o[k] = true; return o; }, {});
+    if (i === 0) return {};
+    if (i === 1) return mk(['See financial totals', 'See analytics', 'See & download reports', 'See students', 'See discounts', 'See fee structure & cycles', 'See invoices', 'See recent activity', 'Add, edit & import students', 'Manage fee structure, sessions & cycles', 'Generate & send invoices', 'Request discounts', 'Approve discounts', 'Manage classes & sections', 'Manage reminder settings']);
+    if (i === 3) return mk(['See students', 'See discounts', 'See fee structure & cycles', 'See invoices', 'Request discounts']);
+    return mk(['See financial totals', 'See students', 'See discounts', 'See fee structure & cycles', 'See invoices', 'See recent activity', 'Add, edit & import students', 'Request discounts', 'Generate & send invoices', 'Manage reminder settings', 'Manage classes & sections']);
+  };
+
+  toggleKey = (k) => this.setState(st => {
+    const base = st.roleGrant || this.baseGrant(st.roleBaseI == null ? 2 : st.roleBaseI);
+    const cur = Object.assign({}, base);
+    if (cur[k]) { delete cur[k]; } else { cur[k] = true; }
+    return { roleGrant: cur };
+  });
+
+  roleKeyList(granted) {
+    const g = granted || {};
+    const out = [];
+    const row = (n) => ({ isGroup: false, isRow: true, group: '', name: n, on: g[n] ? '1' : '0',
+      mark: g[n] ? '#201e1d' : 'transparent', go: () => this.toggleKey(n) });
+    out.push({ isGroup: true, isRow: false, group: 'SEE — VISIBILITY · 9 KEYS', name: '', on: '0', mark: 'transparent', go: () => {} });
+    this.SEE_KEYS.forEach(n => out.push(row(n)));
+    out.push({ isGroup: true, isRow: false, group: 'DO — ACTIONS · 12 KEYS', name: '', on: '0', mark: 'transparent', go: () => {} });
+    this.DO_KEYS.forEach(n => out.push(row(n)));
+    return out;
   }
 
   permRows() {
@@ -1749,12 +2497,19 @@ class Component extends DCLogic {
         ['Manage discount policy', 0, 0, 0], ['Manage reminder settings', 1, 0, 0], ['Manage users & roles', 0, 0, 0],
       ]],
     ];
+    const bypass = { v: '○', ink: '#9b9797' };
+    const DEPENDS = {
+      'See analytics': 'Trends and rates show. Actual money figures still need “See financial totals”.',
+      'See & download reports': 'The page opens. Reports carrying money columns still need “See financial totals”.',
+    };
     const out = [];
     P.forEach(g => {
       out.push({ isGroup: true, isRow: false, group: g[0] });
       g[1].forEach(r => out.push({
         isRow: true, isGroup: false, name: r[0],
-        cells: [r[1] ? on : off, r[2] ? on : off, r[3] ? on : off, all],
+        dep: DEPENDS[r[0]] || '',
+        hasDep: !!DEPENDS[r[0]],
+        cells: [r[1] ? on : off, r[2] ? on : off, r[3] ? on : off, bypass],
       }));
     });
     return out;
@@ -1768,16 +2523,51 @@ class Component extends DCLogic {
     const stub = this.STUB[s.ws];
     const ex = this.extra(s, cur);
 
+    const viewer = this.VIEWERS[s.as || 0];
+    const can = (k) => viewer.owner || viewer.keys.indexOf(k) >= 0;
     const nav = (key, label, count) => ({ label, count, on: s.ws === key ? '1' : '0', go: this.go(key) });
+    const navIf = (k, key, label, count) => can(k) ? [nav(key, label, can('see-financial-totals') ? count : '')] : [];
 
     const green = '#0a6b3d', ochre = '#8a4805', ink = '#201e1d', mid = '#444141', dim = '#605d5d';
 
     return {
-      navOperate: [
-        nav('today', 'Today', ''), nav('students', 'Students', '648'),
-        nav('fees', 'Fees', ''), nav('money', 'Money', '640'), nav('disc', 'Discounts', '7'),
-      ],
-      navConfig: [nav('school', 'School', ''), nav('team', 'Team & Trust', '')],
+      navOperate: [].concat(
+        [nav('today', 'Today', '')],
+        navIf('see-students', 'students', 'Students', '648'),
+        navIf('see-fee-structure', 'fees', 'Fees', ''),
+        navIf('see-invoices', 'money', 'Money', '640'),
+        navIf('see-discounts', 'disc', 'Discounts', '7'),
+      ),
+      navConfig: [].concat(
+        (can('manage-school-profile') || can('manage-academic-structure') || can('manage-payment-config')
+          || can('manage-reminder-config') || can('manage-discount-config')) ? [nav('school', 'School', '')] : [],
+        (can('manage-team') || can('see-audit-log')) ? [nav('team', 'Team & Trust', '')] : [],
+      ),
+      hasConfig: can('manage-school-profile') || can('manage-academic-structure') || can('manage-payment-config')
+        || can('manage-reminder-config') || can('manage-discount-config') || can('manage-team') || can('see-audit-log'),
+
+      viewers: this.VIEWERS.map((v, i) => ({
+        label: v.name, on: (s.as || 0) === i ? '1' : '0', go: () => this.setState({ as: i, ws: 'today', mode: 0 }),
+      })),
+      isRestricted: !viewer.owner,
+      scopeLine: viewer.name + ' sees ' + viewer.scope
+        + (can('see-financial-totals') ? ', including money figures.' : '. Money figures and school-wide totals are withheld.'),
+      scopeNote: s.ws === 'today'
+        ? 'Today is gated below — the queue, the totals and the record rail each follow their own key.'
+        : 'This surface is drawn at owner scope in the mock. In the build it filters to the line above.',
+      viewerName: viewer.name,
+      viewerRole: viewer.role,
+      viewerInitials: viewer.initials,
+      viewerCount: viewer.owner ? 'all 21 keys · owner bypass' : viewer.keys.length + ' of 21 keys',
+
+      seeTotals: can('see-financial-totals'),
+      noTotals: !can('see-financial-totals'),
+      seeActivity: can('see-activity'),
+      seeDiscounts: can('see-discounts'),
+      canApprove: can('approve-discounts'),
+      canInvoice: can('manage-invoices'),
+      seeStudents: can('see-students'),
+      todayScope: viewer.scope,
 
       crumb: cur.crumb, title: cur.title,
       modes: cur.modes.map((label, i) => ({ label, on: s.mode === i ? '1' : '0', go: this.setMode(i) })),
@@ -1805,10 +2595,58 @@ class Component extends DCLogic {
       closeDrawer: () => this.setState({ drawer: null }),
       isAddStudent: s.drawer === 'add',
       isBulkSend: s.drawer === 'send',
-      drawerTitle: s.drawer === 'add' ? 'Add a student' : 'Resend 14 changed invoices',
-      drawerBody: s.drawer === 'add'
+      isGeneric: !!s.drawer && typeof s.drawer === 'object',
+      genValue: (s.drawer && s.drawer.value) || '',
+      genNote: (s.drawer && s.drawer.note) || '',
+      genPh: (s.drawer && s.drawer.ph) || '',
+      genIsImage: !!s.drawer && s.drawer.field === 'image',
+      genIsText: !!s.drawer && (s.drawer.field === 'text' || s.drawer.field === 'number'),
+      genIsArea: !!s.drawer && s.drawer.field === 'area',
+      genIsMoney: !!s.drawer && s.drawer.field === 'money',
+      genIsPercent: !!s.drawer && s.drawer.field === 'percent',
+      genIsChoice: !!s.drawer && s.drawer.field === 'choice',
+      genIsMulti: !!s.drawer && s.drawer.field === 'multi',
+      genIsAssign: !!s.drawer && s.drawer.field === 'assign',
+      genIsClassList: !!s.drawer && s.drawer.field === 'classlist',
+      genIsBank: !!s.drawer && s.drawer.field === 'bank',
+      genBanks: ['Wema Bank', 'Access Bank', 'GTBank', 'Zenith Bank', 'First Bank'].map(b => ({
+        label: b, on: b === (s.genPick || 'Wema Bank') ? '1' : '0', go: () => this.setState({ genPick: b }),
+      })),
+      genClassList: this.CLASSES.map((c, i) => ({ name: c.name, n: String(c.n) + ' students', pos: String(i + 1) })),
+      genOpts: (s.drawer && s.drawer.opts ? s.drawer.opts : []).map(o => ({
+        label: o,
+        on: o === (s.genPick != null ? s.genPick : (s.drawer && s.drawer.value)) ? '1' : '0',
+        go: () => this.setState({ genPick: o }),
+      })),
+      genMulti: (s.drawer && s.drawer.opts ? s.drawer.opts : []).map(o => {
+        const on = (s.genOn || (s.drawer && s.drawer.on) || []).indexOf(o) >= 0;
+        return { label: o, on: on ? '1' : '0', mark: on ? '#201e1d' : 'transparent',
+          go: () => this.setState(st => {
+            const cur = (st.genOn || (st.drawer && st.drawer.on) || []).slice();
+            const at = cur.indexOf(o);
+            if (at >= 0) { cur.splice(at, 1); } else { cur.push(o); }
+            return { genOn: cur };
+          }) };
+      }),
+      genClasses: [
+        { name: 'Primary 1–3', who: 'Mrs Eze Grace' },
+        { name: 'Primary 4–6', who: 'Mr Balogun Sola' },
+        { name: 'JSS 1', who: 'Unassigned' },
+        { name: 'JSS 2', who: 'Mrs Okafor Nkechi' },
+        { name: 'JSS 3', who: 'Mrs Okafor Nkechi' },
+        { name: 'SS 1', who: 'Mr Danjuma Ali' },
+        { name: 'SS 2', who: 'Unassigned' },
+      ],
+      genCta: s.drawer && s.drawer.action === 'ASSIGN' ? 'Assign classes' : 'Save change',
+      saveDrawer: this.saveDrawer,
+      drawerTitle: (s.drawer && s.drawer.title) || (s.drawer === 'add' ? 'Add a student' : s.drawer === 'role' ? 'Create a role' : s.drawer === 'fee' ? 'Add a fee' : 'Resend 14 changed invoices'),
+      drawerBody: (s.drawer && s.drawer.body) || (s.drawer === 'fee'
+        ? 'A fee is a line on an invoice. Define it once, choose who it applies to, and see what it does to the term before you commit.'
+        : s.drawer === 'role'
+        ? 'Roles are the only way permissions are granted — there are no per-person exceptions. Twenty-one keys, nine of them about what a person can see.'
+        : s.drawer === 'add'
         ? 'One column, flush left. Only the five fields that matter are required — everything else can be filled in later from the profile.'
-        : 'Everything this will do, before it does it.',
+        : 'Everything this will do, before it does it.'),
       addFields: [
         { label: 'FIRST NAME', ph: 'Chidinma', hint: '' },
         { label: 'LAST NAME', ph: 'Adebayo', hint: '' },
@@ -1826,10 +2664,45 @@ class Component extends DCLogic {
         { name: 'Sanusi, Fatima', why: 'Hardship discount approved', amount: '₦602,000' },
         { name: 'Bello, Ibrahim', why: 'Bus opt-in added', amount: '₦267,000' },
       ],
-      toast: s.toast, toastTitle: '640 invoices sent', toastBody: 'Parents notified by email and SMS. 0 failures.',
+      toast: s.toast,
+      toastTitle: s.toastT || '640 invoices sent',
+      toastBody: s.toastB || 'Parents notified by email and SMS. 0 failures.',
 
       showToday: s.ws === 'today' && s.mode === 0,
       showRecord: s.ws === 'today' && s.mode === 1,
+
+      showImport: s.ws === 'students' && s.mode === 1,
+      impStep: s.imp || 0,
+      impAt0: (s.imp || 0) === 0, impAt1: (s.imp || 0) === 1,
+      impAt2: (s.imp || 0) === 2, impAt3: (s.imp || 0) === 3,
+      impSteps: ['Choose file', 'Map columns', 'Check rows', 'Create'].map((label, i) => ({
+        label, n: '0' + (i + 1),
+        on: (s.imp || 0) === i ? '1' : '0',
+        ink: (s.imp || 0) > i ? '#0a6b3d' : (s.imp || 0) === i ? '#201e1d' : '#9b9797',
+        go: () => this.setState({ imp: i }),
+      })),
+      impNext: () => this.setState(st => ({ imp: Math.min(3, (st.imp || 0) + 1) })),
+      impBack: () => this.setState(st => ({ imp: Math.max(0, (st.imp || 0) - 1) })),
+      impRun: () => { this.setState({ imp: 0 }); this.fire('118 students created', '96 families linked. No invoices generated — that is a separate step. Reversible for 24 hours.'); },
+      impMap: [
+        { col: 'admission_no', to: 'Admission number', state: 'MATCHED', ink: '#0a6b3d' },
+        { col: 'first_name', to: 'First name', state: 'MATCHED', ink: '#0a6b3d' },
+        { col: 'surname', to: 'Last name', state: 'MATCHED', ink: '#0a6b3d' },
+        { col: 'class', to: 'Class', state: 'MATCHED', ink: '#0a6b3d' },
+        { col: 'guardian_name', to: 'Parent name', state: 'MATCHED', ink: '#0a6b3d' },
+        { col: 'guardian_mobile', to: 'Parent phone', state: 'CONFIRM', ink: '#8a4805' },
+        { col: 'guardian_email', to: 'Parent email', state: 'MATCHED', ink: '#0a6b3d' },
+        { col: 'date_of_birth', to: 'Date of birth', state: 'MATCHED', ink: '#0a6b3d' },
+        { col: 'notes', to: 'Not imported', state: 'SKIPPED', ink: '#605d5d' },
+      ],
+      impProblems: [
+        { row: 'Row 14', what: 'Duplicate admission number GA/2019/0412', fix: 'Already belongs to Eze, Amaka' },
+        { row: 'Row 27', what: 'Duplicate admission number GA/2021/0188', fix: 'Already belongs to Musa, Halima' },
+        { row: 'Row 63', what: 'Duplicate admission number GA/2020/0091', fix: 'Already belongs to Bello, Ibrahim' },
+        { row: 'Row 88', what: 'Duplicate admission number GA/2022/0310', fix: 'Already belongs to Danjuma, Aisha' },
+        { row: 'Row 101', what: 'No class given', fix: 'Set a class in the file, or assign after import' },
+        { row: 'Row 119', what: 'No class given', fix: 'Set a class in the file, or assign after import' },
+      ],
       recFilters: ['All 38', 'Payments 12', 'Invoices 9', 'Messages 11', 'Discounts 4', 'Students 2'].map((label, i) => ({
         label, on: s.rec === i ? '1' : '0', go: () => this.setState({ rec: i }),
       })),
@@ -1938,7 +2811,7 @@ class Component extends DCLogic {
         { isRow: true, isSession: false, name: 'Third Term', dates: '14 Apr – 18 Jul 2025', billed: '₦9,840,000', collected: '₦9,840,000', paidInk: '#0a6b3d', rate: '100%', state: 'CLOSED', stateInk: '#605d5d', mark: '#d7d3d3' },
         { isRow: true, isSession: false, name: 'Second Term', dates: '09 Jan – 04 Apr 2025', billed: '₦9,420,000', collected: '₦9,186,000', paidInk: '#0a6b3d', rate: '98%', state: 'CLOSED', stateInk: '#605d5d', mark: '#d7d3d3' },
       ],
-      cycleSteps: [
+      cycleSteps: this.withCycleActions([
         { n: '01', title: 'Invoices generated', body: '640 of 648 students. 8 were admitted after generation ran on 12 January and still have no invoice.',
           state: 'DONE · 12 JAN', stateInk: '#0a6b3d', numInk: '#0a6b3d', titleInk: '#201e1d', hasBar: true, pct: '99%', barInk: '#0a6b3d', action: 'Generate 8 missing', btn: 'bo' },
         { n: '02', title: 'Invoices sent to parents', body: '626 sent by email and SMS. 14 were regenerated after the sibling-discount change and have not been resent — those parents are holding old figures.',
@@ -1947,7 +2820,7 @@ class Component extends DCLogic {
           state: '61% · IN PROGRESS', stateInk: '#201e1d', numInk: '#ec3013', titleInk: '#201e1d', hasBar: true, pct: '61%', barInk: '#0a6b3d', action: '', btn: '' },
         { n: '04', title: 'Close the term', body: 'Carries every unpaid balance forward onto next term\u2019s invoice and locks this one. You will see exactly which 214 students and what ₦4,182,500 moves before anything happens — and it cannot be undone afterwards.',
           state: 'NOT YET', stateInk: '#605d5d', numInk: '#9b9797', titleInk: '#605d5d', hasBar: false, pct: '0%', barInk: '#d7d3d3', action: 'Review close', btn: 'bo' },
-      ],
+      ]),
       sub0: s.sub === 0, sub1: s.sub === 1, sub2: s.sub === 2,
       subs: ['Position', 'Breakdown', 'Forecast & chasing'].map((label, i) => ({
         label, on: s.sub === i ? '1' : '0',
@@ -2027,7 +2900,13 @@ class Component extends DCLogic {
       f1: s.filter === 1 ? '1' : '0', f2: s.filter === 2 ? '1' : '0', f3: s.filter === 3 ? '1' : '0',
       setF1: () => this.setState({ filter: 1 }), setF2: () => this.setState({ filter: 2 }), setF3: () => this.setState({ filter: 3 }),
 
-      queue: [
+      queue: this.queueFor(viewer, ochre),
+      queueCount: this.queueFor(viewer, ochre).length + ' ITEMS',
+      queueEmpty: this.queueFor(viewer, ochre).length === 0,
+      queueLede: viewer.owner || can('see-financial-totals')
+        ? 'Ordered by money at risk, not by recency. Everything here is one click from resolution.'
+        : 'Only what you can act on, for ' + viewer.scope + '. Amounts are withheld by your role, so items are ordered by how long they have waited.',
+      queueOld: [
         { title: '14 invoices changed and not resent', sub: 'Sibling discount edited 2 days ago — parents hold old figures', amount: '₦1,842,000', state: 'NEEDS RESEND', ink: ochre },
         { title: '38 invoices overdue past 14 days', sub: 'JSS 2 and SS 1 account for 24 of them', amount: '₦1,502,500', state: 'OVERDUE', ink: ochre },
         { title: '7 discount requests awaiting you', sub: 'Raised by Mrs Okafor and 2 others', amount: '₦412,000', state: 'PENDING', ink: ochre },

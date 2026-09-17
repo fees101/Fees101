@@ -472,13 +472,117 @@
 
   <sc-if value="{{ isInvite }}" hint-placeholder-val="{{ false }}">
     <div style="border-top: 2px solid #201e1d; padding-top: 24px;">
-      <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 10px;">PHASE 08 — NOT YET DESIGNED</p>
-      <h2 style="font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 14px; max-width: 24ch;">Staff invite and set-password.</h2>
-      <p style="font-size: 16px; line-height: 1.55; max-width: 64ch; margin: 0 0 22px; color: #444141;">The one message that goes to staff rather than parents, and the screen it lands on. It's a different job from the parent messages — it carries a credential and a security expectation — so it's grouped with the auth surfaces in Phase 08 rather than designed here.</p>
-      <div style="border-top: 1px solid #d7d3d3; max-width: 620px;">
-        <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; padding: 11px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 14px; font-weight: 600;">Invite email</span><span style="font-size: 12px; letter-spacing: 0.08em; color: #605d5d;">composeInvite.ts</span></div>
-        <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; padding: 11px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 14px; font-weight: 600;">Set-password screen</span><span style="font-size: 12px; letter-spacing: 0.08em; color: #605d5d;">/set-password</span></div>
-        <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; padding: 11px 0; border-bottom: 1px solid #d7d3d3;"><span style="font-size: 14px; font-weight: 600;">Supabase auth templates</span><span style="font-size: 12px; letter-spacing: 0.08em; color: #605d5d;">docs/supabase-email-templates.txt</span></div>
+      <p style="font-size: 11px; letter-spacing: 0.16em; color: #605d5d; margin: 0 0 10px;">PHASE 08 — STAFF INVITE</p>
+      <h2 style="font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 14px; max-width: 24ch;">Short, because it has to arrive.</h2>
+      <p style="font-size: 16px; line-height: 1.55; max-width: 66ch; margin: 0 0 28px; color: #444141;">This is the only message that carries a credential, so it is the one most likely to be filtered. Every extra paragraph, every second link and every image is a reason for it to land in spam. One sentence of context, one button, one line of reassurance — nothing else.</p>
+
+      <div style="display: flex; gap: 32px; flex-wrap: wrap; align-items: flex-start;">
+
+        <div style="width: 560px; max-width: 100%;">
+          <p style="font-size: 11px; letter-spacing: 0.14em; color: #605d5d; margin: 0 0 10px;">THE EMAIL</p>
+          <div style="background: #fff; border: 2px solid #201e1d;">
+            <div style="border-bottom: 1px solid #d7d3d3; padding: 14px 28px; background: #f3f2f2;">
+              <p style="font-size: 12px; color: #605d5d; margin: 0 0 3px;">From: Grace Academy &lt;fees@graceacademy.ng&gt;</p>
+              <p style="font-size: 13px; font-weight: 600; margin: 0;">Mr Adeyemi has added you to Fees101</p>
+            </div>
+            <div style="padding: 28px 28px 30px;">
+              <div style="display: flex; align-items: baseline; gap: 9px; margin-bottom: 24px;">
+                <span style="font-weight: 800; font-size: 14px; letter-spacing: 0.14em;">FEES101</span>
+                <span style="width: 24px; height: 2px; background: #ec3013; display: inline-block;"></span>
+              </div>
+              <p style="font-size: 15px; line-height: 1.6; margin: 0 0 18px;">Nkechi — Mr Adeyemi Tunde has given you a <strong>Class teacher</strong> account for Grace Academy on Fees101, where the school tracks fees.</p>
+              <a href="#" style="display: inline-block; background: #201e1d; color: #f3f2f2; border: 2px solid #201e1d; padding: 13px 22px; font-size: 15px; font-weight: 600; text-decoration: none;">Set your password</a>
+              <p style="font-size: 13px; line-height: 1.6; color: #605d5d; margin: 18px 0 0;">The link expires in 7 days. If you weren't expecting this, ignore it — nothing happens until you set a password.</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="width: 440px; max-width: 100%;">
+          <p style="font-size: 11px; letter-spacing: 0.14em; color: #605d5d; margin: 0 0 10px;">AND THE SCREEN IT LANDS ON</p>
+          <div style="background: #f3f2f2; border: 2px solid #201e1d; padding: 28px;">
+            <div style="display: flex; align-items: baseline; gap: 9px; margin-bottom: 26px;">
+              <span style="font-weight: 800; font-size: 14px; letter-spacing: 0.14em;">FEES101</span>
+              <span style="width: 24px; height: 2px; background: #ec3013; display: inline-block;"></span>
+            </div>
+            <h3 style="font-size: 28px; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 14px;">Set a password, Nkechi.</h3>
+            <div style="border-top: 2px solid #201e1d; border-bottom: 1px solid #d7d3d3; padding: 12px 0; margin-bottom: 20px;">
+              <div style="display: grid; grid-template-columns: 92px minmax(0,1fr); gap: 9px 14px; font-size: 13px; align-items: baseline;">
+                <span style="color: #605d5d; font-size: 11px; font-weight: 600; letter-spacing: 0.06em;">SCHOOL</span><span style="font-weight: 600;">Grace Academy</span>
+                <span style="color: #605d5d; font-size: 11px; font-weight: 600; letter-spacing: 0.06em;">INVITED BY</span><span>Mr Adeyemi Tunde</span>
+                <span style="color: #605d5d; font-size: 11px; font-weight: 600; letter-spacing: 0.06em;">ROLE</span><span>Class teacher · JSS 2, JSS 3</span>
+              </div>
+            </div>
+            <div style="margin-bottom: 16px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">NEW PASSWORD</span>
+              <input class="fi" type="password" placeholder="At least 10 characters" style="width: 100%; box-sizing: border-box;" />
+              <div style="display: flex; gap: 4px; margin-top: 8px;">
+                <div style="height: 4px; flex: 1; background: #0a6b3d;"></div>
+                <div style="height: 4px; flex: 1; background: #0a6b3d;"></div>
+                <div style="height: 4px; flex: 1; background: #0a6b3d;"></div>
+                <div style="height: 4px; flex: 1; background: #d7d3d3;"></div>
+              </div>
+              <span style="display: block; font-size: 12px; color: #605d5d; margin-top: 5px; line-height: 1.45;">Cannot be your name, your email, or the school name.</span>
+            </div>
+            <div style="margin-bottom: 20px;">
+              <span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; margin-bottom: 5px;">CONFIRM PASSWORD</span>
+              <input class="fi" type="password" placeholder="Type it again" style="width: 100%; box-sizing: border-box;" />
+            </div>
+            <button class="bi" style="width: 100%;">Set password and sign in</button>
+            <p style="font-size: 12px; color: #605d5d; margin: 14px 0 0; line-height: 1.5;">Actions you take are recorded in the school's audit log against your name.</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top: 2px solid #201e1d; margin-top: 40px; padding-top: 20px; max-width: 900px;">
+        <p style="font-size: 11px; letter-spacing: 0.14em; color: #605d5d; margin: 0 0 14px;">DELIVERABILITY RULES — THESE ARE THE DESIGN</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 32px;">
+          <div style="padding: 12px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px;">One link, and it is the button</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">No footer links, no unsubscribe, no help centre. A second URL in a credential email is a spam signal.</p>
+          </div>
+          <div style="padding: 12px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px;">No images at all</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">The mark is live text and a 2px red rule. Nothing to block, nothing to fail to load.</p>
+          </div>
+          <div style="padding: 12px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px;">Sent from the school, not from us</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">From name is the school. The inviter is named in the subject and the first sentence so it reads as a colleague.</p>
+          </div>
+          <div style="padding: 12px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px;">Role and scope are on the screen, not in the mail</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">The email says the role in three words. Everything else waits for the landing page, which cannot be filtered.</p>
+          </div>
+          <div style="padding: 12px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px;">Plain-text part is mandatory</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">Same four sentences, the URL on its own line. HTML-only lands in spam.</p>
+          </div>
+          <div style="padding: 12px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px;">Archivo will not render</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">Stack falls back to Helvetica Neue, Arial. This is the one surface where that is accepted.</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid #d7d3d3; margin-top: 28px; padding-top: 16px; max-width: 900px;">
+        <p style="font-size: 11px; letter-spacing: 0.14em; color: #605d5d; margin: 0 0 10px;">EDGE STATES · SAME SCREEN GEOMETRY, HEADLINE AND ACTION CHANGE</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 0 32px;">
+          <div style="padding: 11px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px; color: #8a4805;">Expired</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">"This invite expired on 22 March." → Request a new invite. Role and classes are already saved.</p>
+          </div>
+          <div style="padding: 11px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px;">Already accepted</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">"You already have an account." → Sign in · Forgot password.</p>
+          </div>
+          <div style="padding: 11px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px; color: #8a4805;">Withdrawn</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">"This invite was withdrawn." No action — speak to the inviter, who is named.</p>
+          </div>
+          <div style="padding: 11px 0; border-bottom: 1px solid #d7d3d3;">
+            <p style="font-size: 14px; font-weight: 600; margin: 0 0 3px;">Weak password</p>
+            <p style="font-size: 13px; color: #444141; margin: 0; line-height: 1.5;">Inline under the field in #8A4805, never a toast: "That is the school's name. Anyone guessing would try it first."</p>
+          </div>
+        </div>
       </div>
     </div>
   </sc-if>
