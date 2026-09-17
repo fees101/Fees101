@@ -1,0 +1,158 @@
+/* Fees101 — drop-in replacement for the token + base layer of app/globals.css.
+   Paste above the Tailwind layers. Do not edit values; they are the design. */
+
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap');
+
+:root {
+  --bg: #f3f2f2;
+  --surface: #ffffff;
+  --ink: #201e1d;
+  --ink-2: #444141;
+  --ink-3: #605d5d;
+
+  --rule: #201e1d;
+  --rule-soft: #d7d3d3;
+  --rule-faint: rgba(32, 30, 29, 0.4);
+
+  --red: #ec3013;
+  --red-press: #dd2b0f;
+  --red-text: #ae1800;
+  --red-hairline: #ffc4b8;
+
+  --green: #0a6b3d;
+  --green-on-ink: #35c483;
+
+  --ochre: #b45f06;
+
+  --hover-tint: #eae7e7;
+  --ink-hover: #444141;
+  --ink-press: #000000;
+
+  --font-sans: Archivo, system-ui, sans-serif;
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+  --space-13: 52px; --space-14: 56px; --space-30: 120px;
+
+  --shell-max: 1240px;
+  --radius: 0px;
+}
+
+* { border-radius: 0 !important; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { font-weight: 800; letter-spacing: -0.01em; margin: 0; }
+h1 { font-size: clamp(44px, 7vw, 88px); line-height: 0.94; letter-spacing: -0.03em; }
+h2 { font-size: 32px; line-height: 1.1; }
+h3 { font-size: 22px; line-height: 1.2; }
+p  { margin: 0; text-wrap: pretty; }
+
+.lead  { font-size: 19px; line-height: 1.45; max-width: 64ch; }
+.body  { font-size: 16px; line-height: 1.5; max-width: 68ch; }
+.meta  { font-size: 12px; color: var(--ink-3); }
+.eyebrow {
+  font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.label-sm {
+  font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.wordmark {
+  font-size: 15px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
+}
+
+/* every money figure, everywhere */
+.num, td.num, .amount { font-variant-numeric: tabular-nums; }
+
+/* --- money semantics: the only three hues in the product --- */
+.is-paid     { color: var(--green); }
+.is-followup { color: var(--ochre); }
+.is-brand    { color: var(--red-text); }   /* red text under 20px uses this */
+
+/* --- structure --- */
+.shell { max-width: var(--shell-max); margin: 0 auto; padding: 0 var(--space-6); }
+.rule       { height: 2px; background: var(--rule); border: 0; }
+.rule-soft  { height: 1px; background: var(--rule-soft); border: 0; }
+.section    { border-top: 2px solid var(--rule); padding: var(--space-13) 0; }
+.row        { border-bottom: 1px solid var(--rule-soft); padding: var(--space-5) 0; }
+.cell       { background: var(--bg); border: 1px solid var(--rule-faint); padding: 22px; }
+
+/* --- controls --- */
+.btn-ink, .btn-out, .btn-red, .btn-ghost {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 10px 18px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms linear;
+}
+.btn-ink   { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn-ink:hover  { background: var(--ink-hover); }
+.btn-ink:active { background: var(--ink-press); }
+
+.btn-out   { background: transparent; color: var(--ink); border-color: var(--ink); }
+.btn-out:hover { background: var(--hover-tint); }
+
+.btn-red   { background: var(--red); color: #fff; border-color: var(--red); }
+.btn-red:hover { background: var(--red-press); }
+
+.btn-ghost { background: transparent; color: var(--ink); }
+.btn-ghost:hover { background: var(--hover-tint); }
+
+.btn-ink:disabled, .btn-out:disabled, .btn-red:disabled, .btn-ghost:disabled {
+  opacity: 0.45; cursor: not-allowed;
+}
+
+.fin {
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  padding: 10px 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--ink);
+  width: 100%;
+}
+.fin::placeholder { color: var(--ink-3); }
+
+:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+
+a { color: var(--red-text); text-decoration: none; border-bottom: 1px solid var(--red-hairline); }
+a:hover { color: var(--red); border-bottom-color: var(--red); }
+
+::selection { background: var(--red); color: #fff; }
+
+/* --- imagery --- */
+.grayscale img, img.grayscale { filter: grayscale(1) contrast(1.05); }
+
+/* --- motion: these two only --- */
+@keyframes ruleIn    { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes sweepRule { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+
+.rule-animate {
+  transform-origin: left;
+  animation: ruleIn 700ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+.loading-rule { position: relative; height: 2px; background: var(--rule-soft); overflow: hidden; }
+.loading-rule::after {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 30%;
+  background: var(--red); animation: sweepRule 1200ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
