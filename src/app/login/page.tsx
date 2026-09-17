@@ -51,11 +51,14 @@ export default function LoginPage() {
           </label>
 
           <label className="flex flex-col gap-2 text-sm text-gray-700 font-medium">
-            Password
-            <input 
-              type="password" 
-              name="password" 
-              required 
+            <div className="flex items-center justify-between">
+              Password
+              <a href="/forgot-password" className="text-mint text-xs font-semibold hover:underline">Forgot password?</a>
+            </div>
+            <input
+              type="password"
+              name="password"
+              required
               placeholder="••••••••"
               className="px-3.5 py-3 border border-gray-300 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20"
             />

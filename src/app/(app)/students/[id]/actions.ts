@@ -79,26 +79,62 @@ async function regenerateCancelledInvoiceOnReactivation(
   return { regeneratedInvoiceNumber: cancelledInvoice.invoice_number }
 }
 
-export async function updateStudentDetails(studentId: string, formData: {
-  firstName: string
-  lastName: string
-  admissionNumber: string
-  classId: string
-  admissionDate: string
-  // NOTE: status is deliberately NOT editable here. Lifecycle changes
-  // (withdraw/graduate/reactivate) go through updateStudentStatus, which
-  // detects and offers to cancel any open current-term invoice, and — for
-  // reactivation — self-heals a cancelled one. Editing status here would
-  // silently bypass both. See the Danger zone in StudentSettingsTab.
-}) {
+export async function updateStudentDetails(
+  studentId: string,
+  formData: {
+    firstName: string
+    lastName: string
+    admissionNumber: string
+    classId: string
+    admissionDate: string
+    // NOTE: status is deliberately NOT editable here. Lifecycle changes
+    // (withdraw/graduate/reactivate) go through updateStudentStatus, which
+    // detects and offers to cancel any open current-term invoice, and, for
+    // reactivation, self-heals a cancelled one. Editing status here would
+    // silently bypass both. See the Danger zone in StudentSettingsTab.
+  },
+  // A class move changes which fee_items apply, so the current-term invoice can
+  // become wrong. When that's the case we do NOT save on the first call: we
+  // return the impact so the client can ask the admin to confirm. The admin's
+  // "continue" re-calls this with confirmClassChange=true, and only then do we
+  // save the edit AND recompute the invoice onto the new class's fees in one go.
+  confirmClassChange: boolean = false
+): Promise<
+  | { error: string }
+  | {
+      // First-call result when a class move would affect a current-term
+      // invoice: nothing has been saved yet, the client must confirm.
+      needsConfirm: true
+      oldClassName: string | null
+      newClassName: string | null
+      invoice: {
+        id: string
+        invoiceNumber: string | null
+        // clean = no payment and no credit applied, safe to auto-recompute.
+        // has_payment = money already on it, we won't touch it automatically.
+        state: 'clean' | 'has_payment'
+        currentTotal: number
+        newTotal: number | null
+        paidAmount: number
+        creditApplied: number
+      }
+    }
+  | {
+      success: true
+      // What happened to the current-term invoice as part of this save.
+      invoiceOutcome: 'none' | 'regenerated' | 'needs_review'
+      newInvoiceTotal: number | null
+    }
+> {
   const ctx = await getStudentFeeContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
 
-  // Get current student to check admission number conflicts
+  // Get current student: admission_number to check for a rename conflict, plus
+  // class_id/name/status/credit_balance for detecting and applying a class move.
   const { data: currentStudent } = await supabase
     .from('students')
-    .select('admission_number')
+    .select('admission_number, class_id, status, credit_balance, classes(name)')
     .eq('id', studentId)
     .eq('school_id', schoolId)
     .single()
@@ -120,6 +156,79 @@ export async function updateStudentDetails(studentId: string, formData: {
     }
   }
 
+  const oldClassId: string | null = currentStudent.class_id ?? null
+  const classChanged = !!formData.classId && formData.classId !== oldClassId
+  // @ts-expect-error — classes is joined
+  const oldClassName: string | null = currentStudent.classes?.name ?? null
+  const isActive = currentStudent.status === 'active'
+
+  // Find the affected current-term invoice (if any). (student_id,
+  // billing_cycle_id) is unique, so a student has at most one non-cancelled
+  // invoice on the current active term; a class move can make its fees wrong.
+  let currentInvoice: any = null
+  let newClassName: string | null = null
+  if (classChanged) {
+    const [{ data: newClass }, { data: inv }] = await Promise.all([
+      supabase
+        .from('classes')
+        .select('name')
+        .eq('id', formData.classId)
+        .eq('school_id', schoolId)
+        .maybeSingle(),
+      supabase
+        .from('invoices')
+        .select('id, invoice_number, status, total_amount, paid_amount, credit_applied, billing_cycle_id, sent_at, billing_cycles!inner(status)')
+        .eq('student_id', studentId)
+        .eq('school_id', schoolId)
+        .eq('billing_cycles.status', 'active')
+        .neq('status', 'cancelled')
+        .maybeSingle(),
+    ])
+    newClassName = newClass?.name ?? null
+    currentInvoice = inv
+  }
+
+  const invClean = currentInvoice
+    ? Number(currentInvoice.paid_amount || 0) <= 0 && Number(currentInvoice.credit_applied || 0) <= 0
+    : false
+
+  // Confirmation gate: a class move that actually touches a current-term
+  // invoice must be confirmed before anything is saved. Preview the projected
+  // new total for a clean invoice (using the not-yet-saved class id) so the
+  // admin sees the exact billing impact before deciding.
+  if (classChanged && currentInvoice && !confirmClassChange) {
+    let newTotal: number | null = null
+    if (invClean && isActive) {
+      const preview = await computeInvoiceForStudent(
+        supabase,
+        schoolId,
+        studentId,
+        currentInvoice.billing_cycle_id,
+        undefined,
+        0,
+        currentInvoice.id,
+        undefined,
+        formData.classId
+      )
+      if (!('error' in preview)) newTotal = preview.total
+    }
+    return {
+      needsConfirm: true,
+      oldClassName,
+      newClassName,
+      invoice: {
+        id: currentInvoice.id,
+        invoiceNumber: currentInvoice.invoice_number,
+        state: invClean ? 'clean' : 'has_payment',
+        currentTotal: Number(currentInvoice.total_amount || 0),
+        newTotal,
+        paidAmount: Number(currentInvoice.paid_amount || 0),
+        creditApplied: Number(currentInvoice.credit_applied || 0),
+      },
+    }
+  }
+
+  // Save the edit.
   const { error } = await supabase
     .from('students')
     .update({
@@ -134,19 +243,99 @@ export async function updateStudentDetails(studentId: string, formData: {
 
   if (error) return { error: error.message }
 
+  // Bring the current-term invoice onto the new class's fees. A clean invoice
+  // (no payment, no credit) can be recomputed with zero clawback risk, using
+  // the same atomic recompute RPC the term-page regenerate uses. Anything with
+  // money on it is left untouched and flagged for manual review (a refund or
+  // extra charge is the admin's call, not a silent rewrite).
+  let invoiceOutcome: 'none' | 'regenerated' | 'needs_review' = 'none'
+  let newInvoiceTotal: number | null = null
+
+  if (classChanged && currentInvoice) {
+    if (invClean && isActive) {
+      const liveCredit = Number(currentStudent.credit_balance || 0)
+      const computed = await computeInvoiceForStudent(
+        supabase,
+        schoolId,
+        studentId,
+        currentInvoice.billing_cycle_id,
+        liveCredit,
+        0,
+        currentInvoice.id
+      )
+      if (!('error' in computed)) {
+        const newStatus: 'pending' | 'paid' = computed.total === 0 ? 'paid' : 'pending'
+        const { error: recomputeError } = await supabase.rpc('apply_invoice_recompute', {
+          p_invoice_id: currentInvoice.id,
+          p_school_id: schoolId,
+          p_student_id: studentId,
+          p_line_items: computed.lineItems,
+          p_subtotal: computed.subtotal,
+          p_discount_amount: computed.discountAmount,
+          p_discount_reason: computed.discountReason || null,
+          p_previous_balance: computed.previousBalance,
+          p_previous_balance_from_invoice_id: computed.previousInvoiceId,
+          p_credit_applied: computed.creditApplied,
+          p_total_amount: computed.total,
+          p_status: newStatus,
+          // If the parent already got this invoice, the numbers just changed —
+          // flag it so the admin knows to resend the updated copy.
+          p_needs_resend: !!currentInvoice.sent_at,
+          p_credit_delta: -computed.creditApplied,
+        })
+        if (!recomputeError) {
+          if (computed.appliedDiscounts.length > 0) {
+            await recordAppliedDiscounts(supabase, schoolId, studentId, currentInvoice.id, computed.appliedDiscounts)
+          }
+          invoiceOutcome = 'regenerated'
+          newInvoiceTotal = computed.total
+        }
+      }
+    } else {
+      invoiceOutcome = 'needs_review'
+    }
+  }
+
+  const studentName = `${formData.firstName} ${formData.lastName}`.trim()
   await logAuditEvent(supabase, {
     schoolId,
     actorId: userId,
-    action: 'student.updated',
+    action: classChanged ? 'student.class_changed' : 'student.updated',
     targetType: 'student',
     targetId: studentId,
-    summary: `Updated ${`${formData.firstName} ${formData.lastName}`.trim()}'s details`,
+    summary: classChanged
+      ? `Moved ${studentName} from ${oldClassName || 'no class'} to ${newClassName || 'a new class'}`
+        + (invoiceOutcome === 'regenerated' && newInvoiceTotal !== null
+            ? `; invoice recalculated to ₦${newInvoiceTotal.toLocaleString()}`
+            : invoiceOutcome === 'needs_review'
+              ? '; current-term invoice flagged for review (payment/credit applied)'
+              : '')
+      : `Updated ${studentName}'s details`,
+    metadata: classChanged
+      ? {
+          oldClassId,
+          oldClassName,
+          newClassId: formData.classId,
+          newClassName,
+          affectedInvoiceId: currentInvoice?.id ?? null,
+          invoiceOutcome,
+          newInvoiceTotal,
+        }
+      : undefined,
   })
 
   revalidatePath(`/students/${studentId}`)
   revalidatePath('/students')
+  if (classChanged) {
+    revalidatePath('/fees/cycles')
+    revalidatePath('/invoices')
+    if (currentInvoice) {
+      revalidatePath(`/invoices/${currentInvoice.id}`)
+      revalidatePath(`/fees/cycles/${currentInvoice.billing_cycle_id}`)
+    }
+  }
 
-  return { success: true }
+  return { success: true, invoiceOutcome, newInvoiceTotal }
 }
 
 export async function updateFamilyInfo(familyId: string, studentId: string, formData: {

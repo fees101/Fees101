@@ -11,6 +11,7 @@ import RequestDiscountModal from '@/components/invoices/RequestDiscountModal'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import Toast from '@/components/ui/Toast'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 
 const CHANNEL_LABELS: Record<MessageChannel, string> = {
   sms: 'SMS',
@@ -54,6 +55,10 @@ function statusBadge(invoice: InvoiceDetail) {
 
 export default function InvoiceDetailLayout({ invoice }: Props) {
   const router = useRouter()
+  useRealtimeRefresh([
+    { table: 'invoices', filter: `id=eq.${invoice.id}` },
+    { table: 'payments', filter: `invoice_id=eq.${invoice.id}` },
+  ])
   const badge = statusBadge(invoice)
   const pdfUrl = `/api/invoices/${invoice.id}/pdf`
   const payments = invoice.payments || []

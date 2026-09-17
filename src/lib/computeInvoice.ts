@@ -72,7 +72,11 @@ export async function computeInvoiceForStudent(
   creditBalanceOverride?: number,
   alreadyPaidAmount: number = 0,
   existingInvoiceId?: string,
-  preload?: InvoiceComputePreload
+  preload?: InvoiceComputePreload,
+  // When previewing a mid-term class move before it's saved, the caller passes
+  // the prospective class id so the fee selection reflects the new class
+  // without any DB write. Falls back to the student's stored class otherwise.
+  classIdOverride?: string
 ): Promise<ComputedInvoice | { error: string }> {
   // Get student
   let student = preload?.studentsById.get(studentId)
@@ -91,12 +95,14 @@ export async function computeInvoiceForStudent(
 
   const studentName = `${student.first_name} ${student.last_name}`
   const className: string = student.classes?.name || ''
+  const effectiveClassId: string | null =
+    classIdOverride !== undefined ? classIdOverride : student.class_id
 
   // Fee items: per-class for this student's class + school-wide
   let feeItems: any[] | null | undefined
   if (preload) {
     feeItems = preload.feeItemsByCycle.filter((f: any) =>
-      student.class_id ? (f.class_id === student.class_id || f.class_id === null) : f.class_id === null
+      effectiveClassId ? (f.class_id === effectiveClassId || f.class_id === null) : f.class_id === null
     )
   } else {
     let feeItemsQuery = supabase
@@ -105,8 +111,8 @@ export async function computeInvoiceForStudent(
       .eq('school_id', schoolId)
       .eq('billing_cycle_id', cycleId)
 
-    if (student.class_id) {
-      feeItemsQuery = feeItemsQuery.or(`class_id.eq.${student.class_id},class_id.is.null`)
+    if (effectiveClassId) {
+      feeItemsQuery = feeItemsQuery.or(`class_id.eq.${effectiveClassId},class_id.is.null`)
     } else {
       feeItemsQuery = feeItemsQuery.is('class_id', null)
     }

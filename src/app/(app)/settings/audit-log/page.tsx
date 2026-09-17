@@ -4,6 +4,7 @@ import { getAuditLog } from '@/lib/audit/auditLog'
 import { AUDIT_LOG_GROUPS } from '@/lib/audit/auditLogGroups'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import AuditLogTable from '@/components/settings/AuditLogTable'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200]
 
@@ -38,6 +39,11 @@ export default async function AuditLogSettingsPage({
       title="Audit log"
       subtitle="A history of the actions staff have taken in this account — staff, role, student, fee, discount and settings changes"
     >
+      {ctx.schoolId && (
+        // Append-only log written by every staff action, webhook and job —
+        // new rows constantly arrive from sources other than this viewer.
+        <RealtimeRefresh subscriptions={[{ table: 'audit_log', filter: `school_id=eq.${ctx.schoolId}` }]} />
+      )}
       <AuditLogTable
         events={events}
         total={total}

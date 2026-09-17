@@ -1,7 +1,9 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAnonClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getScheduledDeletion } from '@/lib/dataPrivacy/deletion'
 import { PRIVACY_CONTACT_EMAIL, formatDeletionDate } from '@/lib/dataPrivacy/config'
@@ -54,4 +56,30 @@ export async function login(formData: FormData) {
   }
 
   redirect('/dashboard')
+}
+
+// Self-service "forgot password" — same resetPasswordForEmail() call an admin
+// already triggers on a staff member's behalf from Settings → Users
+// (settings/users/actions.ts:resetStaffPassword), just reachable by the
+// account owner directly from the login page. Always reports success,
+// whether or not the email matches an account, so this can't be used to
+// enumerate registered emails.
+export async function forgotPassword(formData: FormData) {
+  const email = (formData.get('email') as string || '').trim()
+  if (!email) return { error: 'Enter your email address.' }
+
+  const h = await headers()
+  const host = h.get('x-forwarded-host') || h.get('host')
+  const proto = h.get('x-forwarded-proto') || 'https'
+  const origin = `${proto}://${host}`
+
+  const anon = createAnonClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  )
+  await anon.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/callback?next=/set-password`,
+  })
+
+  return { success: true }
 }

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import UsersManager from '@/components/settings/UsersManager'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 
@@ -70,6 +71,15 @@ export default async function UsersSettingsPage() {
 
   return (
     <SettingsPageShell title="Users" subtitle="People who can access this account">
+      {schoolId && (
+        // Another admin adding/editing/deactivating staff, or a role change.
+        <RealtimeRefresh
+          subscriptions={[
+            { table: 'users', filter: `school_id=eq.${schoolId}` },
+            { table: 'roles', filter: `school_id=eq.${schoolId}` },
+          ]}
+        />
+      )}
       <UsersManager staff={staffRows} roles={roleOptions} isOwner={ctx!.isOwner} />
     </SettingsPageShell>
   )

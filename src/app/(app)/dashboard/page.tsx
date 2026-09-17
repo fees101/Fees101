@@ -3,6 +3,7 @@ import { getDashboardKPIs, getCollectionByClass, getRecentActivity } from '@/lib
 import CollectionChart from '@/components/dashboard/CollectionChart'
 import RecentActivity from '@/components/dashboard/RecentActivity'
 import NoWidgetsFallback from '@/components/dashboard/NoWidgetsFallback'
+import DashboardRealtimeRefresh from '@/components/dashboard/DashboardRealtimeRefresh'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 import { getAccessibleNavItems, getPermissionScopedNavItems, hasDashboardWidgets } from '@/lib/nav/navConfig'
 
@@ -51,8 +52,9 @@ export default async function Dashboard() {
 
   return (
     <main className="px-6 py-6">
+      {authCtx?.schoolId && <DashboardRealtimeRefresh schoolId={authCtx.schoolId} />}
       <div className="max-w-7xl mx-auto">
-        
+
         <header className="mb-3">
           <h1 className="text-3xl font-bold text-navy">
             {getGreeting()}, {firstName}

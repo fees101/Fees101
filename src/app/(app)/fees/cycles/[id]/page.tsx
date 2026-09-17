@@ -53,7 +53,7 @@ export default async function CycleDetailPage({ params, searchParams }: PageProp
           <span className="text-navy font-medium">{data.cycle?.name || 'Term'}</span>
         </nav>
 
-        <CycleDetailLayout data={data} showFinancials={showFinancials} />
+        <CycleDetailLayout data={data} showFinancials={showFinancials} schoolId={ctx.schoolId ?? ''} />
 
       </div>
     </main>

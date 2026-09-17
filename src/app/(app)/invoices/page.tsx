@@ -15,7 +15,7 @@ export default async function InvoicesPage() {
     <main className="px-6 py-6">
       <div className="max-w-[1440px] mx-auto">
         <Suspense fallback={null}>
-          <InvoicesListLayout invoices={invoices} />
+          <InvoicesListLayout invoices={invoices} schoolId={ctx.schoolId ?? ''} />
         </Suspense>
       </div>
     </main>

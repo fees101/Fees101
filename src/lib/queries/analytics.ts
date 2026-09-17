@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { getAuthContext } from '@/lib/auth/permissions'
 
-// Resolve the caller's school, matching the pattern used across the other
-// query modules (super_admin with no school_id falls back to the first school).
+// Resolve the caller's school from the auth context. The `supabase` arg is
+// kept for call-site symmetry with the other query helpers even though the
+// school id comes from getAuthContext(), not a separate lookup.
 async function resolveSchoolId(supabase: any): Promise<string | null> {
   const ctx = await getAuthContext()
   return ctx?.schoolId ?? null
@@ -170,4 +171,85 @@ export async function getAnalyticsBundle(): Promise<AnalyticsBundle> {
   }))
 
   return { ready: true, hasData: true, termSeries, feeSeries, discountSeries, classSeries, feeClassSeries }
+}
+
+// ---------------------------------------------------------------------------
+// Drill-down: the underlying students behind a fee/class row on the /payments
+// page, scoped to the cycle(s) currently selected there. Queries the
+// already-RLS-scoped invoices/students tables directly rather than a new RPC
+// — there's no cross-cycle aggregation here, just a filtered row list.
+// ---------------------------------------------------------------------------
+
+export interface DrilldownRow {
+  studentId: string
+  studentName: string
+  className: string
+  amountOwed: number
+  amountPaid: number
+  status: string
+}
+
+function studentName(inv: any): string {
+  return `${inv.students?.first_name || ''} ${inv.students?.last_name || ''}`.trim()
+}
+
+export async function getClassDrilldown(cycleIds: string[], className: string): Promise<DrilldownRow[]> {
+  const supabase = await createClient()
+  const schoolId = await resolveSchoolId(supabase)
+  if (!schoolId || cycleIds.length === 0) return []
+
+  const { data } = await supabase
+    .from('invoices')
+    .select('student_id, total_amount, paid_amount, credit_applied, status, students(first_name, last_name, classes(name))')
+    .eq('school_id', schoolId)
+    .in('billing_cycle_id', cycleIds)
+    .neq('status', 'cancelled')
+
+  return (data || [])
+    .filter((inv: any) => (inv.students?.classes?.name || 'Unassigned') === className)
+    .map((inv: any) => ({
+      studentId: inv.student_id,
+      studentName: studentName(inv),
+      className,
+      amountOwed: Number(inv.total_amount) + Number(inv.credit_applied || 0),
+      amountPaid: Number(inv.paid_amount || 0) + Number(inv.credit_applied || 0),
+      status: inv.status,
+    }))
+    .sort((a, b) => a.studentName.localeCompare(b.studentName))
+}
+
+export async function getFeeDrilldown(cycleIds: string[], feeName: string): Promise<DrilldownRow[]> {
+  const supabase = await createClient()
+  const schoolId = await resolveSchoolId(supabase)
+  if (!schoolId || cycleIds.length === 0) return []
+
+  const { data } = await supabase
+    .from('invoices')
+    .select('student_id, total_amount, paid_amount, outstanding_amount, status, line_items, students(first_name, last_name, classes(name))')
+    .eq('school_id', schoolId)
+    .in('billing_cycle_id', cycleIds)
+    .neq('status', 'cancelled')
+
+  const rows: DrilldownRow[] = []
+  for (const inv of (data || []) as any[]) {
+    const line = (inv.line_items || []).find(
+      (li: any) => li?.name === feeName && (li?.kind === 'required' || li?.kind === 'opt_in')
+    )
+    if (!line) continue
+    const lineAmount = Number(line.amount) || 0
+    const total = Number(inv.total_amount)
+    // Same proportional allocation as analytics_fee_series' collected_est
+    // (db/analytics_functions.sql) — money is fungible across an invoice's
+    // lines, so a per-line paid amount is an estimate, not a real figure.
+    const paidFraction = Number(inv.outstanding_amount) <= 0 ? 1 : total <= 0 ? 0 : Math.min(1, Number(inv.paid_amount) / total)
+    rows.push({
+      studentId: inv.student_id,
+      studentName: studentName(inv),
+      className: inv.students?.classes?.name || 'Unassigned',
+      amountOwed: lineAmount,
+      amountPaid: Math.round(lineAmount * paidFraction),
+      status: inv.status,
+    })
+  }
+  return rows.sort((a, b) => a.studentName.localeCompare(b.studentName))
 }

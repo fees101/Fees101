@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { getFeesOverview, getAllCycles } from '@/lib/queries/fees'
 import TermSelector from '@/components/fees/TermSelector'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
 interface PageProps {
@@ -28,6 +29,19 @@ export default async function FeesOverviewPage({ searchParams }: PageProps) {
   return (
     <main className="px-6 py-6">
       <div className="max-w-[1440px] mx-auto">
+
+        {ctx?.schoolId && (
+          <RealtimeRefresh
+            subscriptions={[
+              // KPI totals move on payment webhooks + invoice generation;
+              // term status/cycle list changes come from rollover jobs.
+              { table: 'invoices', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'payments', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'students', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'billing_cycles', filter: `school_id=eq.${ctx.schoolId}` },
+            ]}
+          />
+        )}
 
         {/* Header */}
         <header className="mb-6 flex items-start justify-between gap-4">

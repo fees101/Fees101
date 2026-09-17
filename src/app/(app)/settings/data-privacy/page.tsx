@@ -12,6 +12,7 @@ import { getScheduledDeletion } from '@/lib/dataPrivacy/deletion'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import ExportAllDataButton from '@/components/settings/ExportAllDataButton'
 import DeleteAccountSection from '@/components/settings/DeleteAccountSection'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 
 // Exporting/deleting a WHOLE SCHOOL's data is a different risk class from the
 // rest of Settings — deliberately hardcoded to the owner (not a togglable
@@ -41,6 +42,18 @@ export default async function DataPrivacySettingsPage() {
       subtitle="What we store, who it's shared with, and how to export or delete it"
     >
       <div className="flex flex-col gap-5 max-w-3xl">
+        {ctx.schoolId && (
+          <RealtimeRefresh
+            subscriptions={[
+              // Live record counts drift as data changes; the scheduled-deletion
+              // status is advanced by the background deletion job.
+              { table: 'students', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'invoices', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'payments', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'school_deletion_requests', filter: `school_id=eq.${ctx.schoolId}` },
+            ]}
+          />
+        )}
         {/* ---- What we store ---- */}
         <section className={card}>
           <h2 className={h2}>What we store</h2>

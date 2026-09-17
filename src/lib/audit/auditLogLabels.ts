@@ -31,6 +31,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'student.imported': 'Students imported',
   'student.updated': 'Student updated',
   'student.status_changed': 'Student status changed',
+  'student.class_changed': 'Student class changed',
   'student.opt_in_toggled': 'Fee opt-in toggled',
   'student.opt_in_bulk_updated': 'Fee opt-ins updated (bulk)',
   'student.opt_out_deferred_paid_invoice': 'Opted out (deferred, invoice already paid)',

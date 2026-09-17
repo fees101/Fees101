@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getRolloverStatus } from '@/app/(app)/fees/cycles/actions'
 import { getPromotionPreviewAction, getClassesForOverrideAction, getDraftSessionsAction } from './actions'
 import YearEndRolloverWizard from '@/components/fees/YearEndRolloverWizard'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
 // Server Actions invoked from this page (startYearEndRollover /
@@ -34,6 +35,18 @@ export default async function YearEndPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
+      {ctx.schoolId && (
+        <RealtimeRefresh
+          subscriptions={[
+            // The rollover runs as a long background job (cron-sweep advances
+            // the rollover_runs row); this makes its progress show live. It
+            // also creates cycles/sessions and promotes students as it goes.
+            { table: 'rollover_runs', filter: `school_id=eq.${ctx.schoolId}` },
+            { table: 'billing_cycles', filter: `school_id=eq.${ctx.schoolId}` },
+            { table: 'sessions', filter: `school_id=eq.${ctx.schoolId}` },
+          ]}
+        />
+      )}
       <header className="mb-6">
         <h1 className="text-3xl font-bold text-navy">Year-end rollover</h1>
         <p className="text-gray-500 mt-2 text-sm">

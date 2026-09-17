@@ -2,6 +2,7 @@ import { headers } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import PaymentSettingsForm from '@/components/settings/PaymentSettingsForm'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 import { getPaymentSettings } from '@/lib/queries/payments'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
@@ -23,6 +24,16 @@ export default async function PaymentsSettingsPage() {
 
   return (
     <SettingsPageShell title="Payments" subtitle="Connect your payment provider to accept fees online">
+      {ctx.schoolId && (
+        <RealtimeRefresh
+          subscriptions={[
+            // DVA counts fall as background virtual-account provisioning fills
+            // students; provider config itself lives on the school row.
+            { table: 'students', filter: `school_id=eq.${ctx.schoolId}` },
+            { table: 'schools', filter: `id=eq.${ctx.schoolId}` },
+          ]}
+        />
+      )}
       <PaymentSettingsForm settings={settings} webhookBase={webhookBase} />
     </SettingsPageShell>
   )

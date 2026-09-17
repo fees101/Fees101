@@ -8,6 +8,7 @@ import StudentFeesTab from '@/components/students/StudentFeesTab'
 import HeaderVirtualAccount from '@/components/students/HeaderVirtualAccount'
 import SendReminderButton from '@/components/students/SendReminderButton'
 import ApplyDiscountButton from '@/components/students/ApplyDiscountButton'
+import StudentRealtimeRefresh from '@/components/students/StudentRealtimeRefresh'
 import { getStudentById, getStudentPaymentHistory, getStudentFees } from '@/lib/queries/students'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
@@ -62,7 +63,8 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
   return (
     <main className="px-6 py-6">
       <div className="max-w-[1440px] mx-auto">
-        
+        <StudentRealtimeRefresh studentId={student.id} />
+
         {/* Breadcrumb */}
         <nav className="mb-4 flex items-center gap-2 text-sm text-gray-500">
           <Link href="/students" className="hover:text-navy">Students</Link>

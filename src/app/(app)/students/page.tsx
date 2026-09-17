@@ -3,6 +3,7 @@ import { getStudents, STUDENTS_PAGE_SIZE_OPTIONS, type StudentSortKey, type Stud
 import StudentsTable from '@/components/students/StudentsTable'
 import StudentsHeader from '@/components/students/StudentsHeader'
 import PaymentAccountsBanner from '@/components/students/PaymentAccountsBanner'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
 interface PageProps {
@@ -55,6 +56,19 @@ export default async function StudentsPage({ searchParams }: PageProps) {
   return (
     <main className="px-6 py-6">
       <div className="max-w-[1440px] mx-auto">
+
+        {ctx.schoolId && (
+          <RealtimeRefresh
+            subscriptions={[
+              // Roster balances/status move on payment webhooks (payments),
+              // invoice generation (invoices) and DVA provisioning / other
+              // staff edits (students) — all school-scoped, all published.
+              { table: 'students', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'invoices', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'payments', filter: `school_id=eq.${ctx.schoolId}` },
+            ]}
+          />
+        )}
 
         <StudentsHeader
           studentCount={total}

@@ -55,8 +55,8 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith(path)
   )
 
-  // Auth pages: /login, /signup
-  const authPaths = ['/login', '/signup']
+  // Auth pages: /login, /signup, /forgot-password
+  const authPaths = ['/login', '/signup', '/forgot-password']
   const isAuthPath = authPaths.some(path => 
     request.nextUrl.pathname.startsWith(path)
   )

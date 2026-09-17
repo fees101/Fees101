@@ -6,6 +6,7 @@ import type { ActivityRow } from '@/lib/queries/activity'
 import { ACTIVITY_CATEGORIES, ACTIVITY_PAGE_SIZE_OPTIONS } from '@/lib/activity/activityMeta'
 import { formatDateTime } from '@/lib/format/date'
 import RelativeTime from '@/components/activity/RelativeTime'
+import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 
 interface Props {
   rows: ActivityRow[]
@@ -16,6 +17,7 @@ interface Props {
   from: string
   to: string
   search: string
+  schoolId: string
 }
 
 function formatNaira(amount: number): string {
@@ -85,9 +87,20 @@ function isoDaysAgo(days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-export default function ActivityFeed({ rows, total, page, perPage, category, from, to, search }: Props) {
+export default function ActivityFeed({ rows, total, page, perPage, category, from, to, search, schoolId }: Props) {
   const router = useRouter()
   const pathname = usePathname()
+  // activity_feed is a VIEW; Realtime only replays base-table changes, so this
+  // subscribes to every table the view unions (see db/enable_realtime.sql and
+  // db/activity_feed_add_missing_events.sql).
+  useRealtimeRefresh([
+    { table: 'payments', filter: `school_id=eq.${schoolId}` },
+    { table: 'invoices', filter: `school_id=eq.${schoolId}` },
+    { table: 'discounts', filter: `school_id=eq.${schoolId}` },
+    { table: 'message_logs', filter: `school_id=eq.${schoolId}` },
+    { table: 'students', filter: `school_id=eq.${schoolId}` },
+    { table: 'audit_log', filter: `school_id=eq.${schoolId}` },
+  ])
   const [searchInput, setSearchInput] = useState(search)
 
   function navigate(patch: Record<string, string>) {

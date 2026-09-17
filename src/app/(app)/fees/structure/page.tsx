@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getFeeStructure, getAllCycles } from '@/lib/queries/fees'
 import FeeStructureLayout from '@/components/fees/FeeStructureLayout'
 import TermSelector from '@/components/fees/TermSelector'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
 interface PageProps {
@@ -27,6 +28,18 @@ export default async function FeeStructurePage({ searchParams }: PageProps) {
   return (
     <main className="px-6 py-6">
       <div className="max-w-[1440px] mx-auto">
+
+        {ctx.schoolId && (
+          <RealtimeRefresh
+            subscriptions={[
+              // Fee structure edited by another staff member, plus per-student
+              // overrides and the term/cycle status it's scoped to.
+              { table: 'fee_items', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'student_fee_adjustments', filter: `school_id=eq.${ctx.schoolId}` },
+              { table: 'billing_cycles', filter: `school_id=eq.${ctx.schoolId}` },
+            ]}
+          />
+        )}
 
         <nav className="mb-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-sm text-gray-500">

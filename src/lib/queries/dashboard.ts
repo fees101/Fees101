@@ -128,59 +128,30 @@ export async function getCollectionByClass() {
   if (!currentCycle) return []
   if (!classes) return []
 
-  // "Collected" here is deliberately cash-received-by-date, not
-  // invoice-allocation — same rule as the school's Total Collected KPI. A
-  // class where families sent more than that term's fees should be able to
-  // show over 100%, the same way an individual overpaying student can; an
-  // invoice-based sum can never exceed what's owed (any excess always rolls
-  // to the next term's invoice or sits as credit), which made this always
-  // cap at 100% even when a class genuinely collected more than required —
-  // reading as "nobody ever overpays," which isn't true and isn't what a
-  // school asking "did we collect enough" wants to see.
-  const endExclusive = new Date(currentCycle.end_date)
-  endExclusive.setDate(endExclusive.getDate() + 1)
-
-  const [{ data: invoices }, { data: payments }] = await Promise.all([
-    supabase
-      .from('invoices')
-      .select('total_amount, paid_amount, credit_applied, status, students(class_id)')
-      .eq('school_id', schoolId)
-      .eq('billing_cycle_id', currentCycle.id),
-    supabase
-      .from('payments')
-      .select('amount, paid_at, students(class_id)')
-      .eq('school_id', schoolId)
-      .eq('match_status', 'matched')
-      .gte('paid_at', currentCycle.start_date)
-      .lt('paid_at', endExclusive.toISOString()),
-  ])
+  // Same per-cycle GROUP BY the /payments analytics page uses (see
+  // analytics_class_series in db/analytics_functions.sql), filtered here to
+  // the active cycle. Note this makes "collected" invoice-based (paid_amount +
+  // credit_applied), not the date-based cash-received figure this used to
+  // compute from the payments table — it can no longer read over 100% the way
+  // the school-wide Total Collected KPI can, since an invoice's paid_amount is
+  // capped by what it billed (any excess rolls to the next term as credit).
+  const { data: classRows } = await supabase.rpc('analytics_class_series', { p_school_id: schoolId })
+  const cycleRows = (classRows || []).filter((r: any) => r.cycle_id === currentCycle.id)
+  const byClassName = new Map<string, any>(cycleRows.map((r: any) => [r.class_name, r]))
 
   const classData = classes.map(cls => {
-    const classInvoices = (invoices?.filter(
-      // @ts-expect-error — students is joined object
-      (inv) => inv.students?.class_id === cls.id
-    ) || []).filter(inv => inv.status !== 'cancelled')
-    const classPayments = payments?.filter(
-      // @ts-expect-error — students is joined object
-      (p) => p.students?.class_id === cls.id
-    ) || []
-
-    // invoices.total_amount is already NET of credit_applied (computeInvoiceForStudent
-    // sets total = amountDue - creditApplied), so "expected" — the gross amount
-    // actually owed before any credit covered part of it — has to add that
-    // credit back. Using total_amount alone here would understate expected.
-    const expected = classInvoices.reduce((sum, inv) => sum + Number(inv.total_amount) + Number(inv.credit_applied || 0), 0)
-    const collected = classPayments.reduce((sum, p) => sum + Number(p.amount), 0)
-    // Outstanding stays invoice-based on purpose — independent of the
-    // date-based collected figure, same reasoning as the dashboard KPI.
-    const outstanding = classInvoices.reduce((sum, inv) => sum + Math.max(0, Number(inv.total_amount) - Number(inv.paid_amount)), 0)
+    const row = byClassName.get(cls.name)
+    const expected = Number(row?.billed) || 0
+    const collected = Number(row?.collected) || 0
+    const outstanding = Number(row?.outstanding) || 0
+    const invoicedCount = Number(row?.students_billed) || 0
     const percentage = expected > 0 ? Math.round((collected / expected) * 100) : 0
     const studentCount = studentCounts?.filter(s => s.class_id === cls.id).length || 0
 
     return {
       class: cls.name,
       studentCount,
-      invoicedCount: classInvoices.length,
+      invoicedCount,
       expected,
       collected,
       outstanding,

@@ -11,6 +11,8 @@ import { PeriodPicker } from './PeriodPicker'
 import {
   FeeTrendChart, PotentialBreakdown, RevenueMix, FeeCollectionBars, OptInUptake, DiscountBar,
 } from './AnalyticsCharts'
+import DrilldownModal from './DrilldownModal'
+import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 
 function formatNaira(a: number): string {
   return '₦' + Math.round(a).toLocaleString('en-NG')
@@ -72,7 +74,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function FeeTable({ rows, showFinancials }: { rows: { name: string; studentsBilled: number; billed: number; collected: number; outstanding: number; rate: number }[]; showFinancials: boolean }) {
+function FeeTable({ rows, showFinancials, onSelect }: { rows: { name: string; studentsBilled: number; billed: number; collected: number; outstanding: number; rate: number }[]; showFinancials: boolean; onSelect: (feeName: string) => void }) {
   const amt = (v: number) => showFinancials ? formatNaira(v) : MASKED
   return (
     <table className="w-full text-sm">
@@ -88,7 +90,7 @@ function FeeTable({ rows, showFinancials }: { rows: { name: string; studentsBill
       </thead>
       <tbody className="divide-y divide-gray-50">
         {rows.map(r => (
-          <tr key={r.name} className="hover:bg-gray-50/50">
+          <tr key={r.name} onClick={() => onSelect(r.name)} className="hover:bg-gray-50/50 cursor-pointer" title="Click to see the students behind this fee">
             <td className="px-6 py-3 font-medium text-navy">{r.name}</td>
             <td className="px-6 py-3 text-right tabular-nums text-gray-600">{r.studentsBilled}</td>
             <td className="px-6 py-3 text-right tabular-nums text-gray-600">{amt(r.billed)}</td>
@@ -102,7 +104,15 @@ function FeeTable({ rows, showFinancials }: { rows: { name: string; studentsBill
   )
 }
 
-export default function PaymentsDashboard({ bundle, showFinancials }: { bundle: AnalyticsBundle; showFinancials: boolean }) {
+export default function PaymentsDashboard({ bundle, showFinancials, schoolId }: { bundle: AnalyticsBundle; showFinancials: boolean; schoolId: string }) {
+  useRealtimeRefresh(
+    schoolId
+      ? [
+          { table: 'payments', filter: `school_id=eq.${schoolId}` },
+          { table: 'invoices', filter: `school_id=eq.${schoolId}` },
+        ]
+      : []
+  )
   const { termSeries: terms, feeSeries, discountSeries, classSeries, feeClassSeries } = bundle
   const len = terms.length
   const amt = (v: number) => showFinancials ? formatNaira(v) : MASKED
@@ -159,6 +169,7 @@ export default function PaymentsDashboard({ bundle, showFinancials }: { bundle: 
   const [compareIds, setCompareIds] = useState<string[]>([])
   const [overlayMetric, setOverlayMetric] = useState<'collected' | 'billed' | 'both'>('collected')
   const [feePick, setFeePick] = useState<string>('')
+  const [drilldown, setDrilldown] = useState<{ mode: 'class' | 'fee'; label: string } | null>(null)
 
   const [start, end] = range
   const lo = Math.min(start, end), hi = Math.max(start, end)
@@ -374,12 +385,12 @@ export default function PaymentsDashboard({ bundle, showFinancials }: { bundle: 
               <h2 className="font-bold text-navy">Revenue by optional fee (opt-ins)</h2>
               <p className="text-xs text-gray-500 mt-0.5">collected is estimated by how far each invoice is paid</p>
             </div>
-            {optIns.length === 0 ? <p className="px-6 py-8 text-sm text-gray-500">No optional fees in this selection.</p> : <FeeTable rows={optIns} showFinancials={showFinancials} />}
+            {optIns.length === 0 ? <p className="px-6 py-8 text-sm text-gray-500">No optional fees in this selection.</p> : <FeeTable rows={optIns} showFinancials={showFinancials} onSelect={name => setDrilldown({ mode: 'fee', label: name })} />}
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100"><h2 className="font-bold text-navy">Revenue by required fee</h2></div>
-            {required.length === 0 ? <p className="px-6 py-8 text-sm text-gray-500">No required fees in this selection.</p> : <FeeTable rows={required} showFinancials={showFinancials} />}
+            {required.length === 0 ? <p className="px-6 py-8 text-sm text-gray-500">No required fees in this selection.</p> : <FeeTable rows={required} showFinancials={showFinancials} onSelect={name => setDrilldown({ mode: 'fee', label: name })} />}
           </div>
 
           <FeePriceChart choices={priceChoices} fan={priceFan} selected={activeFee} onSelect={setFeePick} showFinancials={showFinancials} />
@@ -404,7 +415,7 @@ export default function PaymentsDashboard({ bundle, showFinancials }: { bundle: 
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {classes.map(r => (
-                    <tr key={r.className} className="hover:bg-gray-50/50">
+                    <tr key={r.className} onClick={() => setDrilldown({ mode: 'class', label: r.className })} className="hover:bg-gray-50/50 cursor-pointer" title="Click to see the students behind this class">
                       <td className="px-6 py-3 font-medium text-navy">{r.className}</td>
                       <td className="px-6 py-3 text-right tabular-nums text-gray-600">{r.studentsBilled}</td>
                       <td className="px-6 py-3 text-right tabular-nums text-gray-600">{amt(r.billed)}</td>
@@ -536,6 +547,18 @@ export default function PaymentsDashboard({ bundle, showFinancials }: { bundle: 
             )}
           </div>
         </>
+      )}
+
+      {drilldown && (
+        <DrilldownModal
+          title={drilldown.label}
+          subtitle={`Students · ${rangeLabel}`}
+          cycleIds={Array.from(selCycleIds)}
+          className={drilldown.mode === 'class' ? drilldown.label : undefined}
+          feeName={drilldown.mode === 'fee' ? drilldown.label : undefined}
+          showFinancials={showFinancials}
+          onClose={() => setDrilldown(null)}
+        />
       )}
     </div>
   )

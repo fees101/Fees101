@@ -10,10 +10,12 @@ import { sendInvoiceUpdateNotice } from '@/app/(app)/invoices/actions'
 import { useActiveJobs, useTrackedJob, useOnJobOpenRequested } from '@/lib/jobs/ActiveJobsProvider'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { formatDate } from '@/lib/format/date'
+import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 
 interface Props {
   data: CycleDetailData
   showFinancials?: boolean
+  schoolId: string
 }
 
 // Kept as a plain local constant (not imported from fees.ts) so this client
@@ -54,11 +56,23 @@ function cycleStatusBadge(status: 'draft' | 'active' | 'closed') {
   return { cls: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' }
 }
 
-export default function CycleDetailLayout({ data, showFinancials = true }: Props) {
+export default function CycleDetailLayout({ data, showFinancials = true, schoolId }: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const canManageFeeStructure = useCan('manage-fee-structure')
   const canManageInvoices = useCan('manage-invoices')
+  // Invoices carry billing_cycle_id, so those scope tightly to this cycle;
+  // payments don't, so they're scoped to the school instead — still narrow
+  // enough that a payment landing anywhere refreshes the staleness/status
+  // figures here without missing one that belongs to this cycle.
+  useRealtimeRefresh(
+    data.cycle
+      ? [
+          { table: 'invoices', filter: `billing_cycle_id=eq.${data.cycle.id}` },
+          { table: 'payments', filter: `school_id=eq.${schoolId}` },
+        ]
+      : []
+  )
   const {
     cycle,
     invoices,

@@ -52,6 +52,7 @@ export default async function ActivityPage({ searchParams }: PageProps) {
           from={sp.from || ''}
           to={sp.to || ''}
           search={sp.search || ''}
+          schoolId={ctx.schoolId ?? ''}
         />
       </div>
     </main>

@@ -324,17 +324,106 @@ function EditStudentModal({ student, classes, onClose, onSave }: {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set when a class move would affect the current-term invoice: nothing has
+  // been saved yet, we hold here and ask the admin to confirm before applying.
+  const [confirm, setConfirm] = useState<{
+    oldClassName: string | null
+    newClassName: string | null
+    invoice: {
+      id: string
+      invoiceNumber: string | null
+      state: 'clean' | 'has_payment'
+      currentTotal: number
+      newTotal: number | null
+      paidAmount: number
+      creditApplied: number
+    }
+  } | null>(null)
 
   async function handleSubmit() {
     setError(null)
     setLoading(true)
     const result = await updateStudentDetails(student.id, form)
-    if (result.error) {
+    setLoading(false)
+    if ('error' in result) {
       setError(result.error)
-      setLoading(false)
+      return
+    }
+    if ('needsConfirm' in result) {
+      setConfirm({ oldClassName: result.oldClassName, newClassName: result.newClassName, invoice: result.invoice })
       return
     }
     onSave()
+  }
+
+  async function handleConfirmContinue() {
+    setError(null)
+    setLoading(true)
+    const result = await updateStudentDetails(student.id, form, true)
+    setLoading(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    onSave()
+  }
+
+  if (confirm) {
+    const name = `${form.firstName} ${form.lastName}`.trim()
+    const from = confirm.oldClassName || 'their current class'
+    const to = confirm.newClassName || 'the new class'
+    const invLabel = confirm.invoice.invoiceNumber || 'their invoice for this term'
+    const clean = confirm.invoice.state === 'clean'
+    return (
+      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold text-navy mb-2">Move {name} to {to}?</h3>
+            {clean ? (
+              <p className="text-sm text-gray-600 mb-4">
+                {invLabel} will be recalculated onto {to}&apos;s fees.
+                {confirm.invoice.newTotal !== null ? (
+                  <>
+                    {' '}The total changes from{' '}
+                    <span className="font-medium text-navy">₦{confirm.invoice.currentTotal.toLocaleString()}</span>
+                    {' '}to{' '}
+                    <span className="font-medium text-navy">₦{confirm.invoice.newTotal.toLocaleString()}</span>.
+                  </>
+                ) : (
+                  <> Its total (currently ₦{confirm.invoice.currentTotal.toLocaleString()}) will be updated to match.</>
+                )}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-600 mb-4">
+                {invLabel} already has {[
+                  confirm.invoice.paidAmount > 0 ? `₦${confirm.invoice.paidAmount.toLocaleString()} paid` : null,
+                  confirm.invoice.creditApplied > 0 ? `₦${confirm.invoice.creditApplied.toLocaleString()} credit` : null,
+                ].filter(Boolean).join(' and ')} applied, so it will not be recalculated automatically.
+                The class will change, but you&apos;ll need to review that invoice and issue a refund or
+                extra charge if {to}&apos;s fees differ.
+              </p>
+            )}
+            {error && <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => { setConfirm(null); setError(null) }}
+                disabled={loading}
+                className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmContinue}
+                disabled={loading}
+                className={`px-4 py-2 text-white text-sm font-semibold rounded-lg disabled:opacity-50 ${clean ? 'bg-mint text-navy hover:bg-mint/90' : 'bg-navy hover:bg-navy/90'}`}
+              >
+                {loading ? 'Working...' : clean ? 'Continue' : 'Continue anyway'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

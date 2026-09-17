@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getClasses, getSessions, getAllCycles } from '@/lib/queries/fees'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import AcademicStructureLayout from '@/components/settings/academic-structure/AcademicStructureLayout'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
 export default async function AcademicStructurePage() {
@@ -27,6 +28,17 @@ export default async function AcademicStructurePage() {
 
   return (
     <SettingsPageShell title="Academic structure" subtitle="Sessions, sections, and classes">
+      {ctx.schoolId && (
+        // Structure changed by the year-end rollover job or another admin.
+        <RealtimeRefresh
+          subscriptions={[
+            { table: 'classes', filter: `school_id=eq.${ctx.schoolId}` },
+            { table: 'sections', filter: `school_id=eq.${ctx.schoolId}` },
+            { table: 'sessions', filter: `school_id=eq.${ctx.schoolId}` },
+            { table: 'billing_cycles', filter: `school_id=eq.${ctx.schoolId}` },
+          ]}
+        />
+      )}
       <AcademicStructureLayout
         classes={classes}
         sections={sections}

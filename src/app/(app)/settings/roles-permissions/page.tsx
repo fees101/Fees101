@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import RolesEditor from '@/components/settings/RolesEditor'
+import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 import { PERMISSIONS } from '@/lib/auth/permissionCatalog'
 
@@ -45,6 +46,15 @@ export default async function RolesPermissionsPage() {
 
   return (
     <SettingsPageShell title="Roles & permissions" subtitle="Create roles and choose exactly what each one can see and do">
+      {schoolId && (
+        // Another admin editing roles or reassigning staff (staff counts).
+        <RealtimeRefresh
+          subscriptions={[
+            { table: 'roles', filter: `school_id=eq.${schoolId}` },
+            { table: 'users', filter: `school_id=eq.${schoolId}` },
+          ]}
+        />
+      )}
       <RolesEditor roles={roleRows} catalog={PERMISSIONS} ownRoleId={ownRoleId} isOwner={isOwner} />
     </SettingsPageShell>
   )

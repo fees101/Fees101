@@ -46,10 +46,10 @@ export default function SetPasswordPage() {
     <main className="min-h-screen bg-gray-50 flex items-center justify-center p-5">
       <div className="bg-white p-10 rounded-xl border border-gray-200 w-full max-w-md">
         <h1 className="text-navy text-3xl font-bold mb-2">Fees101</h1>
-        <p className="text-gray-500 text-sm mb-8">Set a password to activate your account</p>
+        <p className="text-gray-500 text-sm mb-8">Set a new password for your account</p>
 
         {checking ? (
-          <p className="text-sm text-gray-500">Checking your invite link…</p>
+          <p className="text-sm text-gray-500">Checking your link…</p>
         ) : !hasSession ? (
           <div className="text-sm text-gray-600">
             <p className="mb-3">This link is invalid or has expired.</p>
@@ -88,7 +88,7 @@ export default function SetPasswordPage() {
               disabled={saving}
               className="bg-navy text-white font-semibold rounded-lg px-4 py-2.5 text-sm hover:bg-navy/90 disabled:opacity-50"
             >
-              {saving ? 'Saving…' : 'Set password & continue'}
+              {saving ? 'Saving…' : 'Save password & continue'}
             </button>
           </form>
         )}

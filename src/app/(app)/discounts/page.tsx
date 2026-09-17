@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getPendingDiscountRequests, getActiveRecurringDiscounts } from '@/lib/queries/discountRequests'
 import DiscountRequestsList from '@/components/discounts/DiscountRequestsList'
 import ActiveRecurringDiscountsList from '@/components/discounts/ActiveRecurringDiscountsList'
+import DiscountsRealtimeRefresh from '@/components/discounts/DiscountsRealtimeRefresh'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 
 export default async function DiscountsPage() {
@@ -24,6 +25,7 @@ export default async function DiscountsPage() {
   return (
     <main className="px-6 py-6">
       <div className="max-w-[1440px] mx-auto space-y-8">
+        {ctx.schoolId && <DiscountsRealtimeRefresh schoolId={ctx.schoolId} />}
         <div>
           <header className="mb-6">
             <h1 className="text-3xl font-bold text-navy">Discount requests</h1>

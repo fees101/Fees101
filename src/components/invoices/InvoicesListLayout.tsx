@@ -6,9 +6,11 @@ import { AllInvoiceRow } from '@/lib/queries/fees'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { useActiveJobs, useOnJobOpenRequested } from '@/lib/jobs/ActiveJobsProvider'
 import BulkSendInvoicesPanel from '@/components/invoices/BulkSendInvoicesPanel'
+import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 
 interface Props {
   invoices: AllInvoiceRow[]
+  schoolId: string
 }
 
 type StatusFilter = 'all' | 'paid' | 'partial' | 'unpaid' | 'needs_resend'
@@ -28,9 +30,20 @@ function statusBadge(inv: AllInvoiceRow) {
   return { cls: 'bg-gray-100 text-gray-600', label: 'unpaid' }
 }
 
-export default function InvoicesListLayout({ invoices }: Props) {
+export default function InvoicesListLayout({ invoices, schoolId }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  // Payments also drive the paid/partial/needs-resend badges shown here, so a
+  // payment landing via webhook needs to refresh this list too, not just the
+  // invoice it belongs to.
+  useRealtimeRefresh(
+    schoolId
+      ? [
+          { table: 'invoices', filter: `school_id=eq.${schoolId}` },
+          { table: 'payments', filter: `school_id=eq.${schoolId}` },
+        ]
+      : []
+  )
   const canSeeInvoices = useCan('see-invoices')
   const canManageInvoices = useCan('manage-invoices')
   // Pre-select a filter from a link elsewhere in the app (e.g. the dashboard's

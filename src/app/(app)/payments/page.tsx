@@ -47,7 +47,7 @@ export default async function PaymentsPage() {
   return (
     <main className="px-6 py-6">
       <div className="max-w-7xl mx-auto">
-        <PaymentsDashboard bundle={bundle} showFinancials={showFinancials} />
+        <PaymentsDashboard bundle={bundle} showFinancials={showFinancials} schoolId={ctx?.schoolId ?? ''} />
       </div>
     </main>
   )
