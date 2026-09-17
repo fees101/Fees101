@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fees101 — surface exporter</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; border-radius: 0; }
+  body { margin: 0; background: #f3f2f2; color: #201e1d; font-family: Archivo, system-ui, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 44px 24px 80px; }
+  h1 { font-size: 46px; font-weight: 800; letter-spacing: -.03em; line-height: .95; margin: 0 0 14px; }
+  p { margin: 0 0 14px; line-height: 1.5; }
+  .lead { font-size: 18px; max-width: 66ch; }
+  .note { font-size: 14px; color: #444141; max-width: 74ch; }
+  .eyebrow { font-size: 11px; letter-spacing: .16em; color: #605d5d; margin: 0 0 8px; }
+  .rule { height: 2px; background: #201e1d; margin: 26px 0; }
+  button { font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px; padding: 12px 20px; border: 2px solid #201e1d; background: #201e1d; color: #f3f2f2; cursor: pointer; text-align: left; }
+  button:hover { background: #444141; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.alt { background: transparent; color: #201e1d; }
+  button.alt:hover { background: #eae7e7; }
+  :focus-visible { outline: 2px solid #ec3013; outline-offset: 2px; }
+  #log { font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.7; border-top: 2px solid #201e1d; padding-top: 12px; margin-top: 22px; max-height: 340px; overflow-y: auto; }
+  #log div { border-bottom: 1px solid #d7d3d3; padding: 3px 0; }
+  .ok { color: #0a6b3d; } .warn { color: #8a4805; } .dim { color: #605d5d; }
+  iframe { width: 1440px; height: 1000px; border: 2px solid #d7d3d3; transform: scale(.34); transform-origin: top left; }
+  .stage { height: 346px; overflow: hidden; margin-top: 22px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">FEES101 — BUILD TOOLING</p>
+  <h1>Export every surface as static HTML.</h1>
+  <p class="lead">This walks the App Shell through all seven workspaces and every mode inside them, captures the real rendered markup of each, and downloads one self-contained reference file.</p>
+  <p class="note">Open it next to the code. Every grid column, row padding, rule weight and colour is the live value from the mockup — Claude Code matches node for node instead of reading a description. Keep this tab focused while it runs; it takes about half a minute.</p>
+
+  <div class="rule"></div>
+  <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+    <button id="go">Run export</button>
+    <button id="dl" class="alt" disabled>Download reference file</button>
+  </div>
+
+  <div id="log"></div>
+  <div class="stage"><iframe id="frame" src="../App Shell.dc.html"></iframe></div>
+</div>
+
+<script>
+const log = (msg, cls) => {
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  document.getElementById('log').appendChild(d);
+  d.parentNode.scrollTop = d.parentNode.scrollHeight;
+};
+const wait = ms => new Promise(r => setTimeout(r, ms));
+let OUT = '';
+
+async function run() {
+  document.getElementById('go').disabled = true;
+  const fr = document.getElementById('frame');
+  const doc = fr.contentDocument;
+  log('Waiting for the shell to render…', 'dim');
+
+  for (let i = 0; i < 60; i++) {
+    if (doc.querySelectorAll('.nav-i').length >= 7) break;
+    await wait(250);
+  }
+  const navs = [...doc.querySelectorAll('.nav-i')];
+  if (navs.length < 7) { log('Shell did not render. Reload and retry.', 'warn'); return; }
+  log('Shell ready — ' + navs.length + ' workspaces found.', 'ok');
+
+  // the mockup's own <style> block, carried into the export so it renders identically
+  const shellCss = [...doc.querySelectorAll('style')].map(s => s.textContent).join('\n');
+
+  const parts = [];
+  let n = 0;
+
+  for (let w = 0; w < navs.length; w++) {
+    [...doc.querySelectorAll('.nav-i')][w].click();
+    await wait(420);
+
+    const header = doc.querySelector('main header');
+    const modeRow = header ? header.lastElementChild : null;
+    const modes = modeRow ? [...modeRow.querySelectorAll('button')] : [];
+    const count = Math.max(modes.length, 1);
+    const ws = (doc.querySelector('main h1') || {}).textContent || ('workspace-' + w);
+
+    for (let m = 0; m < count; m++) {
+      if (modes.length) {
+        const fresh = [...doc.querySelector('main header').lastElementChild.querySelectorAll('button')];
+        if (fresh[m]) fresh[m].click();
+      }
+      await wait(420);
+
+      const main = doc.querySelector('main');
+      const mode = modes.length ? (modes[m].textContent || '').trim() : 'Default';
+      const label = ws.trim() + ' · ' + mode;
+      const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+      parts.push(
+        '<section class="surface">' +
+        '<div class="surface-head">' +
+          '<p class="surface-id">' + String(++n).padStart(2, '0') + ' · ' + slug + '</p>' +
+          '<h2>' + label + '</h2>' +
+        '</div>' +
+        '<div class="surface-body">' + main.outerHTML + '</div>' +
+        '</section>'
+      );
+      log('captured  ' + label, 'ok');
+    }
+  }
+
+  OUT = buildDoc(shellCss, parts.join('\n'));
+  log('Done — ' + n + ' surfaces, ' + Math.round(OUT.length / 1024) + 'kb.', 'ok');
+  document.getElementById('dl').disabled = false;
+}
+
+function buildDoc(css, body) {
+  return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n' +
+'<title>Fees101 — surface reference</title>\n' +
+'<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">\n' +
+'<style>\n' + css + '\n' +
+'body { margin:0; background:#e6e4e4; font-family:Archivo, system-ui, sans-serif; color:#201e1d; }\n' +
+'.surface { max-width:1440px; margin:0 auto 56px; background:#f3f2f2; border:2px solid #201e1d; }\n' +
+'.surface-head { border-bottom:2px solid #201e1d; padding:16px 24px; background:#201e1d; color:#f3f2f2; }\n' +
+'.surface-id { font-size:11px; letter-spacing:.16em; color:#9b9797; margin:0 0 4px; }\n' +
+'.surface-head h2 { font-size:22px; font-weight:800; margin:0; letter-spacing:-.01em; }\n' +
+'.surface-body { display:flex; }\n' +
+'.surface-body main { flex:1; min-width:0; }\n' +
+'.doc-head { max-width:1440px; margin:0 auto; padding:44px 0 32px; }\n' +
+'</style>\n</head>\n<body>\n' +
+'<div class="doc-head">\n' +
+'<p style="font-size:11px;letter-spacing:.16em;color:#605d5d;margin:0 0 8px;">FEES101 — SURFACE REFERENCE</p>\n' +
+'<h1 style="font-size:52px;font-weight:800;letter-spacing:-.03em;line-height:.94;margin:0 0 14px;">The markup, not a description.</h1>\n' +
+'<p style="font-size:17px;line-height:1.5;max-width:70ch;margin:0 0 10px;">Captured from the live mockup. Every grid-template-columns value, row padding, rule weight and colour below is the real one. Match it node for node.</p>\n' +
+'<p style="font-size:14px;line-height:1.5;max-width:74ch;color:#444141;margin:0;">Font is Archivo 400/600/800. Sidebar is 232px, main padding 28px, drawers 420px and 340px. If a value you need is not here, it is not decided — ask, do not invent it.</p>\n' +
+'<div style="height:2px;background:#201e1d;margin-top:28px;"></div>\n</div>\n' +
+body + '\n</body>\n</html>';
+}
+
+document.getElementById('go').addEventListener('click', run);
+document.getElementById('dl').addEventListener('click', () => {
+  const blob = new Blob([OUT], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'fees101-surface-reference.html';
+  a.click();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fees101 — fidelity kit</title>
+
+<!-- FONT. This exact link, or self-host the same three weights.
+     Archivo 400/600/800. No other family, no other weights. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   This file is the reference. Every number in it is the number
+   that is in the mockup. Copy values from here, do not re-derive
+   them from a screenshot.
+
+   Ground   #f3f2f2      Ink        #201e1d
+   Ink-2    #444141      Ink-3      #605d5d
+   Dim      #9b9797      Rule soft  #d7d3d3
+   Red      #ec3013      Red text   #ae1800
+   Green    #0a6b3d      Green/ink  #35c483
+   Ochre    #b45f06      Ochre text #8a4805
+   ============================================================ */
+
+* { box-sizing: border-box; border-radius: 0; }
+body {
+  margin: 0;
+  background: #f3f2f2;
+  color: #201e1d;
+  font-family: Archivo, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* the two shell animations — exact curves */
+@keyframes wipeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes slabIn { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+@keyframes ruleIn { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes sweepRule { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ---- controls: 2px borders, square, LEFT-aligned label ---- */
+.bi, .bo, .br, .bg {
+  font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px;
+  padding: 10px 18px; border: 2px solid transparent; cursor: pointer;
+  text-align: left; transition: background 120ms linear;
+}
+.bi { background: #201e1d; color: #f3f2f2; border-color: #201e1d; }
+.bi:hover { background: #444141; } .bi:active { background: #000; }
+.bo { background: transparent; color: #201e1d; border-color: #201e1d; }
+.bo:hover { background: #eae7e7; }
+.br { background: #ec3013; color: #fff; border-color: #ec3013; }
+.br:hover { background: #dd2b0f; }
+.bg { background: transparent; color: #201e1d; }
+.bg:hover { background: #eae7e7; }
+.bi:disabled, .bo:disabled, .br:disabled, .bg:disabled { opacity: .45; cursor: not-allowed; }
+
+.fi {
+  background: #fff; border: 2px solid #201e1d; padding: 10px 12px;
+  font-family: Archivo, sans-serif; font-size: 14px; color: #201e1d; width: 100%;
+}
+.fi::placeholder { color: #605d5d; }
+:focus-visible { outline: 2px solid #ec3013; outline-offset: 2px; }
+
+/* ---- the table row. THIS is what previous handoffs lost. ---- */
+.trow {
+  display: grid; align-items: baseline;
+  border-bottom: 1px solid #d7d3d3;
+  cursor: default;
+  transition: background 100ms linear;
+}
+.trow:hover { background: #eae7e7; }
+
+.num { font-variant-numeric: tabular-nums; }
+
+/* kit chrome only — not part of the product */
+.kit { max-width: 1240px; margin: 0 auto; padding: 48px 24px 120px; }
+.kit h1 { font-size: 44px; font-weight: 800; letter-spacing: -0.03em; line-height: .94; margin: 0 0 16px; }
+.kit h2 { font-size: 25px; font-weight: 800; margin: 0 0 6px; }
+.spec {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; color: #605d5d; background: #eae7e7;
+  padding: 8px 10px; margin: 0 0 14px; white-space: pre-wrap; word-break: break-all;
+}
+.block { border-top: 2px solid #201e1d; padding: 22px 0 44px; }
+.eyebrow { font-size: 11px; letter-spacing: .16em; color: #605d5d; margin: 0 0 10px; }
+.thead {
+  display: grid; padding: 0 0 8px; border-bottom: 2px solid #201e1d;
+}
+.thead span { font-size: 11px; font-weight: 600; letter-spacing: .1em; color: #605d5d; }
+</style>
+</head>
+<body>
+<div class="kit">
+
+<p class="eyebrow">FEES101 — BUILD REFERENCE</p>
+<h1>Every number, at size.</h1>
+<p style="font-size: 19px; line-height: 1.45; max-width: 64ch; margin: 0 0 12px;">Open this next to the code. The grid column strings, row paddings and colour roles below are copied out of the mockup verbatim — they are not approximations. Match them literally.</p>
+<p style="font-size: 15px; line-height: 1.5; max-width: 74ch; color: #444141; margin: 0 0 48px;">The reason an earlier pass missed: a colour and type spec cannot carry layout. The <code>grid-template-columns</code> value <em>is</em> the design. Paste it, don't eyeball it.</p>
+
+<!-- ============ TYPE ============ -->
+<div class="block">
+<p class="eyebrow">01 — TYPE</p>
+<h2>Archivo, three weights, nothing else.</h2>
+<div class="spec">font-family: Archivo, system-ui, sans-serif;  /* 400, 600, 800 */</div>
+<p style="font-size: 44px; font-weight: 800; letter-spacing: -0.03em; line-height: .94; margin: 0 0 4px;">Display 44–88px / 800 / -0.03em / 0.94</p>
+<p style="font-size: 25px; font-weight: 800; margin: 0 0 4px;">Surface title 25px / 800</p>
+<p style="font-size: 19px; line-height: 1.45; margin: 0 0 4px;">Lead 19px / 400 / 1.45 / max 64ch</p>
+<p style="font-size: 15px; line-height: 1.5; color: #444141; margin: 0 0 4px;">Surface body 15px / 400 / 1.5 / #444141 / max 74ch</p>
+<p style="font-size: 14px; font-weight: 600; margin: 0 0 4px;">Control 14px / 600</p>
+<p style="font-size: 13px; color: #444141; margin: 0 0 4px;">Row body 13px / #444141</p>
+<p style="font-size: 12px; letter-spacing: .1em; color: #605d5d; margin: 0 0 4px;">COLUMN LABEL 12px / .1em / #605d5d</p>
+<p style="font-size: 11px; letter-spacing: .16em; color: #605d5d; margin: 0 0 4px;">EYEBROW 11px / .16em / #605d5d</p>
+<p style="font-size: 11px; font-weight: 600; letter-spacing: .14em; margin: 0;">GROUP HEADER 11px / 600 / .14em</p>
+<div class="spec" style="margin-top: 14px;">Every money figure: font-variant-numeric: tabular-nums;  — no exceptions.</div>
+</div>
+
+<!-- ============ COLOUR ROLES ============ -->
+<div class="block">
+<p class="eyebrow">02 — COLOUR, ONE JOB EACH</p>
+<h2>Three hues. Everything else is ink.</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-top: 16px;">
+  <div><div style="height: 44px; background: #ec3013;"></div><p style="font-size: 14px; font-weight: 600; margin: 8px 0 0;">Signal red</p><p class="num" style="font-size: 12px; color: #605d5d; margin: 2px 0 0;">#EC3013 · text #AE1800</p><p style="font-size: 13px; color: #444141; margin: 6px 0 0; line-height: 1.5;">Mark, structural rules, collection bars, destructive confirm. Never a row status, never the default button.</p></div>
+  <div><div style="height: 44px; background: #0a6b3d;"></div><p style="font-size: 14px; font-weight: 600; margin: 8px 0 0;">Ledger green</p><p class="num" style="font-size: 12px; color: #605d5d; margin: 2px 0 0;">#0A6B3D · on ink #35C483</p><p style="font-size: 13px; color: #444141; margin: 6px 0 0; line-height: 1.5;">Money that arrived. Amounts paid, settled rows, collected totals, receipts.</p></div>
+  <div><div style="height: 44px; background: #b45f06;"></div><p style="font-size: 14px; font-weight: 600; margin: 8px 0 0;">Ochre</p><p class="num" style="font-size: 12px; color: #605d5d; margin: 2px 0 0;">#B45F06 · text #8A4805</p><p style="font-size: 13px; color: #444141; margin: 6px 0 0; line-height: 1.5;">Needs follow-up. Overdue, partial, pending, expiring, dormant.</p></div>
+  <div><div style="height: 44px; background: #201e1d;"></div><p style="font-size: 14px; font-weight: 600; margin: 8px 0 0;">Ink</p><p class="num" style="font-size: 12px; color: #605d5d; margin: 2px 0 0;">#201E1D · 2 #444141 · 3 #605D5D · dim #9B9797</p><p style="font-size: 13px; color: #444141; margin: 6px 0 0; line-height: 1.5;">Everything else. Rules, type, the default button.</p></div>
+</div>
+<div class="spec" style="margin-top: 18px;">Red text under 20px MUST be #AE1800 (6.4:1). Ochre text MUST be #8A4805.
+Rules: 2px #201E1D structural · 1px #D7D3D3 between rows · 1px rgba(32,30,29,.4) cell borders.</div>
+</div>
+
+<!-- ============ CONTROLS ============ -->
+<div class="block">
+<p class="eyebrow">03 — CONTROLS</p>
+<h2>Four buttons. Labels flush left.</h2>
+<div class="spec">padding: 10px 18px · border: 2px solid · font: 600 14px Archivo · text-align: left · radius 0</div>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px;">
+  <button class="bi">Record a payment</button>
+  <button class="bo">Export</button>
+  <button class="br">Delete permanently</button>
+  <button class="bg">Cancel</button>
+  <button class="bi" disabled>Sending…</button>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; max-width: 620px;">
+  <div style="flex: 1; min-width: 220px;"><span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: .1em; margin-bottom: 5px;">PARENT PHONE</span><input class="fi" placeholder="0803 000 0000"></div>
+  <div style="flex: 1; min-width: 220px;"><span style="display: block; font-size: 11px; font-weight: 600; letter-spacing: .1em; margin-bottom: 5px;">AMOUNT</span><input class="fi" placeholder="₦0.00"></div>
+</div>
+<p style="font-size: 13px; color: #444141; margin: 14px 0 0; max-width: 74ch;"><strong>.bi</strong> is the default action. <strong>.br</strong> is only destructive confirmation or the single primary action on a first-run screen. A wide button starts its label at the left padding edge — never centred.</p>
+</div>
+
+<!-- ============ THE TABLES ============ -->
+<div class="block">
+<p class="eyebrow">04 — TABLES · THE EXACT GRIDS</p>
+<h2>Copy these strings literally.</h2>
+
+<p style="font-size: 14px; font-weight: 600; margin: 22px 0 6px;">Students · Roster</p>
+<div class="spec">grid-template-columns: minmax(150px,2fr) minmax(120px,1.3fr) minmax(96px,1fr) minmax(90px,1fr) minmax(96px,1fr);
+gap: 12px; min-width: 600px; row padding: 12px 0; border-bottom: 1px solid #d7d3d3;</div>
+<div style="overflow-x: auto;">
+  <div class="thead" style="grid-template-columns: minmax(150px,2fr) minmax(120px,1.3fr) minmax(96px,1fr) minmax(90px,1fr) minmax(96px,1fr); gap: 12px; min-width: 600px;">
+    <span>STUDENT</span><span>CLASS</span><span style="text-align: right;">BILLED</span><span style="text-align: right;">PAID</span><span style="text-align: right;">OUTSTANDING</span>
+  </div>
+  <div style="padding: 16px 0 6px; border-bottom: 1px solid #d7d3d3; min-width: 600px;"><span style="font-size: 11px; font-weight: 600; letter-spacing: .14em;">JSS 2</span></div>
+  <div class="trow" style="grid-template-columns: minmax(150px,2fr) minmax(120px,1.3fr) minmax(96px,1fr) minmax(90px,1fr) minmax(96px,1fr); gap: 12px; min-width: 600px; padding: 12px 0;">
+    <div style="min-width: 0;"><p style="font-size: 14px; font-weight: 600; margin: 0;">Danjuma, Aisha</p><p style="font-size: 12px; color: #605d5d; margin: 2px 0 0;">Parent: Mrs Danjuma · 0803 000 0000</p></div>
+    <span style="font-size: 13px; color: #444141;">JSS 2</span>
+    <span class="num" style="font-size: 14px; text-align: right;">₦145,000</span>
+    <span class="num" style="font-size: 14px; text-align: right; color: #0a6b3d; font-weight: 600;">₦116,000</span>
+    <span class="num" style="font-size: 14px; text-align: right; color: #8a4805; font-weight: 600;">₦29,000</span>
+  </div>
+  <div class="trow" style="grid-template-columns: minmax(150px,2fr) minmax(120px,1.3fr) minmax(96px,1fr) minmax(90px,1fr) minmax(96px,1fr); gap: 12px; min-width: 600px; padding: 12px 0;">
+    <div style="min-width: 0;"><p style="font-size: 14px; font-weight: 600; margin: 0;">Eze, Amaka</p><p style="font-size: 12px; color: #605d5d; margin: 2px 0 0;">Parent: Mr Eze · 0806 111 2222</p></div>
+    <span style="font-size: 13px; color: #444141;">JSS 2</span>
+    <span class="num" style="font-size: 14px; text-align: right;">₦145,000</span>
+    <span class="num" style="font-size: 14px; text-align: right; color: #0a6b3d; font-weight: 600;">₦145,000</span>
+    <span class="num" style="font-size: 14px; text-align: right; color: #605d5d;">—</span>
+  </div>
+</div>
+
+<p style="font-size: 14px; font-weight: 600; margin: 32px 0 6px;">Today · Record (the archive)</p>
+<div class="spec">grid-template-columns: minmax(60px,0.5fr) minmax(150px,1.6fr) minmax(190px,2.2fr) minmax(96px,1fr) minmax(110px,1.1fr);
+gap: 12px; min-width: 654px; row padding: 10px 0; day header padding: 18px 0 6px;</div>
+<div style="overflow-x: auto;">
+  <div style="min-width: 654px; padding: 18px 0 6px; border-bottom: 1px solid #d7d3d3; display: flex; gap: 12px; align-items: baseline;">
+    <span style="font-size: 11px; font-weight: 600; letter-spacing: .14em;">TODAY · 15 MAR</span>
+    <span style="font-size: 12px; color: #605d5d;">12 payments · ₦418,000</span>
+  </div>
+  <div class="trow" style="grid-template-columns: minmax(60px,0.5fr) minmax(150px,1.6fr) minmax(190px,2.2fr) minmax(96px,1fr) minmax(110px,1.1fr); gap: 12px; min-width: 654px; padding: 10px 0;">
+    <span class="num" style="font-size: 13px; color: #605d5d;">14:02</span>
+    <span style="font-size: 14px; font-weight: 600;">Danjuma, Aisha</span>
+    <span style="font-size: 13px; color: #444141;">Transfer · Second Term tuition</span>
+    <span class="num" style="font-size: 14px; text-align: right; color: #0a6b3d; font-weight: 600;">₦58,000</span>
+    <span style="font-size: 12px; font-weight: 600; letter-spacing: .08em; text-align: right; color: #0a6b3d;">CONFIRMED</span>
+  </div>
+  <div class="trow" style="grid-template-columns: minmax(60px,0.5fr) minmax(150px,1.6fr) minmax(190px,2.2fr) minmax(96px,1fr) minmax(110px,1.1fr); gap: 12px; min-width: 654px; padding: 10px 0;">
+    <span class="num" style="font-size: 13px; color: #605d5d;">11:47</span>
+    <span style="font-size: 14px; font-weight: 600;">Musa, Halima</span>
+    <span style="font-size: 13px; color: #444141;">Cash at office · part payment</span>
+    <span class="num" style="font-size: 14px; text-align: right; color: #0a6b3d; font-weight: 600;">₦20,000</span>
+    <span style="font-size: 12px; font-weight: 600; letter-spacing: .08em; text-align: right; color: #8a4805;">PARTIAL</span>
+  </div>
+</div>
+
+<p style="font-size: 14px; font-weight: 600; margin: 32px 0 6px;">Fees · Structures (the matrix)</p>
+<div class="spec">grid-template-columns: minmax(150px,1.6fr) repeat(7, minmax(78px,1fr));
+gap: 8px; min-width: 752px; row padding: 10px 0;</div>
+
+<p style="font-size: 14px; font-weight: 600; margin: 24px 0 6px;">School · Sessions and terms</p>
+<div class="spec">grid-template-columns: minmax(120px,1.4fr) minmax(90px,1fr) minmax(90px,1fr) minmax(76px,0.8fr) minmax(70px,0.7fr);
+gap: 12px; session header padding: 18px 0 6px 16px;</div>
+
+<p style="font-size: 14px; font-weight: 600; margin: 24px 0 6px;">Team &amp; Trust · Permission matrix</p>
+<div class="spec">grid-template-columns: 296px repeat(4, 96px);
+gap: 12px; min-width: 728px; row padding: 9px 0;  /* denser than other tables — deliberate */</div>
+<p style="font-size: 13px; color: #444141; margin: 0; max-width: 74ch;">Column order is fixed: <strong>Bursar, Clerk, Teacher, Owner</strong> — least to most. 21 rows in two groups (9 SEE, 12 DO). Filled dot = granted, dash = not.</p>
+</div>
+
+<!-- ============ SHELL GEOMETRY ============ -->
+<div class="block">
+<p class="eyebrow">05 — SHELL GEOMETRY</p>
+<h2>Panels, drawers, toast.</h2>
+<div class="spec">Main content padding: 28px · min-width: 0 (required, or tables blow out the flex parent)
+Action drawer:  width 420px · border-left 2px #201e1d · padding 22px · position sticky · height 100vh
+Stream drawer:  width 340px · border-left 2px #201e1d · padding 20px · position sticky · height 100vh
+Invoice preview: background #201e1d · color #f3f2f2 · padding 26px · margin -28px · min-height 620px
+Progress bar:   height 4px · track #d7d3d3 · max-width 420px · fill = role colour
+Surface enter:  animation: wipeUp 320ms cubic-bezier(.2,0,0,1) both;</div>
+
+<div style="display: flex; align-items: flex-start; gap: 0; border: 2px solid #201e1d; max-width: 860px; margin-top: 18px;">
+  <div style="flex: 1; padding: 28px; min-width: 0;">
+    <p style="font-size: 11px; letter-spacing: .16em; color: #605d5d; margin: 0 0 8px;">MAIN · PADDING 28</p>
+    <p style="font-size: 13px; color: #444141; margin: 0;">min-width: 0 on this column is not optional.</p>
+  </div>
+  <div style="width: 240px; flex-shrink: 0; background: #f3f2f2; border-left: 2px solid #201e1d; padding: 22px;">
+    <p style="font-size: 11px; letter-spacing: .16em; color: #605d5d; margin: 0 0 8px;">DRAWER · 420 REAL</p>
+    <p style="font-size: 13px; color: #444141; margin: 0;">Shown narrow here to fit.</p>
+  </div>
+</div>
+
+<div style="position: relative; height: 92px; margin-top: 24px;">
+  <div style="position: absolute; left: 0; bottom: 0; background: #201e1d; color: #f3f2f2; padding: 14px 18px; border-left: 5px solid #0a6b3d; max-width: 360px; animation: slabIn 320ms cubic-bezier(.2,0,0,1) both;">
+    <p style="font-size: 14px; font-weight: 600; margin: 0;">640 invoices sent</p>
+    <p style="font-size: 13px; color: #9b9797; margin: 3px 0 0;">Parents notified by email and SMS. 0 failures.</p>
+  </div>
+</div>
+<div class="spec" style="margin-top: 14px;">Toast: position fixed · left 24px · bottom 24px · z-index 60 · bg #201e1d · border-left 5px solid
+Left border colour carries the role: #0a6b3d money, #8a4805 follow-up, #ec3013 failure.</div>
+</div>
+
+<!-- ============ LOADING ============ -->
+<div class="block">
+<p class="eyebrow">06 — THE ONLY LOADING STATE</p>
+<h2>A sweeping rule. Never a spinner.</h2>
+<div style="position: relative; height: 2px; background: #d7d3d3; overflow: hidden; max-width: 420px; margin-bottom: 14px;">
+  <div style="position: absolute; inset: 0 auto 0 0; width: 30%; background: #ec3013; animation: sweepRule 1200ms linear infinite;"></div>
+</div>
+<div class="spec">.loading-rule { position: relative; height: 2px; background: #d7d3d3; overflow: hidden; }
+.loading-rule::after { content:''; position:absolute; inset:0 auto 0 0; width:30%;
+                       background:#ec3013; animation: sweepRule 1200ms linear infinite; }</div>
+<p style="font-size: 13px; color: #444141; margin: 0; max-width: 74ch;">No spinners, no skeleton cards, no shimmer. A page that is loading shows its rules and its headings with the sweep under the section that is waiting.</p>
+</div>
+
+<p style="font-size: 13px; color: #605d5d; margin: 40px 0 0;">If a value you need is not in this file, it is not decided — ask, do not invent it.</p>
+
+</div>
+</body>
+</html>
