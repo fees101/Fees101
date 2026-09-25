@@ -17,6 +17,7 @@
 
 import crypto from 'crypto'
 import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction, DVATransactionSummary } from './types'
+import { isProviderDownError } from './providerErrors'
 
 const BASE_URL = 'https://api.paystack.co'
 // Parents recognize Wema by name (same reasoning as Monnify's 035 default).
@@ -71,12 +72,16 @@ export class PaystackProvider implements PaymentProvider {
     return this.creds.secretKey.startsWith('sk_test') ? 'test-bank' : LIVE_PREFERRED_BANK
   }
 
-  // A cheap authenticated GET — 200 means the secret key is valid, 401 means not.
+  // A cheap authenticated GET — 200 means the secret key is valid, 401 means
+  // not. A network-level failure (provider unreachable) is deliberately
+  // rethrown rather than swallowed to `false`, so the caller can tell "your
+  // keys are wrong" apart from "Paystack is down" (see isProviderDownError).
   async verifyCredentials(): Promise<boolean> {
     try {
       const { status } = await paystackRequest(this.creds.secretKey, 'GET', '/customer?perPage=1')
       return status === 200
-    } catch {
+    } catch (err) {
+      if (isProviderDownError(err)) throw err
       return false
     }
   }

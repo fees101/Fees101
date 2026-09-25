@@ -1,5 +1,6 @@
 import { getAuthContext } from '@/lib/auth/permissions'
 import { computeInvoiceForStudent, buildInvoiceComputePreload } from '@/lib/computeInvoice'
+import { frequencyFromRow } from '@/lib/fees/billingFrequency'
 
 function composeAddress(street?: string | null, city?: string | null, state?: string | null): string | null {
   const parts = [street, city, state].filter(Boolean)
@@ -234,19 +235,19 @@ export async function getFeeStructure(billingCycleId?: string) {
       allFees: [],
       studentCountByClass: {},
       totalActiveStudents: 0,
+      issuedInvoiceCount: 0,
     }
   }
 
-  const [{ data: classes }, { data: feeItems }, { data: students }] = await Promise.all([
+  const [{ data: classes }, { data: feeItems }, { data: students }, { count: issuedInvoiceCount }] = await Promise.all([
     supabase
       .from('classes')
-      .select('id, name, display_order')
+      .select('id, name, display_order, section_id, sections(display_order)')
       .eq('school_id', schoolId)
-      .eq('is_active', true)
-      .order('display_order'),
+      .eq('is_active', true),
     supabase
       .from('fee_items')
-      .select('id, class_id, name, amount, is_mandatory, is_optional_extra, is_discountable, is_recurring')
+      .select('id, class_id, name, amount, is_mandatory, is_optional_extra, is_discountable, is_recurring, billing_frequency')
       .eq('school_id', schoolId)
       .eq('billing_cycle_id', cycle.id),
     // Get active students per class (for revenue calculation)
@@ -255,6 +256,15 @@ export async function getFeeStructure(billingCycleId?: string) {
       .select('class_id')
       .eq('school_id', schoolId)
       .eq('status', 'active'),
+    // Invoices already sent to a parent for this term. The add-fee drawer's
+    // "what this will do" ledger warns that adding a fee doesn't touch an
+    // invoice a parent is already holding — this is how many that is.
+    supabase
+      .from('invoices')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('billing_cycle_id', cycle.id)
+      .not('sent_at', 'is', null),
   ])
 
   const studentCountByClass: Record<string, number> = {}
@@ -284,11 +294,25 @@ export async function getFeeStructure(billingCycleId?: string) {
 
   return {
     cycle,
-    classes: (classes || []).map(c => ({
-      id: c.id,
-      name: c.name,
-      displayOrder: c.display_order,
-    })),
+    // Classes carry a per-section display_order (Primary 1-6 and JSS 1-3 both
+    // start at 1), so a flat sort by display_order interleaves the sections.
+    // Order by the section first, then the class within it, so the matrix reads
+    // Primary 1-6 → JSS 1-3 → SS 1-3, not Primary 1, JSS 1, Primary 2, ...
+    classes: [...((classes as any[]) || [])]
+      .sort((a, b) => {
+        const sa = a.sections?.display_order ?? 9999
+        const sb = b.sections?.display_order ?? 9999
+        if (sa !== sb) return sa - sb
+        const oa = a.display_order ?? 9999
+        const ob = b.display_order ?? 9999
+        if (oa !== ob) return oa - ob
+        return String(a.name).localeCompare(String(b.name), undefined, { numeric: true })
+      })
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        displayOrder: c.display_order,
+      })),
     allFees: allFees.map(f => ({
       id: f.id,
       classId: f.class_id,
@@ -299,10 +323,12 @@ export async function getFeeStructure(billingCycleId?: string) {
       isSchoolWide: f.class_id === null,
       isDiscountable: f.is_discountable !== false,
       isRecurring: f.is_recurring !== false,
+      billingFrequency: frequencyFromRow(f),
       optInCount: optInCountMap[f.id] || 0,
     })),
     studentCountByClass,
     totalActiveStudents,
+    issuedInvoiceCount: issuedInvoiceCount || 0,
   }
 }
 // ============ CYCLES + SESSIONS (for /fees/cycles page) ============
@@ -333,6 +359,26 @@ export interface CycleRow {
   totalCollected: number
   totalOutstanding: number
   feeItemCount: number
+  // Sent-state counts, derived read-only from invoices.sent_at / needs_resend
+  // on the same invoice fetch below — feed the Cycles lifecycle "sent to
+  // parents" step. Cancelled invoices are excluded from all three.
+  invoicesSent: number
+  invoicesUnsent: number
+  invoicesNeedingResend: number
+  // Set by advanceJob's invoice-generation completion (src/lib/jobs/advanceJob.ts)
+  // regardless of how many invoices it actually produced — lets the term-page
+  // empty state tell "generation never ran" apart from "it ran and produced
+  // zero invoices" (e.g. every active student was exempted/opted out).
+  // Optional: only populated by getCycleDetailById, not getAllCycles, which
+  // has no empty state that needs it.
+  invoicesGeneratedAt?: string | null
+  // True only while the term is "pristine since activation" — active, with
+  // nothing sent to parents, no payment recorded, and no balance carried in
+  // from a term closed at activation. Gates the "Undo activation" control:
+  // once any of those is true, dropping the term back to draft would strand
+  // real money / obligations, so it's blocked. Mirrors the server guard in
+  // reopenTermAsDraft.
+  canUndoActivation: boolean
 }
 
 async function getSchoolContext() {
@@ -406,7 +452,7 @@ export async function getAllCycles(): Promise<CycleRow[]> {
     // Get invoice stats per cycle (expected/count/outstanding — collected is payment-date-based, below)
     supabase
       .from('invoices')
-      .select('billing_cycle_id, total_amount, paid_amount, credit_applied, status')
+      .select('billing_cycle_id, total_amount, paid_amount, credit_applied, status, sent_at, needs_resend, previous_balance')
       .in('billing_cycle_id', cycleIds),
     // Collected is attributed by payment date, not invoice allocation — fetch
     // every matched payment once and bucket into whichever cycle's date range
@@ -423,9 +469,9 @@ export async function getAllCycles(): Promise<CycleRow[]> {
       .in('billing_cycle_id', cycleIds),
   ])
 
-  const invoiceStats: Record<string, { count: number, expected: number, outstanding: number, studentsWithOutstanding: number }> = {}
+  const invoiceStats: Record<string, { count: number, expected: number, outstanding: number, studentsWithOutstanding: number, sent: number, unsent: number, needsResend: number, anyPaid: boolean, anySent: boolean, anyCarriedIn: boolean }> = {}
   invoices?.forEach((inv: any) => {
-    const stat = invoiceStats[inv.billing_cycle_id] ||= { count: 0, expected: 0, outstanding: 0, studentsWithOutstanding: 0 }
+    const stat = invoiceStats[inv.billing_cycle_id] ||= { count: 0, expected: 0, outstanding: 0, studentsWithOutstanding: 0, sent: 0, unsent: 0, needsResend: 0, anyPaid: false, anySent: false, anyCarriedIn: false }
     stat.count++
     // A cancelled invoice (e.g. a withdrawn student's stray term invoice)
     // still counts toward "invoiced" but owes nothing — kept out of the
@@ -438,6 +484,19 @@ export async function getAllCycles(): Promise<CycleRow[]> {
     const outstanding = Math.max(0, Number(inv.total_amount || 0) - Number(inv.paid_amount || 0))
     stat.outstanding += outstanding
     if (outstanding > 0) stat.studentsWithOutstanding++
+    // Sent-state buckets (read-only, same row): an invoice needing resend is
+    // counted there rather than as plainly sent, so the two never overlap.
+    if (inv.needs_resend) stat.needsResend++
+    else if (inv.sent_at) stat.sent++
+    else stat.unsent++
+    // "Pristine since activation" signals for canUndoActivation — any one of
+    // these makes an undo unsafe. sent_at != null (a live obligation),
+    // paid_amount > 0 (real money, also subsumes receipts), previous_balance
+    // > 0 (this term inherited debt from a term closed at activation, which
+    // an undo cannot unwind).
+    if (inv.sent_at) stat.anySent = true
+    if (Number(inv.paid_amount || 0) > 0) stat.anyPaid = true
+    if (Number(inv.previous_balance || 0) > 0) stat.anyCarriedIn = true
   })
 
   const collectedByCycle: Record<string, number> = {}
@@ -459,7 +518,7 @@ export async function getAllCycles(): Promise<CycleRow[]> {
   })
 
   return cycles.map(c => {
-    const stats = invoiceStats[c.id] || { count: 0, expected: 0, outstanding: 0, studentsWithOutstanding: 0 }
+    const stats = invoiceStats[c.id] || { count: 0, expected: 0, outstanding: 0, studentsWithOutstanding: 0, sent: 0, unsent: 0, needsResend: 0, anyPaid: false, anySent: false, anyCarriedIn: false }
     return {
       id: c.id,
       name: c.name,
@@ -479,6 +538,10 @@ export async function getAllCycles(): Promise<CycleRow[]> {
       totalCollected: collectedByCycle[c.id] || 0,
       totalOutstanding: stats.outstanding,
       feeItemCount: feeItemStats[c.id] || 0,
+      invoicesSent: stats.sent,
+      invoicesUnsent: stats.unsent,
+      invoicesNeedingResend: stats.needsResend,
+      canUndoActivation: c.status === 'active' && !stats.anySent && !stats.anyPaid && !stats.anyCarriedIn,
     }
   })
 }
@@ -584,6 +647,7 @@ export async function getCycleDetailById(cycleId: string, options: GetCycleDetai
       closed_at,
       status,
       session_id,
+      invoices_generated_at,
       sessions(name)
     `)
     .eq('id', cycleId)
@@ -787,6 +851,17 @@ export async function getCycleDetailById(cycleId: string, options: GetCycleDetai
     totalCollected,
     totalOutstanding,
     feeItemCount: 0, // not needed here
+    invoicesGeneratedAt: cycleData.invoices_generated_at,
+    invoicesNeedingResend: liveInvoices.filter(i => i.needsResend).length,
+    invoicesSent: liveInvoices.filter(i => !i.needsResend && i.sentAt).length,
+    invoicesUnsent: liveInvoices.filter(i => !i.needsResend && !i.sentAt).length,
+    // Same "pristine since activation" gate as getAllCycles — active, with
+    // nothing sent, no payment recorded, and no balance carried in.
+    canUndoActivation:
+      cycleData.status === 'active' &&
+      !liveInvoices.some(i => i.sentAt) &&
+      !liveInvoices.some(i => i.paidAmount > 0) &&
+      !liveInvoices.some(i => i.previousBalance > 0),
   }
 
   // Out of the invoices needing regeneration, how many are blocked (would
@@ -1127,7 +1202,7 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
           provider_dva_account_number,
           provider_dva_bank_name,
           credit_balance,
-          classes(name, display_order),
+          classes(name, display_order, sections(display_order)),
           families(primary_parent_name, primary_parent_phone)
         ),
         billing_cycles!inner(id, name, due_date, status)
@@ -1156,8 +1231,15 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
     carriedForwardByInvoiceId[s.previous_balance_from_invoice_id] = s.billing_cycles?.name || ''
   }
 
-  // Print order: class display_order (Play Pen → Year 11), then last name within each class.
+  // Print order: section first, then class display_order within the section
+  // (Play Pen → Year 11 reads in true section order, not the interleave a flat
+  // per-section display_order would give), then last name within each class.
   const sorted = [...invoices].sort((a, b) => {
+    // @ts-expect-error — joined object
+    const secA = a.students?.classes?.sections?.display_order ?? 9999
+    // @ts-expect-error — joined object
+    const secB = b.students?.classes?.sections?.display_order ?? 9999
+    if (secA !== secB) return secA - secB
     // @ts-expect-error — joined object
     const orderA = a.students?.classes?.display_order ?? 9999
     // @ts-expect-error — joined object
@@ -1228,32 +1310,16 @@ export async function getInvoicesByCycleId(cycleId: string): Promise<InvoiceDeta
 }
 
 // ============ ALL INVOICES (global list, across every term) ============
-
-export interface AllInvoiceRow {
-  id: string
-  invoiceNumber: string | null
-  studentId: string
-  studentFirstName: string
-  studentLastName: string
-  studentAdmissionNumber: string
-  className: string
-  cycleId: string
-  cycleName: string
-  cycleStatus: 'draft' | 'active' | 'closed'
-  totalAmount: number
-  paidAmount: number
-  outstandingAmount: number
-  subtotal: number
-  creditApplied: number
-  status: 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled'
-  sentAt: string | null
-  needsResend: boolean
-  generatedAt: string
-  // Name of the term whose invoice this balance carried forward onto, if any
-  // — lets a closed, still-"overdue"-looking old invoice point forward
-  // instead of reading as unresolved debt.
-  carriedForwardToCycleName: string | null
-}
+// AllInvoiceRow / InvoiceCounts / InvoiceLedgerTotals / InvoiceStatusFilter /
+// INVOICES_PAGE_SIZE_OPTIONS live in lib/invoices/invoiceListMeta.ts (a
+// server-import-free module) and are re-exported here for existing callers —
+// InvoicesListLayout.tsx (a client component) must import them from there
+// directly, never from this file, or it drags next/headers into the browser
+// bundle via getSchoolContext.
+export type { AllInvoiceRow, InvoiceCounts, InvoiceLedgerTotals, InvoiceStatusFilter } from '@/lib/invoices/invoiceListMeta'
+export { INVOICES_PAGE_SIZE_OPTIONS } from '@/lib/invoices/invoiceListMeta'
+import type { AllInvoiceRow, InvoiceCounts, InvoiceLedgerTotals, InvoiceStatusFilter } from '@/lib/invoices/invoiceListMeta'
+import { INVOICES_PAGE_SIZE_OPTIONS } from '@/lib/invoices/invoiceListMeta'
 
 export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
   const ctx = await getSchoolContext()
@@ -1327,3 +1393,119 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
     }
   })
 }
+
+export interface AllInvoicesOptions {
+  statusFilter?: InvoiceStatusFilter
+  termFilter?: string // billing cycle id, or 'all'
+  search?: string
+  page?: number
+  perPage?: number
+}
+
+export interface AllInvoicesResult {
+  rows: AllInvoiceRow[]
+  total: number // count matching statusFilter+termFilter+search, for pagination
+  page: number
+  perPage: number
+  terms: { id: string; name: string }[]
+  counts: InvoiceCounts // term+search scoped, NOT status-filtered (so chips show their own count)
+  ledger: InvoiceLedgerTotals // same scope as counts
+}
+
+// Term + search scope — backs the ledger hero and the chip counts (a status
+// filter narrows the table rows, not the totals above it). Shared by the list
+// and export paths so they can never silently drift apart.
+function matchesInvoiceScope(inv: AllInvoiceRow, termFilter: string, search: string): boolean {
+  if (termFilter !== 'all' && inv.cycleId !== termFilter) return false
+  if (search) {
+    const fullName = `${inv.studentFirstName} ${inv.studentLastName}`.toLowerCase()
+    return (
+      fullName.includes(search) ||
+      inv.studentAdmissionNumber.toLowerCase().includes(search) ||
+      (inv.invoiceNumber || '').toLowerCase().includes(search)
+    )
+  }
+  return true
+}
+
+function matchesInvoiceStatus(inv: AllInvoiceRow, statusFilter: InvoiceStatusFilter): boolean {
+  if (statusFilter === 'settled') return inv.status === 'paid'
+  if (statusFilter === 'partial') return inv.status === 'partial'
+  if (statusFilter === 'overdue') return inv.status !== 'paid' && inv.status !== 'partial' && inv.status !== 'cancelled'
+  if (statusFilter === 'needs_resend') return inv.needsResend && inv.status !== 'cancelled'
+  return true
+}
+
+// Server-driven equivalent of getAllInvoices() above, for the page.tsx route
+// that actually renders the list — everything (search, term/status filters,
+// counts, ledger totals, pagination) is computed here so the client only ever
+// holds one page's worth of rows, the same principle already used for
+// Students/Audit log/Recent Activity. A school's invoice history can run into
+// the thousands (many terms × many students), so this still fetches the full
+// set once per request (a narrow-ish projection is impractical here since the
+// needsSend/ledger figures need every field anyway) but only ever SERIALIZES
+// one page of full rows back to the browser — the rest stays server-side.
+export async function getAllInvoicesForList(options: AllInvoicesOptions = {}): Promise<AllInvoicesResult> {
+  const page = Math.max(1, options.page ?? 1)
+  const perPage = INVOICES_PAGE_SIZE_OPTIONS.includes(options.perPage as number) ? (options.perPage as number) : 50
+  const statusFilter = options.statusFilter ?? 'all'
+  const termFilter = options.termFilter && options.termFilter !== 'all' ? options.termFilter : 'all'
+  const search = (options.search || '').trim().toLowerCase()
+
+  const all = await getAllInvoices()
+
+  const terms: { id: string; name: string }[] = []
+  const seenTerms = new Set<string>()
+  for (const inv of all) {
+    if (inv.cycleId && !seenTerms.has(inv.cycleId)) {
+      seenTerms.add(inv.cycleId)
+      terms.push({ id: inv.cycleId, name: inv.cycleName })
+    }
+  }
+
+  const scoped = all.filter(inv => matchesInvoiceScope(inv, termFilter, search))
+
+  const counts: InvoiceCounts = {
+    all: scoped.length,
+    settled: scoped.filter(i => i.status === 'paid').length,
+    partial: scoped.filter(i => i.status === 'partial').length,
+    overdue: scoped.filter(i => i.status !== 'paid' && i.status !== 'partial' && i.status !== 'cancelled').length,
+    needsResend: scoped.filter(i => i.needsResend && i.status !== 'cancelled').length,
+    // needs_resend bypasses the outstanding-balance check — mirrors
+    // startBulkSendInvoicesJob's candidate query in sendInvoice.ts, so this
+    // count always matches what the button's own bulk-send job will process.
+    needsSend: scoped.filter(i => i.status !== 'cancelled' && (i.cycleStatus !== 'closed' || !i.carriedForwardToCycleName) && (i.needsResend || (!i.sentAt && i.outstandingAmount > 0))).length,
+  }
+
+  const ledger = scoped.reduce<InvoiceLedgerTotals>((acc, inv) => {
+    if (inv.status === 'cancelled') return acc
+    acc.total += inv.totalAmount
+    acc.received += inv.paidAmount
+    acc.outstanding += inv.outstandingAmount
+    acc.subtotal += inv.subtotal
+    acc.creditApplied += inv.creditApplied
+    return acc
+  }, { total: 0, received: 0, outstanding: 0, subtotal: 0, creditApplied: 0 })
+
+  const filtered = scoped.filter(inv => matchesInvoiceStatus(inv, statusFilter))
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage))
+  const safePage = Math.min(page, totalPages)
+  const rows = filtered.slice((safePage - 1) * perPage, safePage * perPage)
+
+  return { rows, total: filtered.length, page: safePage, perPage, terms, counts, ledger }
+}
+
+// CSV export needs every matching row, not just the current page — a
+// separate, unpaginated pass over the same scope/status filters above.
+export async function getAllInvoicesForExport(options: Omit<AllInvoicesOptions, 'page' | 'perPage'> = {}): Promise<AllInvoiceRow[]> {
+  const statusFilter = options.statusFilter ?? 'all'
+  const termFilter = options.termFilter && options.termFilter !== 'all' ? options.termFilter : 'all'
+  const search = (options.search || '').trim().toLowerCase()
+
+  const all = await getAllInvoices()
+  return all
+    .filter(inv => matchesInvoiceScope(inv, termFilter, search))
+    .filter(inv => matchesInvoiceStatus(inv, statusFilter))
+}
+

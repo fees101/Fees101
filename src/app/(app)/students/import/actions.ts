@@ -193,6 +193,14 @@ export async function parseAndValidateCSV(csvText: string) {
   return {
     success: true,
     rows: parsedRows,
+    // Column-recognition counts for the import surface's "Columns" step. These
+    // are already computed here (header parsing + the fixed template match) —
+    // returning them adds no query and no new data, it just surfaces what the
+    // parser already knows. Mapping is exact-header, not fuzzy: a required
+    // column that is absent fails the parse above, so on success every required
+    // column is present and any unrecognised extra columns are simply ignored.
+    columns: headers.length,
+    recognisedColumns: headers.filter(h => EXPECTED_HEADERS.includes(h)).length,
     summary: {
       total: parsedRows.length,
       valid: parsedRows.filter(r => r.errors.length === 0).length,

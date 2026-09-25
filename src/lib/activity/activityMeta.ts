@@ -21,7 +21,7 @@ export const ACTIVITY_CATEGORIES: { key: 'all' | ActivityCategory; label: string
 
 // Page sizes offered in the feed's pagination control. Shared by the server
 // query (for validation) and the client component (for the dropdown).
-export const ACTIVITY_PAGE_SIZE_OPTIONS = [50, 100, 200]
+export const ACTIVITY_PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 
 const CATEGORY_KEYS = new Set(ACTIVITY_CATEGORIES.map((c) => c.key))
 export function isActivityCategory(v: string | undefined): v is 'all' | ActivityCategory {

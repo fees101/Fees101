@@ -7,10 +7,12 @@ import {
   updateFamilyInfo,
   updateFamilyNotes,
   updateStudentStatus,
+  getWithdrawalPreview,
   getClassesList
 } from '@/app/(app)/students/[id]/actions'
-import { cancelInvoice } from '@/app/(app)/invoices/[id]/actions'
+import { cancelInvoice } from '@/app/(app)/money/invoices/[id]/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import Toast from '@/components/ui/Toast'
 
 interface Student {
   id: string
@@ -35,572 +37,362 @@ interface Student {
 
 interface Props {
   student: Student
+  onClose?: () => void
 }
 
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+interface StudentForm {
+  firstName: string
+  lastName: string
+  admissionNumber: string
+  classId: string
+  admissionDate: string
 }
 
-export default function StudentSettingsTab({ student }: Props) {
-  const router = useRouter()
-  const [editingStudent, setEditingStudent] = useState(false)
-  const [editingFamily, setEditingFamily] = useState(false)
-  const [editingNotes, setEditingNotes] = useState(false)
-  const [confirmAction, setConfirmAction] = useState<'withdrawn' | 'graduated' | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [classes, setClasses] = useState<{ id: string, name: string }[]>([])
-  const [reactivating, setReactivating] = useState(false)
-  const canManage = useCan('manage-students')
+interface FamilyForm {
+  primaryParentName: string
+  primaryParentPhone: string
+  primaryParentEmail: string
+  secondaryParentName: string
+  secondaryParentPhone: string
+  secondaryParentEmail: string
+}
 
-  async function handleReactivate() {
-    setError(null)
-    setReactivating(true)
-    const result = await updateStudentStatus(student.id, 'active')
-    setReactivating(false)
-    if ('error' in result) {
-      setError(result.error)
-      return
-    }
-    router.refresh()
+interface ClassMoveConfirm {
+  oldClassName: string | null
+  newClassName: string | null
+  invoice: {
+    id: string
+    invoiceNumber: string | null
+    state: 'clean' | 'has_payment'
+    currentTotal: number
+    newTotal: number | null
+    paidAmount: number
+    creditApplied: number
   }
-
-  useEffect(() => {
-    getClassesList().then(setClasses)
-  }, [])
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-      
-      {/* Left column: 3 cards */}
-      <div className="lg:col-span-2 space-y-6">
-        
-        {/* Student details card */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-navy font-semibold text-lg">Student details</h2>
-            {canManage && (
-              <button
-                onClick={() => setEditingStudent(true)}
-                className="text-mint text-sm font-medium hover:underline"
-              >
-                Edit
-              </button>
-            )}
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="text-xs text-gray-500 mb-1">First name</p>
-              <p className="text-navy">{student.firstName}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Last name</p>
-              <p className="text-navy">{student.lastName}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Admission number</p>
-              <p className="text-navy">{student.admissionNumber}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Class</p>
-              <p className="text-navy">{student.className}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Admission date</p>
-              <p className="text-navy">{formatDate(student.admissionDate)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Status</p>
-              <span className={`
-                inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium rounded-full
-                ${student.status === 'active' ? 'bg-mint-light text-mint' : ''}
-                ${student.status === 'withdrawn' ? 'bg-red-100 text-red-700' : ''}
-                ${student.status === 'graduated' ? 'bg-gray-100 text-gray-700' : ''}
-              `}>
-                <span className={`
-                  w-1.5 h-1.5 rounded-full
-                  ${student.status === 'active' ? 'bg-mint' : ''}
-                  ${student.status === 'withdrawn' ? 'bg-red-500' : ''}
-                  ${student.status === 'graduated' ? 'bg-gray-500' : ''}
-                `}></span>
-                {student.status}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Family info card */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-navy font-semibold text-lg">Family information</h2>
-            {canManage && (
-              <button
-                onClick={() => setEditingFamily(true)}
-                className="text-mint text-sm font-medium hover:underline"
-              >
-                Edit
-              </button>
-            )}
-          </div>
-
-          <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Primary parent</p>
-            <p className="text-navy font-medium mb-2">{student.family.primaryParentName}</p>
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2 text-sm">
-                <svg className="w-4 h-4 text-mint flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                </svg>
-                <span className="text-navy">{student.family.primaryParentPhone}</span>
-              </div>
-              {student.family.primaryParentEmail && (
-                <div className="flex items-center gap-2 text-sm">
-                  <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                  <span className="text-navy break-all">{student.family.primaryParentEmail}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Secondary parent</p>
-            {student.family.secondaryParentName ? (
-              <>
-                <p className="text-navy font-medium mb-2">{student.family.secondaryParentName}</p>
-                <div className="space-y-1.5">
-                  {student.family.secondaryParentPhone && (
-                    <p className="text-sm text-navy">{student.family.secondaryParentPhone}</p>
-                  )}
-                  {student.family.secondaryParentEmail && (
-                    <p className="text-sm text-navy break-all">{student.family.secondaryParentEmail}</p>
-                  )}
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-gray-400 italic">No secondary parent added</p>
-                {canManage && (
-                  <button
-                    onClick={() => setEditingFamily(true)}
-                    className="text-mint text-sm font-medium hover:underline mt-2"
-                  >
-                    + Add secondary parent
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Notes card */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-navy font-semibold text-lg">Notes</h2>
-            {canManage && (
-              <button
-                onClick={() => setEditingNotes(true)}
-                className="text-mint text-sm font-medium hover:underline"
-              >
-                Edit
-              </button>
-            )}
-          </div>
-          {student.family.notes ? (
-            <p className="text-sm text-gray-700 leading-relaxed">{student.family.notes}</p>
-          ) : (
-            <p className="text-sm text-gray-400 italic">No notes yet</p>
-          )}
-        </div>
-
-      </div>
-
-      {/* Right column: Reactivate + Danger zone */}
-      {canManage && (
-        <div className="space-y-6">
-          {student.status !== 'active' && (
-            <div className="bg-white p-6 rounded-xl border border-mint/30">
-              <h3 className="text-navy font-semibold mb-1">Reactivate student</h3>
-              <p className="text-xs text-gray-500 mb-3">Restores active status and, if a term invoice was cancelled at withdrawal, brings it back so the student can be billed and collected from again.</p>
-              {error && <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
-              <button
-                onClick={handleReactivate}
-                disabled={reactivating}
-                className="px-3 py-1.5 bg-mint text-white text-xs font-medium rounded-lg hover:bg-mint/90 disabled:opacity-50"
-              >
-                {reactivating ? 'Reactivating...' : 'Reactivate'}
-              </button>
-            </div>
-          )}
-
-          <div className="bg-white p-6 rounded-xl border border-red-100">
-            <h3 className="text-red-700 font-semibold mb-4">Danger zone</h3>
-
-            <div className="pb-4 mb-4 border-b border-gray-100">
-              <p className="text-sm font-medium text-navy mb-1">Mark as withdrawn</p>
-              <p className="text-xs text-gray-500 mb-3">Student will no longer appear in active lists.</p>
-              <button
-                onClick={() => setConfirmAction('withdrawn')}
-                disabled={student.status === 'withdrawn'}
-                className="px-3 py-1.5 border border-red-300 text-red-700 text-xs font-medium rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {student.status === 'withdrawn' ? 'Already withdrawn' : 'Mark withdrawn'}
-              </button>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-navy mb-1">Mark as graduated</p>
-              <p className="text-xs text-gray-500 mb-3">Move to graduates archive.</p>
-              <button
-                onClick={() => setConfirmAction('graduated')}
-                disabled={student.status === 'graduated'}
-                className="px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {student.status === 'graduated' ? 'Already graduated' : 'Mark graduated'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Student Modal */}
-      {editingStudent && (
-        <EditStudentModal 
-          student={student}
-          classes={classes}
-          onClose={() => setEditingStudent(false)}
-          onSave={() => { setEditingStudent(false); router.refresh() }}
-        />
-      )}
-
-      {/* Edit Family Modal */}
-      {editingFamily && (
-        <EditFamilyModal 
-          family={student.family}
-          studentId={student.id}
-          onClose={() => setEditingFamily(false)}
-          onSave={() => { setEditingFamily(false); router.refresh() }}
-        />
-      )}
-
-      {/* Edit Notes Modal */}
-      {editingNotes && (
-        <EditNotesModal 
-          family={student.family}
-          studentId={student.id}
-          onClose={() => setEditingNotes(false)}
-          onSave={() => { setEditingNotes(false); router.refresh() }}
-        />
-      )}
-
-      {/* Confirm danger action modal */}
-      {confirmAction && (
-        <ConfirmStatusModal 
-          studentId={student.id}
-          studentName={`${student.firstName} ${student.lastName}`}
-          action={confirmAction}
-          onClose={() => setConfirmAction(null)}
-          onConfirmed={() => { setConfirmAction(null); router.refresh() }}
-        />
-      )}
-    </div>
-  )
 }
 
-function EditStudentModal({ student, classes, onClose, onSave }: {
-  student: Student
-  classes: { id: string, name: string }[]
-  onClose: () => void
-  onSave: () => void
-}) {
-  const [form, setForm] = useState({
+function studentFormFrom(student: Student): StudentForm {
+  return {
     firstName: student.firstName,
     lastName: student.lastName,
     admissionNumber: student.admissionNumber,
     classId: student.classId,
     admissionDate: student.admissionDate,
-  })
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Set when a class move would affect the current-term invoice: nothing has
-  // been saved yet, we hold here and ask the admin to confirm before applying.
-  const [confirm, setConfirm] = useState<{
-    oldClassName: string | null
-    newClassName: string | null
-    invoice: {
-      id: string
-      invoiceNumber: string | null
-      state: 'clean' | 'has_payment'
-      currentTotal: number
-      newTotal: number | null
-      paidAmount: number
-      creditApplied: number
-    }
-  } | null>(null)
-
-  async function handleSubmit() {
-    setError(null)
-    setLoading(true)
-    const result = await updateStudentDetails(student.id, form)
-    setLoading(false)
-    if ('error' in result) {
-      setError(result.error)
-      return
-    }
-    if ('needsConfirm' in result) {
-      setConfirm({ oldClassName: result.oldClassName, newClassName: result.newClassName, invoice: result.invoice })
-      return
-    }
-    onSave()
   }
-
-  async function handleConfirmContinue() {
-    setError(null)
-    setLoading(true)
-    const result = await updateStudentDetails(student.id, form, true)
-    setLoading(false)
-    if ('error' in result) {
-      setError(result.error)
-      return
-    }
-    onSave()
-  }
-
-  if (confirm) {
-    const name = `${form.firstName} ${form.lastName}`.trim()
-    const from = confirm.oldClassName || 'their current class'
-    const to = confirm.newClassName || 'the new class'
-    const invLabel = confirm.invoice.invoiceNumber || 'their invoice for this term'
-    const clean = confirm.invoice.state === 'clean'
-    return (
-      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-          <div className="p-6">
-            <h3 className="text-lg font-semibold text-navy mb-2">Move {name} to {to}?</h3>
-            {clean ? (
-              <p className="text-sm text-gray-600 mb-4">
-                {invLabel} will be recalculated onto {to}&apos;s fees.
-                {confirm.invoice.newTotal !== null ? (
-                  <>
-                    {' '}The total changes from{' '}
-                    <span className="font-medium text-navy">₦{confirm.invoice.currentTotal.toLocaleString()}</span>
-                    {' '}to{' '}
-                    <span className="font-medium text-navy">₦{confirm.invoice.newTotal.toLocaleString()}</span>.
-                  </>
-                ) : (
-                  <> Its total (currently ₦{confirm.invoice.currentTotal.toLocaleString()}) will be updated to match.</>
-                )}
-              </p>
-            ) : (
-              <p className="text-sm text-gray-600 mb-4">
-                {invLabel} already has {[
-                  confirm.invoice.paidAmount > 0 ? `₦${confirm.invoice.paidAmount.toLocaleString()} paid` : null,
-                  confirm.invoice.creditApplied > 0 ? `₦${confirm.invoice.creditApplied.toLocaleString()} credit` : null,
-                ].filter(Boolean).join(' and ')} applied, so it will not be recalculated automatically.
-                The class will change, but you&apos;ll need to review that invoice and issue a refund or
-                extra charge if {to}&apos;s fees differ.
-              </p>
-            )}
-            {error && <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => { setConfirm(null); setError(null) }}
-                disabled={loading}
-                className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmContinue}
-                disabled={loading}
-                className={`px-4 py-2 text-white text-sm font-semibold rounded-lg disabled:opacity-50 ${clean ? 'bg-mint text-navy hover:bg-mint/90' : 'bg-navy hover:bg-navy/90'}`}
-              >
-                {loading ? 'Working...' : clean ? 'Continue' : 'Continue anyway'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-navy">Edit student details</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">First name</label>
-              <input type="text" value={form.firstName} onChange={(e) => setForm({...form, firstName: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Last name</label>
-              <input type="text" value={form.lastName} onChange={(e) => setForm({...form, lastName: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Admission number</label>
-            <input type="text" value={form.admissionNumber} onChange={(e) => setForm({...form, admissionNumber: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-          </div>
-
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Class</label>
-            <select value={form.classId} onChange={(e) => setForm({...form, classId: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40">
-              {classes.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Admission date</label>
-            <input type="date" value={form.admissionDate} onChange={(e) => setForm({...form, admissionDate: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-          </div>
-
-          <p className="text-xs text-gray-400">
-            To withdraw, graduate, or reactivate this student, use the Status controls on the Settings tab — those handle any open invoice for the current term.
-          </p>
-
-          {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
-        </div>
-
-        <div className="p-6 border-t border-gray-100 flex items-center justify-end gap-2">
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">Cancel</button>
-          <button onClick={handleSubmit} disabled={loading} className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50">
-            {loading ? 'Saving...' : 'Save changes'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
 }
 
-function EditFamilyModal({ family, studentId, onClose, onSave }: {
-  family: Student['family']
-  studentId: string
-  onClose: () => void
-  onSave: () => void
-}) {
-  const [form, setForm] = useState({
+function familyFormFrom(family: Student['family']): FamilyForm {
+  return {
     primaryParentName: family.primaryParentName,
     primaryParentPhone: family.primaryParentPhone,
     primaryParentEmail: family.primaryParentEmail || '',
     secondaryParentName: family.secondaryParentName || '',
     secondaryParentPhone: family.secondaryParentPhone || '',
     secondaryParentEmail: family.secondaryParentEmail || '',
-  })
-  const [showSecondary, setShowSecondary] = useState(!!family.secondaryParentName)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  }
+}
 
-  async function handleSubmit() {
-    setError(null)
-    setLoading(true)
-    const result = await updateFamilyInfo(family.id, studentId, {
-      ...form,
-      secondaryParentName: showSecondary ? form.secondaryParentName : '',
-      secondaryParentPhone: showSecondary ? form.secondaryParentPhone : '',
-      secondaryParentEmail: showSecondary ? form.secondaryParentEmail : '',
+// The drawer opens straight into edit mode: every field below is a live
+// input from the start, no separate "Edit" link and no second modal. All
+// three sections (student details, family info, notes) share one Save/
+// Cancel pair at the bottom, even though they hit three separate server
+// actions underneath — Cancel resets every field back to the student prop
+// in one go. Status is a dropdown, kept out of that shared save since
+// picking withdrawn/graduated needs its own confirmation (it can affect an
+// open invoice) and reactivating is applied immediately, not staged.
+export default function StudentSettingsTab({ student, onClose }: Props) {
+  const router = useRouter()
+  const canManage = useCan('manage-students')
+
+  const [studentForm, setStudentForm] = useState<StudentForm>(() => studentFormFrom(student))
+  const [familyForm, setFamilyForm] = useState<FamilyForm>(() => familyFormFrom(student.family))
+  const [showSecondary, setShowSecondary] = useState(!!student.family.secondaryParentName)
+  const [notes, setNotes] = useState(student.family.notes || '')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [classMoveConfirm, setClassMoveConfirm] = useState<ClassMoveConfirm | null>(null)
+
+  const [confirmAction, setConfirmAction] = useState<'withdrawn' | 'graduated' | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const [classes, setClasses] = useState<{ id: string, name: string }[]>([])
+  const [reactivating, setReactivating] = useState(false)
+  const [actionResult, setActionResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  useEffect(() => {
+    getClassesList().then(setClasses)
+  }, [])
+
+  function handleCancel() {
+    setStudentForm(studentFormFrom(student))
+    setFamilyForm(familyFormFrom(student.family))
+    setShowSecondary(!!student.family.secondaryParentName)
+    setNotes(student.family.notes || '')
+    setSaveError(null)
+    onClose?.()
+  }
+
+  async function saveFamilyAndNotes(): Promise<string | null> {
+    const familyResult = await updateFamilyInfo(student.family.id, student.id, {
+      ...familyForm,
+      secondaryParentName: showSecondary ? familyForm.secondaryParentName : '',
+      secondaryParentPhone: showSecondary ? familyForm.secondaryParentPhone : '',
+      secondaryParentEmail: showSecondary ? familyForm.secondaryParentEmail : '',
     })
-    if (result.error) {
-      setError(result.error)
-      setLoading(false)
+    if (familyResult.error) return familyResult.error
+    const notesResult = await updateFamilyNotes(student.family.id, student.id, notes)
+    if (notesResult.error) return notesResult.error
+    return null
+  }
+
+  async function handleSave() {
+    setSaveError(null)
+    setSaving(true)
+    const result = await updateStudentDetails(student.id, studentForm)
+    if ('error' in result) {
+      setSaving(false)
+      setSaveError(result.error)
       return
     }
-    onSave()
+    if ('needsConfirm' in result) {
+      setSaving(false)
+      setClassMoveConfirm({ oldClassName: result.oldClassName, newClassName: result.newClassName, invoice: result.invoice })
+      return
+    }
+    const err = await saveFamilyAndNotes()
+    setSaving(false)
+    if (err) {
+      setSaveError(err)
+      return
+    }
+    router.refresh()
+  }
+
+  async function handleClassMoveContinue() {
+    setSaveError(null)
+    setSaving(true)
+    const result = await updateStudentDetails(student.id, studentForm, true)
+    if ('error' in result) {
+      setSaving(false)
+      setSaveError(result.error)
+      return
+    }
+    const err = await saveFamilyAndNotes()
+    setSaving(false)
+    if (err) {
+      setSaveError(err)
+      return
+    }
+    setClassMoveConfirm(null)
+    router.refresh()
+  }
+
+  async function handleStatusChange(next: string) {
+    if (next === student.status) return
+    setStatusError(null)
+    if (next === 'active') {
+      setReactivating(true)
+      const result = await updateStudentStatus(student.id, 'active')
+      setReactivating(false)
+      if ('error' in result) {
+        setStatusError(result.error)
+        return
+      }
+      router.refresh()
+      return
+    }
+    setConfirmAction(next as 'withdrawn' | 'graduated')
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-navy">Edit family information</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+    <div className="space-y-8">
+      {canManage && (
+        <div>
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-700)] mb-4">Status</h2>
+          <div className="border-t-2 border-[var(--color-ink)] pt-4">
+            <label className="block">
+              <span className="m-label">Enrolment status</span>
+              <select
+                value={student.status}
+                disabled={reactivating}
+                onChange={(e) => handleStatusChange(e.target.value)}
+                className="m-select w-full box-border"
+              >
+                <option value="active">Enrolled</option>
+                <option value="withdrawn">Withdrawn</option>
+                <option value="graduated">Graduated</option>
+              </select>
+            </label>
+            <p className="text-xs text-[var(--color-neutral-700)] mt-2">
+              {student.status === 'active'
+                ? 'Marking as withdrawn or graduated will ask what to do with any open invoice for this term.'
+                : 'Switching back to Enrolled restores active status and, if a term invoice was cancelled at withdrawal, brings it back so the student can be billed and collected from again.'}
+            </p>
+            {statusError && <div className="mt-3 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">{statusError}</div>}
+          </div>
+        </div>
+      )}
+
+      <StudentDetailsSection form={studentForm} setForm={setStudentForm} classes={classes} canManage={canManage} />
+      <FamilyInfoSection form={familyForm} setForm={setFamilyForm} showSecondary={showSecondary} setShowSecondary={setShowSecondary} canManage={canManage} />
+      <NotesSection notes={notes} setNotes={setNotes} canManage={canManage} />
+
+      {canManage && (
+        <div>
+          {saveError && <div className="mb-4 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">{saveError}</div>}
+          <div className="flex items-center gap-2 pt-4 border-t-2 border-[var(--color-ink)]">
+            <button onClick={handleSave} disabled={saving} className="m-btn m-btn-primary m-btn-sm">
+              {saving ? 'Saving...' : 'Save changes'}
+            </button>
+            <button onClick={handleCancel} disabled={saving} className="m-btn m-btn-outline m-btn-sm">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {classMoveConfirm && (
+        <ClassMoveConfirmModal
+          name={`${studentForm.firstName} ${studentForm.lastName}`.trim()}
+          confirm={classMoveConfirm}
+          loading={saving}
+          error={saveError}
+          onClose={() => { setClassMoveConfirm(null); setSaveError(null) }}
+          onContinue={handleClassMoveContinue}
+        />
+      )}
+
+      {/* Confirm danger action modal. Withdrawal gets the money-aware,
+          single-dialog flow (WithdrawConfirmModal) — graduation keeps the
+          simpler generic confirm since it carries no "this moves money"
+          framing in the redesign. */}
+      {confirmAction === 'withdrawn' && (
+        <WithdrawConfirmModal
+          studentId={student.id}
+          studentName={`${student.firstName} ${student.lastName}`}
+          onClose={() => setConfirmAction(null)}
+          onConfirmed={() => { setConfirmAction(null); router.refresh() }}
+          onResult={setActionResult}
+        />
+      )}
+      {confirmAction === 'graduated' && (
+        <ConfirmStatusModal
+          studentId={student.id}
+          studentName={`${student.firstName} ${student.lastName}`}
+          action={confirmAction}
+          onClose={() => setConfirmAction(null)}
+          onConfirmed={() => { setConfirmAction(null); router.refresh() }}
+          onResult={setActionResult}
+        />
+      )}
+
+      {actionResult && (
+        <Toast message={actionResult.message} ok={actionResult.ok} onDismiss={() => setActionResult(null)} />
+      )}
+    </div>
+  )
+}
+
+function StudentDetailsSection({ form, setForm, classes, canManage }: {
+  form: StudentForm
+  setForm: (form: StudentForm) => void
+  classes: { id: string, name: string }[]
+  canManage: boolean
+}) {
+  return (
+    <div>
+      <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-700)] mb-4">Student details</h2>
+
+      <div className="border-t-2 border-[var(--color-ink)] pt-4">
+        <label className="block mb-3.5">
+          <span className="m-label">First name</span>
+          <input type="text" value={form.firstName} disabled={!canManage}
+            onChange={(e) => setForm({ ...form, firstName: e.target.value })} className="m-input w-full box-border" />
+        </label>
+        <label className="block mb-3.5">
+          <span className="m-label">Last name</span>
+          <input type="text" value={form.lastName} disabled={!canManage}
+            onChange={(e) => setForm({ ...form, lastName: e.target.value })} className="m-input w-full box-border" />
+        </label>
+        <label className="block mb-3.5">
+          <span className="m-label">Admission number</span>
+          <input type="text" value={form.admissionNumber} disabled={!canManage}
+            onChange={(e) => setForm({ ...form, admissionNumber: e.target.value })} className="m-input w-full box-border" />
+        </label>
+        <label className="block mb-3.5">
+          <span className="m-label">Class</span>
+          <select value={form.classId} disabled={!canManage}
+            onChange={(e) => setForm({ ...form, classId: e.target.value })} className="m-select w-full box-border">
+            {classes.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="m-label">Admission date</span>
+          <input type="date" value={form.admissionDate} disabled={!canManage}
+            onChange={(e) => setForm({ ...form, admissionDate: e.target.value })} className="m-input w-full box-border" />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+function ClassMoveConfirmModal({ name, confirm, loading, error, onClose, onContinue }: {
+  name: string
+  confirm: ClassMoveConfirm
+  loading: boolean
+  error: string | null
+  onClose: () => void
+  onContinue: () => void
+}) {
+  const to = confirm.newClassName || 'the new class'
+  const invLabel = confirm.invoice.invoiceNumber || 'their invoice for this term'
+  const clean = confirm.invoice.state === 'clean'
+  return (
+    <div className="fixed inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)] z-[70] flex items-center justify-center p-4 m-anim-fade">
+      <div className="bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-md w-full m-anim-scale">
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-[var(--color-ink)] mb-2">Move {name} to {to}?</h3>
+          {clean ? (
+            <p className="text-sm text-[var(--color-neutral-700)] mb-4">
+              {invLabel} will be recalculated onto {to}&apos;s fees.
+              {confirm.invoice.newTotal !== null ? (
+                <>
+                  {' '}The total changes from{' '}
+                  <span className="font-medium text-[var(--color-ink)] m-num">₦{confirm.invoice.currentTotal.toLocaleString()}</span>
+                  {' '}to{' '}
+                  <span className="font-medium text-[var(--color-ink)] m-num">₦{confirm.invoice.newTotal.toLocaleString()}</span>.
+                </>
+              ) : (
+                <> Its total (currently ₦{confirm.invoice.currentTotal.toLocaleString()}) will be updated to match.</>
+              )}
+            </p>
+          ) : (
+            <p className="text-sm text-[var(--color-neutral-700)] mb-4">
+              {invLabel} already has {[
+                confirm.invoice.paidAmount > 0 ? `₦${confirm.invoice.paidAmount.toLocaleString()} paid` : null,
+                confirm.invoice.creditApplied > 0 ? `₦${confirm.invoice.creditApplied.toLocaleString()} credit` : null,
+              ].filter(Boolean).join(' and ')} applied, so it will not be recalculated automatically.
+              The class will change, but you&apos;ll need to review that invoice and issue a refund or
+              extra charge if {to}&apos;s fees differ.
+            </p>
+          )}
+          {error && <div className="mb-3 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">{error}</div>}
+        </div>
+        <div className="p-6 border-t-2 border-[var(--color-ink)] flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="m-btn m-btn-outline m-btn-sm"
+          >
+            Cancel
           </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <p className="text-xs text-gray-500 uppercase tracking-wider">Primary parent</p>
-
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Name</label>
-            <input type="text" value={form.primaryParentName} onChange={(e) => setForm({...form, primaryParentName: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-          </div>
-
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Phone</label>
-            <input type="text" value={form.primaryParentPhone} onChange={(e) => setForm({...form, primaryParentPhone: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-          </div>
-
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Email (optional)</label>
-            <input type="email" value={form.primaryParentEmail} onChange={(e) => setForm({...form, primaryParentEmail: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-          </div>
-
-          <div className="pt-4 border-t border-gray-100">
-            {showSecondary ? (
-              <>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Secondary parent</p>
-                  <button 
-                    type="button" 
-                    onClick={() => setShowSecondary(false)}
-                    className="text-xs text-red-600 hover:underline"
-                  >
-                    Remove
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Name</label>
-                    <input type="text" value={form.secondaryParentName} onChange={(e) => setForm({...form, secondaryParentName: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Phone</label>
-                    <input type="text" value={form.secondaryParentPhone} onChange={(e) => setForm({...form, secondaryParentPhone: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Email (optional)</label>
-                    <input type="email" value={form.secondaryParentEmail} onChange={(e) => setForm({...form, secondaryParentEmail: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40" />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <button type="button" onClick={() => setShowSecondary(true)} className="text-mint text-sm font-medium hover:underline">
-                + Add secondary parent
-              </button>
-            )}
-          </div>
-
-          {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
-        </div>
-
-        <div className="p-6 border-t border-gray-100 flex items-center justify-end gap-2">
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">Cancel</button>
-          <button onClick={handleSubmit} disabled={loading} className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50">
-            {loading ? 'Saving...' : 'Save changes'}
+          <button
+            onClick={onContinue}
+            disabled={loading}
+            className={`m-btn m-btn-sm ${clean ? 'm-btn-primary' : ''}`}
+          >
+            {loading ? 'Working...' : clean ? 'Continue' : 'Continue anyway'}
           </button>
         </div>
       </div>
@@ -608,67 +400,264 @@ function EditFamilyModal({ family, studentId, onClose, onSave }: {
   )
 }
 
-function EditNotesModal({ family, studentId, onClose, onSave }: {
-  family: Student['family']
-  studentId: string
-  onClose: () => void
-  onSave: () => void
+function FamilyInfoSection({ form, setForm, showSecondary, setShowSecondary, canManage }: {
+  form: FamilyForm
+  setForm: (form: FamilyForm) => void
+  showSecondary: boolean
+  setShowSecondary: (show: boolean) => void
+  canManage: boolean
 }) {
-  const [notes, setNotes] = useState(family.notes || '')
+  return (
+    <div>
+      <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-700)] mb-4">Family information</h2>
+
+      <div className="border-t-2 border-[var(--color-ink)] pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-700)] mb-3">Primary parent</p>
+        <label className="block mb-3.5">
+          <span className="m-label">Name</span>
+          <input type="text" value={form.primaryParentName} disabled={!canManage}
+            onChange={(e) => setForm({ ...form, primaryParentName: e.target.value })} className="m-input w-full box-border" />
+        </label>
+        <label className="block mb-3.5">
+          <span className="m-label">Phone</span>
+          <input type="text" value={form.primaryParentPhone} disabled={!canManage}
+            onChange={(e) => setForm({ ...form, primaryParentPhone: e.target.value })} className="m-input w-full box-border" />
+        </label>
+        <label className="block">
+          <span className="m-label">Email (optional)</span>
+          <input type="email" value={form.primaryParentEmail} disabled={!canManage}
+            onChange={(e) => setForm({ ...form, primaryParentEmail: e.target.value })} className="m-input w-full box-border" />
+        </label>
+      </div>
+
+      <div className="mt-4 pt-4 border-t border-[var(--color-neutral-300)]">
+        {showSecondary ? (
+          <>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-700)]">Secondary parent</p>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => setShowSecondary(false)}
+                  className="text-xs font-semibold text-[var(--color-signal-text)] hover:underline"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            <label className="block mb-3.5">
+              <span className="m-label">Name</span>
+              <input type="text" value={form.secondaryParentName} disabled={!canManage}
+                onChange={(e) => setForm({ ...form, secondaryParentName: e.target.value })} className="m-input w-full box-border" />
+            </label>
+            <label className="block mb-3.5">
+              <span className="m-label">Phone</span>
+              <input type="text" value={form.secondaryParentPhone} disabled={!canManage}
+                onChange={(e) => setForm({ ...form, secondaryParentPhone: e.target.value })} className="m-input w-full box-border" />
+            </label>
+            <label className="block">
+              <span className="m-label">Email (optional)</span>
+              <input type="email" value={form.secondaryParentEmail} disabled={!canManage}
+                onChange={(e) => setForm({ ...form, secondaryParentEmail: e.target.value })} className="m-input w-full box-border" />
+            </label>
+          </>
+        ) : (
+          canManage ? (
+            <button type="button" onClick={() => setShowSecondary(true)} className="text-sm font-semibold text-[var(--color-signal-text)] hover:underline">
+              + Add secondary parent
+            </button>
+          ) : (
+            <p className="text-sm text-[var(--color-neutral-500)] italic">No secondary parent added</p>
+          )
+        )}
+      </div>
+    </div>
+  )
+}
+
+function NotesSection({ notes, setNotes, canManage }: {
+  notes: string
+  setNotes: (notes: string) => void
+  canManage: boolean
+}) {
+  return (
+    <div>
+      <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-700)] mb-3">Notes</h2>
+      <div className="border-t-2 border-[var(--color-ink)] pt-4">
+        <p className="text-xs text-[var(--color-neutral-700)] mb-2">Notes are visible to all staff with access to this student.</p>
+        <textarea
+          value={notes}
+          disabled={!canManage}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={6}
+          placeholder="Add notes about this family..."
+          className="m-textarea"
+        />
+      </div>
+    </div>
+  )
+}
+
+type WithdrawalPreview =
+  | { success: true; activeCycleName: string | null; openInvoice: { id: string; invoiceNumber: string | null; outstandingAmount: number; cancellable: boolean } | null; totalPaid: number; siblingCount: number }
+  | { error: string }
+
+// Withdrawal is money-moving (it can leave an open invoice needing a
+// decision and recalculates sibling discounts), so it gets ONE dialog that
+// states the impact up front and asks for the invoice decision before
+// anything is written — replacing the old flow of a generic confirm
+// followed by a second dialog that appeared only after the status change had
+// already been saved. The status write and any invoice cancellation still go
+// through the exact same server actions (updateStudentStatus, cancelInvoice)
+// with the exact same guards; this only changes when the admin is asked.
+function WithdrawConfirmModal({ studentId, studentName, onClose, onConfirmed, onResult }: {
+  studentId: string
+  studentName: string
+  onClose: () => void
+  onConfirmed: () => void
+  onResult: (result: { ok: boolean; message: string }) => void
+}) {
+  const [preview, setPreview] = useState<WithdrawalPreview | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const canManageInvoices = useCan('manage-invoices')
 
-  async function handleSubmit() {
+  useEffect(() => {
+    let cancelled = false
+    getWithdrawalPreview(studentId).then((result) => { if (!cancelled) setPreview(result) })
+    return () => { cancelled = true }
+  }, [studentId])
+
+  // `preview &&` (not `!!preview &&`) so TS narrows the reference itself —
+  // needed before the 'in' check below, since 'in' on a possibly-null value
+  // is a type error, not just a runtime one.
+  const successPreview = preview && 'success' in preview ? preview : null
+  const previewError = preview && 'error' in preview ? preview.error : null
+  const openInvoice = successPreview?.openInvoice ?? null
+  const showInvoiceDecision = !!openInvoice && openInvoice.cancellable && canManageInvoices
+
+  async function handleConfirm(cancelOpenInvoice: boolean) {
     setError(null)
     setLoading(true)
-    const result = await updateFamilyNotes(family.id, studentId, notes)
-    if (result.error) {
-      setError(result.error)
+    const result = await updateStudentStatus(studentId, 'withdrawn')
+    if ('error' in result) {
       setLoading(false)
+      setError(result.error)
+      onResult({ ok: false, message: result.error })
       return
     }
-    onSave()
+    if (cancelOpenInvoice) {
+      for (const inv of result.openInvoices) {
+        const cancelResult = await cancelInvoice(inv.id)
+        if ('error' in cancelResult) {
+          setLoading(false)
+          onResult({ ok: false, message: `${studentName} marked as withdrawn, but the open invoice could not be cancelled: ${cancelResult.error}` })
+          onConfirmed()
+          return
+        }
+      }
+      onResult({ ok: true, message: `${studentName} marked as withdrawn and their open invoice cancelled.` })
+    } else {
+      onResult({ ok: true, message: `${studentName} marked as withdrawn.` })
+    }
+    setLoading(false)
+    onConfirmed()
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-navy">Edit notes</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-
+    <div className="fixed inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)] z-[70] flex items-center justify-center p-4 m-anim-fade">
+      <div className="bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-md w-full m-anim-scale">
         <div className="p-6">
-          <p className="text-xs text-gray-500 mb-2">Notes are visible to all staff with access to this student.</p>
-          <textarea 
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={6}
-            placeholder="Add notes about this family..."
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40 resize-none"
-          />
-          {error && <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
-        </div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-signal-text)] mb-2">
+            This moves money
+          </p>
+          <h3 className="text-xl font-extrabold tracking-[-0.015em] text-[var(--color-ink)] mb-2">
+            Withdraw {studentName}
+          </h3>
+          <p className="text-sm text-[var(--color-neutral-700)] mb-3">
+            {successPreview?.activeCycleName
+              ? `They leave the active roster and stop being billed from ${successPreview.activeCycleName}. Their record and payment history stay.`
+              : 'They leave the active roster and stop being billed going forward. Their record and payment history stay.'}
+          </p>
 
-        <div className="p-6 border-t border-gray-100 flex items-center justify-end gap-2">
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">Cancel</button>
-          <button onClick={handleSubmit} disabled={loading} className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50">
-            {loading ? 'Saving...' : 'Save'}
-          </button>
+          {!preview && (
+            <p className="text-sm text-[var(--color-neutral-500)] mb-2">Checking their invoices...</p>
+          )}
+
+          {previewError && (
+            <p className="text-sm text-[var(--color-neutral-500)] mb-2">
+              Couldn&apos;t load their invoice details ({previewError}) — you can still withdraw and handle any open invoice separately.
+            </p>
+          )}
+
+          {successPreview && (
+            <div className="mb-1">
+              {successPreview.openInvoice && (
+                <div className="border-t border-[var(--color-neutral-300)] py-2.5 flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-[var(--color-neutral-800)]">
+                    Open invoice{successPreview.openInvoice.invoiceNumber ? ` ${successPreview.openInvoice.invoiceNumber}` : ''}
+                  </span>
+                  <span className="text-sm font-semibold m-num text-[var(--color-ochre-text)]">
+                    ₦{successPreview.openInvoice.outstandingAmount.toLocaleString()} unpaid
+                  </span>
+                </div>
+              )}
+              <div className="border-t border-[var(--color-neutral-300)] py-2.5 flex items-center justify-between gap-3">
+                <span className="text-[13px] text-[var(--color-neutral-800)]">Paid so far, kept on record</span>
+                <span className="text-sm font-semibold m-num text-[var(--color-ledger)]">₦{successPreview.totalPaid.toLocaleString()}</span>
+              </div>
+              {successPreview.siblingCount > 0 && (
+                <div className="border-t border-[var(--color-neutral-300)] border-b-2 border-b-[var(--color-ink)] py-2.5 flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-[var(--color-neutral-800)]">Siblings still enrolled</span>
+                  <span className="text-sm font-semibold text-[var(--color-ink)]">{successPreview.siblingCount} · discount recalculates</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {openInvoice && !openInvoice.cancellable && (
+            <p className="text-xs text-[var(--color-neutral-700)] mt-2">
+              This invoice already has a payment or credit applied, so it can&apos;t be cancelled here — review it separately if needed.
+            </p>
+          )}
+
+          <p className="text-[13px] text-[var(--color-neutral-700)] mt-3">
+            {showInvoiceDecision
+              ? 'Decide the invoice now rather than after: leave it open if the family may still pay, or cancel it.'
+              : 'You can reverse this from the Settings tab later.'}
+          </p>
+
+          {error && <div className="mt-3 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">{error}</div>}
+        </div>
+        <div className="p-6 border-t-2 border-[var(--color-ink)] flex flex-wrap items-center justify-end gap-2">
+          <button onClick={onClose} disabled={loading} className="m-btn m-btn-outline m-btn-sm">Cancel</button>
+          {showInvoiceDecision ? (
+            <>
+              <button onClick={() => handleConfirm(false)} disabled={loading || !preview} className="m-btn m-btn-outline m-btn-sm">
+                {loading ? 'Working...' : 'Withdraw, keep invoice'}
+              </button>
+              <button onClick={() => handleConfirm(true)} disabled={loading || !preview} className="m-btn m-btn-danger m-btn-sm">
+                {loading ? 'Working...' : 'Withdraw and cancel it'}
+              </button>
+            </>
+          ) : (
+            <button onClick={() => handleConfirm(false)} disabled={loading || !preview} className="m-btn m-btn-danger m-btn-sm">
+              {loading ? 'Working...' : 'Withdraw'}
+            </button>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-function ConfirmStatusModal({ studentId, studentName, action, onClose, onConfirmed }: {
+function ConfirmStatusModal({ studentId, studentName, action, onClose, onConfirmed, onResult }: {
   studentId: string
   studentName: string
   action: 'withdrawn' | 'graduated'
   onClose: () => void
   onConfirmed: () => void
+  onResult: (result: { ok: boolean; message: string }) => void
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -678,6 +667,7 @@ function ConfirmStatusModal({ studentId, studentName, action, onClose, onConfirm
   } | null>(null)
   const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set())
   const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const canManageInvoices = useCan('manage-invoices')
 
   async function handleConfirm() {
     setError(null)
@@ -686,8 +676,10 @@ function ConfirmStatusModal({ studentId, studentName, action, onClose, onConfirm
     setLoading(false)
     if ('error' in result) {
       setError(result.error)
+      onResult({ ok: false, message: result.error })
       return
     }
+    onResult({ ok: true, message: `${studentName} marked as ${action}.` })
     if (result.openInvoices.length > 0 || result.invoicesNeedingReview.length > 0) {
       setOutcome({ openInvoices: result.openInvoices, invoicesNeedingReview: result.invoicesNeedingReview })
       return
@@ -701,51 +693,53 @@ function ConfirmStatusModal({ studentId, studentName, action, onClose, onConfirm
     setCancellingId(null)
     if ('error' in result) {
       setError(result.error)
+      onResult({ ok: false, message: result.error })
       return
     }
     setCancelledIds(prev => new Set(prev).add(invoiceId))
+    onResult({ ok: true, message: 'Invoice cancelled.' })
   }
 
   if (outcome) {
     return (
-      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+      <div className="fixed inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)] z-[70] flex items-center justify-center p-4 m-anim-fade">
+        <div className="bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-md w-full m-anim-scale">
           <div className="p-6">
-            <h3 className="text-lg font-semibold text-navy mb-2">{studentName} marked as {action}</h3>
-            <p className="text-sm text-gray-600 mb-3">
-              This student has an invoice for the current term. Decide what to do with it — leave it open if the parent may still finish paying, or cancel it if not.
+            <h3 className="text-lg font-semibold text-[var(--color-ink)] mb-2">{studentName} marked as {action}</h3>
+            <p className="text-sm text-[var(--color-neutral-700)] mb-3">
+              This student has an invoice for the current term. Decide what to do with it - leave it open if the parent may still finish paying, or cancel it if not.
             </p>
-            {error && <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
+            {error && <div className="mb-3 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">{error}</div>}
             {outcome.openInvoices.map(inv => {
               const isCancelled = cancelledIds.has(inv.id)
               return (
-                <div key={inv.id} className="mb-3 p-3 border border-gray-200 rounded-lg flex items-center justify-between gap-3">
+                <div key={inv.id} className="mb-3 p-3 border-2 border-[var(--color-neutral-300)] flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium text-navy">{inv.invoiceNumber || 'Invoice'}</p>
-                    <p className="text-xs text-gray-500">₦{inv.outstandingAmount.toLocaleString()} outstanding of ₦{inv.totalAmount.toLocaleString()}</p>
+                    <p className="text-sm font-medium text-[var(--color-ink)]">{inv.invoiceNumber || 'Invoice'}</p>
+                    <p className="text-xs text-[var(--color-neutral-700)] m-num">₦{inv.outstandingAmount.toLocaleString()} outstanding of ₦{inv.totalAmount.toLocaleString()}</p>
                   </div>
                   {isCancelled ? (
-                    <span className="text-xs font-medium text-red-700 shrink-0">Cancelled</span>
-                  ) : (
+                    <span className="text-xs font-semibold text-[var(--color-signal-text)] shrink-0">Cancelled</span>
+                  ) : canManageInvoices ? (
                     <button
                       onClick={() => handleCancelInvoice(inv.id)}
                       disabled={cancellingId === inv.id}
-                      className="px-3 py-1.5 border border-red-300 text-red-700 text-xs font-medium rounded-lg hover:bg-red-50 disabled:opacity-50 shrink-0"
+                      className="m-btn m-btn-sm border-2 border-[var(--color-signal)] text-[var(--color-signal-text)] hover:bg-[var(--color-signal-100)] disabled:opacity-50 shrink-0"
                     >
                       {cancellingId === inv.id ? 'Cancelling...' : 'Cancel invoice'}
                     </button>
-                  )}
+                  ) : null}
                 </div>
               )
             })}
             {outcome.invoicesNeedingReview.length > 0 && (
-              <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+              <div className="mb-3 p-3 bg-[color-mix(in_srgb,var(--color-ochre)_10%,transparent)] border-l-[3px] border-[var(--color-ochre)] text-sm text-[var(--color-ochre-text)]">
                 {outcome.invoicesNeedingReview.length === 1 ? 'This student has an invoice' : `This student has ${outcome.invoicesNeedingReview.length} invoices`} for this term with a payment or credit already applied, so it can&apos;t be cancelled here. Review it and issue a refund or credit if needed.
               </div>
             )}
-            <div className="flex items-center justify-end gap-2 mt-2">
-              <button onClick={onConfirmed} className="px-4 py-2 bg-navy text-white text-sm font-semibold rounded-lg hover:bg-navy/90">Done</button>
-            </div>
+          </div>
+          <div className="p-6 border-t-2 border-[var(--color-ink)] flex items-center justify-end gap-2">
+            <button onClick={onConfirmed} className="m-btn m-btn-primary m-btn-sm">Done</button>
           </div>
         </div>
       </div>
@@ -753,24 +747,24 @@ function ConfirmStatusModal({ studentId, studentName, action, onClose, onConfirm
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+    <div className="fixed inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)] z-[70] flex items-center justify-center p-4 m-anim-fade">
+      <div className="bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-md w-full m-anim-scale">
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-navy mb-2">
+          <h3 className="text-lg font-semibold text-[var(--color-ink)] mb-2">
             Mark {studentName} as {action}?
           </h3>
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-[var(--color-neutral-700)] mb-4">
             {action === 'withdrawn'
               ? 'This student will no longer appear in active lists. You can reverse this from the Settings tab later.'
               : 'This student will be moved to the graduates archive. You can reverse this from the Settings tab later.'}
           </p>
-          {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
-          <div className="flex items-center justify-end gap-2">
-            <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">Cancel</button>
-            <button onClick={handleConfirm} disabled={loading} className={`px-4 py-2 text-white text-sm font-semibold rounded-lg disabled:opacity-50 ${action === 'withdrawn' ? 'bg-red-600 hover:bg-red-700' : 'bg-navy hover:bg-navy/90'}`}>
-              {loading ? 'Working...' : `Mark ${action}`}
-            </button>
-          </div>
+          {error && <div className="mb-4 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">{error}</div>}
+        </div>
+        <div className="p-6 border-t-2 border-[var(--color-ink)] flex items-center justify-end gap-2">
+          <button onClick={onClose} disabled={loading} className="m-btn m-btn-outline m-btn-sm">Cancel</button>
+          <button onClick={handleConfirm} disabled={loading} className={`m-btn m-btn-sm ${action === 'withdrawn' ? 'm-btn-danger' : 'm-btn-primary'}`}>
+            {loading ? 'Working...' : `Mark ${action}`}
+          </button>
         </div>
       </div>
     </div>

@@ -1,5 +1,4 @@
 import Sidebar from '@/components/layout/Sidebar'
-import AdminNotificationBanner from '@/components/layout/AdminNotificationBanner'
 import { getAuthContext, permissionList } from '@/lib/auth/permissions'
 import { PermissionsProvider } from '@/lib/auth/PermissionsProvider'
 import { ActiveJobsProvider } from '@/lib/jobs/ActiveJobsProvider'
@@ -27,16 +26,55 @@ export default async function AppLayout({
     // /logout so the session is actually cleared — a straight redirect to
     // /login would loop (middleware bounces a still-valid session back in).
     const scheduled = await getScheduledDeletion(authCtx.schoolId)
-    redirect(scheduled ? '/logout?error=scheduled_deletion' : '/logout?error=account_deactivated')
+    if (scheduled) {
+      // The date, so the login screen's generic notice can still say when —
+      // this passive path (a stale session hitting a page, not a fresh sign-
+      // in) can't prove the visitor is the owner, so it never gets the
+      // "cancel" affordance; only a credential-based sign-in can (see
+      // login/actions.ts's login()).
+      redirect(`/logout?error=scheduled_deletion&until=${encodeURIComponent(scheduled.scheduledFor)}`)
+    }
+    // uid: so the bounce screen can look up and name who deactivated this
+    // account and when (getDeactivationDetails in login/actions.ts).
+    redirect(`/logout?error=account_deactivated&uid=${encodeURIComponent(authCtx.userId)}`)
   }
   const { supabase, userId, schoolId, role, isOwner } = authCtx
 
-  const [{ data: profile }, { data: currentCycle }, { data: notificationRows }, { data: jobRows }] = await Promise.all([
-    supabase
-      .from('users')
-      .select('name, email, schools(name, logo_url), roles(name)')
-      .eq('id', userId)
-      .single(),
+  // getAuthContext() already retries its own profile lookup against the same
+  // flaky proxy (see permissions.ts) — this display-only query needs the same
+  // treatment, it just wasn't written with it. A transient failure here must
+  // not throw on the first hiccup; retry a few times before giving up.
+  //
+  // The schools(...) embed must be qualified by FK name: schools now has two
+  // paths from users (users.school_id -> schools.id, and the newer
+  // schools.keys_rotated_by -> users.id audit column), so an unqualified
+  // "schools(...)" is ambiguous to PostgREST (PGRST201) and fails every time,
+  // not just on transient errors — retries alone can never fix this half.
+  async function loadDisplayProfile() {
+    let lastError: unknown = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data, error } = await supabase
+        .from('users')
+        .select('name, email, schools!users_school_id_fkey(name, logo_url), roles(name)')
+        .eq('id', userId)
+        .maybeSingle()
+      if (!error) return data
+      lastError = error
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 150 * (attempt + 1)))
+    }
+    console.error('loadDisplayProfile failed after retries:', lastError)
+    return null
+  }
+
+  const [
+    profile,
+    { data: currentCycle },
+    { data: notificationRows },
+    { data: jobRows },
+    { count: studentsCount },
+    { count: pendingDiscountsCount },
+  ] = await Promise.all([
+    loadDisplayProfile(),
     supabase
       .from('billing_cycles')
       .select('id, name')
@@ -65,9 +103,69 @@ export default async function AppLayout({
       .is('acknowledged_at', null)
       .gte('updated_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
       .order('updated_at', { ascending: false }),
+    // Sidebar counts, school-scoped and permission-agnostic (RLS already limits
+    // to this school; the rail only shows a count next to a workspace the role
+    // can reach). Active roster size, and the pending-discount queue depth.
+    supabase
+      .from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId || '')
+      .eq('status', 'active'),
+    supabase
+      .from('discounts')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId || '')
+      .eq('status', 'pending'),
   ])
 
-  if (!profile) redirect('/login')
+  // getAuthContext() already validated the JWT and loaded the user row, so a
+  // null here (after loadDisplayProfile's own retries above) means either the
+  // row genuinely vanished mid-request or the proxy stall outlasted 3 retries
+  // — rare enough now that surfacing it beats masking it. Throw rather than
+  // redirect('/login'): the middleware would bounce a still-valid session back
+  // to /today, and we'd loop (ERR_TOO_MANY_REDIRECTS). An error/reload is
+  // the correct, non-looping failure mode.
+  if (!profile) throw new Error('AppLayout: profile display query failed for an authenticated user')
+
+  // Sidebar workspace counts (read-only, school-scoped). Money is the invoices
+  // issued in the active term (matches the Today "Invoices issued" figure);
+  // Students is the active roster; Discounts is the pending-approval queue
+  // (already fetched above). streamCount is today's activity (payments taken +
+  // invoices generated today), the "N today" the STREAM footer shows.
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+  const todayIso = todayStart.toISOString()
+  const [
+    { count: invoicesIssuedCount },
+    { count: paymentsTodayCount },
+    { count: invoicesTodayCount },
+  ] = await Promise.all([
+    currentCycle
+      ? supabase
+          .from('invoices')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', schoolId || '')
+          .eq('billing_cycle_id', currentCycle.id)
+          .neq('status', 'cancelled')
+      : Promise.resolve({ count: 0 }),
+    supabase
+      .from('payments')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId || '')
+      .eq('match_status', 'matched')
+      .gte('paid_at', todayIso),
+    supabase
+      .from('invoices')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId || '')
+      .gte('generated_at', todayIso),
+  ])
+
+  const navCounts: Record<string, number> = {
+    students: studentsCount || 0,
+    money: invoicesIssuedCount || 0,
+    discounts: pendingDiscountsCount || 0,
+  }
+  const streamCount = (paymentsTodayCount || 0) + (invoicesTodayCount || 0)
 
   // Prefer the assigned custom role's name (e.g. "Head Teacher") over the base
   // type (owner/school_admin, super_admin, or the generic 'bursar' base type
@@ -102,7 +200,7 @@ export default async function AppLayout({
   const JOB_HREFS: Record<string, string> = {
     csv_import: '/students/import',
     bulk_dva: '/students',
-    bulk_send: '/invoices',
+    bulk_send: '/money/invoices',
     close_term: '/fees/cycles',
   }
   const interruptedJobs = (jobRows || []).map(j => {
@@ -122,7 +220,7 @@ export default async function AppLayout({
   })
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-[var(--color-paper)] flex">
       <PermissionsProvider permissions={permissions} isOwner={isOwner}>
         <ActiveJobsProvider interruptedJobs={interruptedJobs}>
           <Sidebar
@@ -135,9 +233,12 @@ export default async function AppLayout({
             schoolLogoUrl={profile.schools?.logo_url || null}
             currentTermName={currentCycle?.name || null}
             currentTermId={currentCycle?.id || null}
+            notifications={notifications}
+            navCounts={navCounts}
+            streamCount={streamCount}
           />
-          <main className="flex-1 min-w-0">
-            <AdminNotificationBanner notifications={notifications} />
+          {/* pt-14 clears the fixed mobile top bar; the desktop rail is in-flow. */}
+          <main className="flex-1 min-w-0 pt-14 lg:pt-0">
             {children}
           </main>
         </ActiveJobsProvider>

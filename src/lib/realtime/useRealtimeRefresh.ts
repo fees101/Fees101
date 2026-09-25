@@ -3,8 +3,12 @@
 // Reusable "server-rendered page, live-refreshed" hook: subscribes to
 // postgres_changes on one or more tables (each pre-filtered by school_id/
 // invoice_id/student_id as the caller sees fit) and calls router.refresh()
-// so the existing server component re-fetches. Debounced so a burst (e.g.
-// a 400-invoice generation job) triggers one refresh, not hundreds.
+// when a change lands. Debounced so a burst (e.g. a 400-invoice generation
+// job) coalesces into one refresh, not hundreds.
+//
+// Auto-refreshes mid-read by design (owner call, 2026-09-24) — figures
+// update live under the viewer's cursor rather than waiting for a manual
+// "load changes" click.
 //
 // One channel per subscription entry, all on the same websocket connection
 // createClient() already reuses per browser tab — this adds no page-load
@@ -14,7 +18,7 @@ import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const REFRESH_DEBOUNCE_MS = 450
+const COALESCE_DEBOUNCE_MS = 450
 
 export interface RealtimeSubscription {
   table: string
@@ -47,7 +51,7 @@ export function useRealtimeRefresh(subscriptions: RealtimeSubscription[]) {
             debounceRef.current = setTimeout(() => {
               debounceRef.current = null
               router.refresh()
-            }, REFRESH_DEBOUNCE_MS)
+            }, COALESCE_DEBOUNCE_MS)
           }
         )
         .subscribe()

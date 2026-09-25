@@ -3,8 +3,7 @@
 // Minimal client wrapper — the student detail page is a server component
 // with several independent client children (GenerateInvoiceButton,
 // StudentActivityTimeline, tabs, ...) and no single Layout component that
-// wraps the whole page, so this renders nothing and only keeps the
-// subscription alive.
+// wraps the whole page, so this exists only to keep the subscription alive.
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 
 export default function StudentRealtimeRefresh({ studentId }: { studentId: string }) {

@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { updateClass, addSection, deleteSection } from '@/app/(app)/settings/academic-structure/actions'
+import { updateClass, addSection, deleteSection } from '@/app/(app)/school/academic-structure/actions'
+import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 
 interface ClassRow {
   id: string
@@ -94,35 +95,33 @@ export default function EditClassPanel({ classData, sections: initialSections, a
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-gray-200 flex flex-col h-fit sticky top-6">
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-          <h3 className="text-base font-semibold text-navy">Edit class</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+      <div className="border-2 border-[var(--color-ink)] flex flex-col m-anim-slab">
+        <div className="p-5 border-b-2 border-[var(--color-ink)] flex items-center justify-between flex-shrink-0">
+          <h3 className="text-base font-extrabold tracking-[-0.01em] text-[var(--color-ink)]">Edit class</h3>
+          <button onClick={onClose} aria-label="Close" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-ink)]">
+            Close
           </button>
         </div>
 
         <div className="p-5 space-y-4">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Class name *</label>
+          <label className="block">
+            <span className="m-label">Class name <span className="text-[var(--color-signal-text)]">*</span></span>
             <input
               type="text"
               value={form.name}
               onChange={(e) => setForm({...form, name: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-input"
             />
-          </div>
+          </label>
 
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs text-gray-500">Section</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="m-label !mb-0">Section</span>
               {sections.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setShowManageSections(true)}
-                  className="text-xs text-gray-500 hover:text-navy hover:underline"
+                  className="text-xs text-[var(--color-neutral-700)] hover:text-[var(--color-ink)] hover:underline"
                 >
                   Manage sections
                 </button>
@@ -132,43 +131,45 @@ export default function EditClassPanel({ classData, sections: initialSections, a
               <select
                 value={form.sectionId}
                 onChange={(e) => setForm({...form, sectionId: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                className="m-select"
               >
                 {sections.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
             ) : (
-              <p className="text-sm text-gray-400 italic py-2">No sections yet.</p>
+              <p className="text-sm text-[var(--color-neutral-500)] italic py-2">No sections yet.</p>
             )}
 
             {showAddSection ? (
-              <div className="mt-2 p-3 bg-mint-light/30 rounded-lg border border-mint/20">
-                <label className="block text-xs text-gray-500 mb-1">New section name</label>
-                <input
-                  type="text"
-                  value={newSectionName}
-                  onChange={(e) => setNewSectionName(e.target.value)}
-                  placeholder="e.g. Primary, Secondary, Nursery"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-                  autoFocus
-                />
+              <div className="mt-2 p-3 border-2 border-[var(--color-neutral-300)]">
+                <label className="block">
+                  <span className="m-label">New section name</span>
+                  <input
+                    type="text"
+                    value={newSectionName}
+                    onChange={(e) => setNewSectionName(e.target.value)}
+                    placeholder="e.g. Primary, Secondary, Nursery"
+                    className="m-input"
+                    autoFocus
+                  />
+                </label>
                 {sectionError && (
-                  <p className="text-xs text-red-600 mt-1">{sectionError}</p>
+                  <p className="text-xs text-[var(--color-signal-text)] mt-1">{sectionError}</p>
                 )}
-                <div className="flex items-center gap-2 mt-2">
+                <div className="flex items-center gap-3 mt-2">
                   <button
                     type="button"
                     onClick={handleAddSection}
                     disabled={addingSectionLoading || !newSectionName.trim()}
-                    className="px-3 py-1 bg-mint text-navy text-xs font-semibold rounded hover:bg-mint/90 disabled:opacity-50"
+                    className="m-btn m-btn-primary m-btn-sm"
                   >
                     {addingSectionLoading ? 'Adding...' : 'Add section'}
                   </button>
                   <button
                     type="button"
                     onClick={() => { setShowAddSection(false); setNewSectionName(''); setSectionError(null) }}
-                    className="px-3 py-1 text-gray-600 text-xs font-medium hover:bg-gray-100 rounded"
+                    className="m-btn m-btn-outline m-btn-sm"
                   >
                     Cancel
                   </button>
@@ -178,67 +179,76 @@ export default function EditClassPanel({ classData, sections: initialSections, a
               <button
                 type="button"
                 onClick={() => setShowAddSection(true)}
-                className="mt-2 text-xs text-mint font-medium hover:underline"
+                className="mt-2 text-xs font-semibold text-[var(--color-ink)] hover:underline"
               >
                 + Add new section
               </button>
             )}
           </div>
 
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Display order</label>
+          <label className="block">
+            <span className="m-label">Display order</span>
             <input
               type="number"
               value={form.displayOrder}
               onChange={(e) => setForm({...form, displayOrder: parseInt(e.target.value) || 0})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-input"
             />
-          </div>
+          </label>
 
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Promotes to</label>
+          <label className="block">
+            <span className="m-label">Promotes to</span>
             <select
               value={form.nextClassId}
               onChange={(e) => setForm({...form, nextClassId: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-select"
             >
               <option value="">— Exits school (graduates) —</option>
               {allClasses.filter(c => c.id !== classData.id).map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-            <p className="text-xs text-gray-500 mt-1">Where students in this class move to at year-end rollover. Leave as &quot;Exits school&quot; if this is a graduating class.</p>
-          </div>
+            <p className="text-xs text-[var(--color-neutral-700)] mt-1">Where students in this class move to at year-end rollover. Leave as &quot;Exits school&quot; if this is a graduating class.</p>
+          </label>
 
-          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+          <div className="flex items-center justify-between pt-3 border-t border-[var(--color-neutral-300)]">
             <div>
-              <p className="text-sm font-medium text-navy">Active</p>
-              <p className="text-xs text-gray-500">Inactive classes are hidden from forms</p>
+              <p className="text-sm font-medium text-[var(--color-ink)]">Active</p>
+              <p className="text-xs text-[var(--color-neutral-700)]">Inactive classes are hidden from forms</p>
             </div>
             <button
               type="button"
+              role="switch"
+              aria-checked={form.isActive}
+              aria-label="Active"
               onClick={() => setForm({...form, isActive: !form.isActive})}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.isActive ? 'bg-mint' : 'bg-gray-300'}`}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center border-2 transition-colors ${
+                form.isActive ? 'bg-[var(--color-ink)] border-[var(--color-ink)]' : 'bg-transparent border-[var(--color-neutral-400)]'
+              }`}
             >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.isActive ? 'translate-x-6' : 'translate-x-1'}`} />
+              <span
+                className={`inline-block h-3.5 w-3.5 transform transition-transform ${
+                  form.isActive ? 'translate-x-[18px] bg-[var(--color-paper)]' : 'translate-x-0.5 bg-[var(--color-neutral-500)]'
+                }`}
+              />
             </button>
           </div>
 
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <div className="p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">
               {error}
             </div>
           )}
         </div>
 
-        <div className="p-5 border-t border-gray-100 flex items-center justify-end gap-2 flex-shrink-0">
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+        <div className="p-5 border-t-2 border-[var(--color-ink)] flex items-center justify-end gap-2 flex-shrink-0">
+          <button onClick={onClose} disabled={loading} className="m-btn m-btn-outline">
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={loading}
-            className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+            className="m-btn m-btn-primary"
           >
             {loading ? 'Saving...' : 'Save changes'}
           </button>
@@ -263,6 +273,7 @@ function ManageSectionsModal({ sections, onClose, onSectionDeleted }: {
 }) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<Section | null>(null)
 
   async function handleDelete(sectionId: string) {
     setError(null)
@@ -275,32 +286,32 @@ function ManageSectionsModal({ sections, onClose, onSectionDeleted }: {
     }
     onSectionDeleted(sectionId)
     setDeletingId(null)
+    setConfirmDelete(null)
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-sm w-full">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-navy">Manage sections</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 m-anim-fade">
+      <div className="absolute inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)]" onClick={onClose} />
+      <div className="relative bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-sm w-full m-anim-scale">
+        <div className="p-6 border-b-2 border-[var(--color-ink)] flex items-center justify-between">
+          <h3 className="text-lg font-extrabold tracking-[-0.01em] text-[var(--color-ink)]">Manage sections</h3>
+          <button onClick={onClose} aria-label="Close" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-ink)]">
+            Close
           </button>
         </div>
 
         <div className="p-6">
           {sections.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-4">No sections to manage.</p>
+            <p className="text-sm text-[var(--color-neutral-700)] text-center py-4">No sections to manage.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="border-2 border-[var(--color-neutral-300)] divide-y divide-[var(--color-neutral-300)]">
               {sections.map(section => (
-                <div key={section.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                  <span className="text-sm text-navy">{section.name}</span>
+                <div key={section.id} className="flex items-center justify-between p-3">
+                  <span className="text-sm text-[var(--color-ink)]">{section.name}</span>
                   <button
-                    onClick={() => handleDelete(section.id)}
+                    onClick={() => { setError(null); setConfirmDelete(section) }}
                     disabled={deletingId === section.id}
-                    className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                    className="text-xs font-semibold text-[var(--color-signal-text)] hover:underline disabled:opacity-50"
                   >
                     {deletingId === section.id ? 'Deleting...' : 'Delete'}
                   </button>
@@ -310,18 +321,31 @@ function ManageSectionsModal({ sections, onClose, onSectionDeleted }: {
           )}
 
           {error && (
-            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <div className="mt-3 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">
               {error}
             </div>
           )}
         </div>
 
-        <div className="p-6 border-t border-gray-100 flex items-center justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+        <div className="p-6 border-t-2 border-[var(--color-ink)] flex items-center justify-end">
+          <button onClick={onClose} className="m-btn m-btn-outline">
             Done
           </button>
         </div>
       </div>
+
+      {confirmDelete && (
+        <DestructiveConfirmModal
+          title={`Delete "${confirmDelete.name}"?`}
+          description="Only goes through if no classes are currently assigned to it — otherwise you'll be told which ones to move first."
+          note="This removes it from the section dropdown everywhere it's offered. There's no undo — you'd need to add it again from scratch."
+          error={error}
+          actions={[
+            { label: 'Cancel', onClick: () => setConfirmDelete(null), variant: 'outline', disabled: deletingId === confirmDelete.id },
+            { label: deletingId === confirmDelete.id ? 'Deleting...' : 'Delete', onClick: () => handleDelete(confirmDelete.id), variant: 'danger', disabled: deletingId === confirmDelete.id },
+          ]}
+        />
+      )}
     </div>
   )
 }

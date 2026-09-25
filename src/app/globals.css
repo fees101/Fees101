@@ -1,26 +1,293 @@
 @import "tailwindcss";
 
-/* Activity feed colour-codes categories via a switch (payments/invoices/
-   messages/discounts/students). Safelist the palette so the JIT always
-   compiles them even though they aren't all present as static strings. */
-@source inline("bg-{emerald,blue,purple,amber,rose}-{100,500}");
-@source inline("text-{emerald,blue,purple,amber,rose}-700");
-
-/* Audit log colour-codes each module (Staff/Roles/Invoices/Students/…) with a
-   pill whose classes are chosen from a data-driven map — same JIT gotcha, so
-   safelist the full module palette too. */
-@source inline("bg-{blue,indigo,amber,sky,rose,pink,teal,cyan,violet,emerald,slate,gray}-100");
-@source inline("text-{blue,indigo,amber,sky,rose,pink,teal,cyan,violet,emerald,slate,gray}-700");
+/* Layout spacing utilities used by the redesigned workspace pages. The WASM
+   Tailwind build doesn't always pick up newly-introduced spacing candidates on
+   hot reload, so the ones the Modernist layouts rely on are safelisted here to
+   guarantee they're generated. */
+@source inline("{space-y,gap-y,gap-x}-{8,10,12,16,20}");
+@source inline("{py,pt,pb,mt}-{6,8,10,12}");
+@source inline("text-{4xl,5xl,6xl}");
 
 @theme {
-  --color-navy: #0D1B36;
-  --color-mint: #5AD8A6;
-  --color-mint-light: #E8F8F1;
-  --font-sans: var(--font-manrope), system-ui, sans-serif;
+  /* ── Modernist palette ──────────────────────────────────────────────
+     Grounds and ink. Two grounds: paper for operating work, ink for the
+     instrument surfaces (collections, analytics, cycle close). */
+  --color-paper: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-ink: #201e1d;
+
+  /* Neutral ramp — generated in OKLCH on one shared lightness scale.
+     Secondary text floors at neutral-700 (#605d5d, 5.8:1); 600 and
+     lighter are for rules and disabled states only, never text. */
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-300: #d7d3d3;
+  --color-neutral-400: #bab6b6;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d;
+  --color-neutral-800: #444141;
+  --color-neutral-900: #2d2b2b;
+
+  /* Signal red — the brand, structure, attention, destructive.
+     Carries the mark, section rules, collection bars, overdue/unsent/
+     rejected, irreversible actions. Never a row status or default button.
+     Under 20px, small text drops to signal-text (#ae1800, 6.4:1). */
+  --color-signal: #ec3013;
+  --color-signal-text: #ae1800;
+  --color-signal-100: #fff2ef;
+  --color-signal-200: #ffe0d9;
+  --color-signal-300: #ffc4b8;
+  --color-signal-400: #ff9783;
+  --color-signal-500: #ff563c;
+  --color-signal-600: #dd2b0f;
+  --color-signal-700: #ae1800;
+  --color-signal-800: #7c1405;
+  --color-signal-900: #4d170e;
+
+  /* Ledger green — money that actually arrived, only. Amounts paid,
+     settled rows, collected totals, receipts. On the ink ground it
+     lifts to ledger-on-ink. Never a button, link or nav highlight. */
+  --color-ledger: #0a6b3d;
+  --color-ledger-on-ink: #35c483;
+
+  /* Follow-up ochre — states awaiting a human: partial, overdue, not
+     sent, needs resend, pending approval. Only in a status column or a
+     bar's arrears segment. Text weight drops to ochre-text (#8a4805). */
+  --color-ochre: #b45f06;
+  --color-ochre-text: #8a4805;
+
+  /* ── Type — Archivo, one family, three weights, tabular numerals ──── */
+  --font-sans: var(--font-archivo), system-ui, sans-serif;
+  --font-heading: var(--font-archivo), system-ui, sans-serif;
+
+  /* ── Radius — zero everywhere, on purpose ─────────────────────────── */
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
+
+  /* ── Motion — four durations, two curves. No spinners: loading is a
+     2px rule sweeping its track (determinate fills in ink, red only on a
+     failed job). Every transition inherits ease-out + move by default. */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --default-transition-timing-function: var(--ease-out);
+  --default-transition-duration: 200ms;
+}
+
+:root {
+  /* Duration scale, referenced by hand-written keyframes and transitions.
+     tick: hover/focus/sort flip · move: tab travel/row expand ·
+     enter: drawers/ground change/wipe · settle: rule draw/count-up/progress. */
+  --dur-tick: 120ms;
+  --dur-move: 200ms;
+  --dur-enter: 320ms;
+  --dur-settle: 560ms;
+
+  /* Type — pinned here, not only in @theme. The WASM Tailwind build does not
+     reliably emit @theme font tokens into :root, which left --font-sans empty
+     at runtime and dropped the whole app onto the preflight system stack (the
+     "fonts look wrong" bug). --font-archivo is set on <body> by next/font;
+     the var() inside resolves in that scope. */
+  --font-sans: var(--font-archivo), system-ui, sans-serif;
+  --font-heading: var(--font-archivo), system-ui, sans-serif;
 }
 
 body {
-  font-family: var(--font-sans);
-  background: #FFFFFF;
-  color: #0D1B36;
+  font-family: var(--font-archivo), system-ui, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  /* Every figure sets in tabular numerals so columns align and count-ups
+     don't jitter. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reduced motion collapses every animation and transition to instant. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Modernist component layer. The shared vocabulary every redesigned screen
+   builds against, so 40-plus surfaces stay identical without each restating
+   the same Tailwind recipe. All classes are prefixed `m-` (Modernist) to sit
+   apart from the app's Tailwind utilities and never collide. Colours come
+   from the @theme tokens above; radius is zero everywhere by system rule.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Motion — see the duration/easing tokens above. Loading is never a spinner:
+   indeterminate is a 2px rule sweeping its track, determinate fills in ink. */
+@keyframes m-slab-in { from { transform: translateY(12px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+@keyframes m-slide-in { from { transform: translateX(100%) } to { transform: translateX(0) } }
+@keyframes m-fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes m-scale-in { from { transform: scale(0.985); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+@keyframes m-rule-sweep { 0% { transform: translateX(-100%) } 100% { transform: translateX(320%) } }
+
+.m-anim-slab { animation: m-slab-in var(--dur-enter) var(--ease-out); }
+.m-anim-slide { animation: m-slide-in var(--dur-enter) var(--ease-out); }
+.m-anim-fade { animation: m-fade-in var(--dur-move) var(--ease-out); }
+.m-anim-scale { animation: m-scale-in var(--dur-enter) var(--ease-out); }
+
+/* Indeterminate loading — a 2px ink rule sweeping a neutral track. */
+.m-loading { position: relative; overflow: hidden; height: 2px; background: var(--color-neutral-300); }
+.m-loading::after {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 33%;
+  background: var(--color-ink); animation: m-rule-sweep 1.1s var(--ease-out) infinite;
+}
+
+@layer components {
+  /* — Buttons — rectangular, zero radius, Archivo 800, no pills, no shadow. */
+  .m-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font-family: var(--font-heading); font-weight: 800; font-size: 14px; line-height: 1.2;
+    padding: 10px 16px; border: 2px solid transparent; cursor: pointer; white-space: nowrap;
+    color: var(--color-ink); background: transparent; text-decoration: none;
+    transition: background var(--dur-tick) var(--ease-out), color var(--dur-tick) var(--ease-out), border-color var(--dur-tick) var(--ease-out);
+  }
+  .m-btn:disabled, .m-btn[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
+  .m-btn:focus-visible { outline: 2px solid var(--color-signal); outline-offset: 2px; }
+  .m-btn-primary { background: var(--color-ink); color: var(--color-paper); }
+  .m-btn-primary:hover:not(:disabled) { background: var(--color-neutral-900); }
+  .m-btn-danger { background: var(--color-signal); color: #ffffff; }
+  .m-btn-danger:hover:not(:disabled) { background: var(--color-signal-600); }
+  .m-btn-outline { border-color: var(--color-ink); }
+  .m-btn-outline:hover:not(:disabled) { background: color-mix(in srgb, var(--color-ink) 8%, transparent); }
+  .m-btn-ghost { color: var(--color-signal-text); padding-inline: 8px; }
+  .m-btn-ghost:hover:not(:disabled) { background: var(--color-signal-100); }
+  .m-btn-sm { padding: 6px 12px; font-size: 13px; }
+  /* Ink-ground buttons — for the money "instrument" surfaces on the dark ground
+     (invoices ledger + invoice detail), where the paper-ground variants above
+     are unreadable. Mirrors the App Shell "bo-ink" spec. */
+  .m-btn-ink { border-color: #605d5d; color: #f3f2f2; }
+  .m-btn-ink:hover:not(:disabled) { background: #2d2b2b; border-color: #f3f2f2; }
+  .m-btn-ink-primary { background: #f3f2f2; color: #201e1d; border-color: #f3f2f2; }
+  .m-btn-ink-primary:hover:not(:disabled) { background: #ffffff; border-color: #ffffff; }
+  .m-btn-ink-danger { border-color: #605d5d; color: #e8664a; }
+  .m-btn-ink-danger:hover:not(:disabled) { background: #2d2b2b; border-color: #e8664a; }
+
+  /* — Fields — */
+  .m-label { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; color: var(--color-neutral-700); margin-bottom: 6px; }
+  /* Field border is a full 2px ink rule (App Shell `.fin`), on a white ground —
+     not a soft grey. Focus draws the signal-red ring via an outline at 2px
+     offset (the system focus treatment), leaving the ink border in place. */
+  .m-input, .m-select, .m-textarea {
+    width: 100%; min-height: 40px; padding: 9px 12px; font: inherit; font-size: 14px;
+    color: var(--color-ink); background: #ffffff; caret-color: var(--color-signal);
+    border: 2px solid var(--color-ink); border-radius: 0;
+    transition: border-color var(--dur-tick) var(--ease-out);
+  }
+  .m-input::placeholder, .m-textarea::placeholder { color: var(--color-neutral-700); }
+  .m-input:focus, .m-select:focus, .m-textarea:focus { outline: 2px solid var(--color-signal); outline-offset: 2px; border-color: var(--color-ink); }
+  .m-textarea { min-height: 96px; resize: vertical; }
+
+  /* — Mode tabs (in-page header sub-views) — matches the App Shell canvas's
+       own .tab exactly (App Shell.dc.html:35): no top padding, 8px bottom. */
+  .m-tab {
+    display: inline-flex; align-items: center; gap: 8px; padding: 0 0 8px; margin: 0;
+    font-size: 13px; font-weight: 600; color: var(--color-neutral-700);
+    border: 0; border-bottom: 2px solid transparent; background: transparent; cursor: pointer;
+    transition: color var(--dur-tick) var(--ease-out), border-color var(--dur-tick) var(--ease-out);
+  }
+  .m-tab:hover { color: var(--color-ink); }
+  .m-tab:focus-visible { outline: 2px solid var(--color-signal); outline-offset: 2px; }
+  .m-tab[aria-current="true"], .m-tab[data-active="true"] { color: var(--color-ink); border-bottom-color: var(--color-signal); }
+
+  /* — Status chips — colour carries meaning, never decoration.
+       green = money received · ochre = needs a human · red = attention/failed
+       · neutral = inert. */
+  .m-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .m-chip-green { background: color-mix(in srgb, var(--color-ledger) 12%, transparent); color: var(--color-ledger); border-color: color-mix(in srgb, var(--color-ledger) 32%, transparent); }
+  .m-chip-ochre { background: color-mix(in srgb, var(--color-ochre) 12%, transparent); color: var(--color-ochre-text); border-color: color-mix(in srgb, var(--color-ochre) 32%, transparent); }
+  .m-chip-red { background: var(--color-signal-100); color: var(--color-signal-text); border-color: color-mix(in srgb, var(--color-signal) 32%, transparent); }
+  .m-chip-neutral { background: var(--color-neutral-200); color: var(--color-neutral-800); border-color: var(--color-neutral-300); }
+
+  /* — Filter chips — square 2px-outlined toggles (App Shell `.chip`), NOT
+       status pills: a soft rule when idle, inverting to solid ink when the
+       filter they name is the one in force. Used for the roster All / Owing /
+       Not billed selector. */
+  .m-filter-chip {
+    background: transparent; border: 2px solid var(--color-neutral-300);
+    color: var(--color-neutral-700); padding: 6px 12px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+    white-space: nowrap; cursor: pointer;
+    transition: color 120ms cubic-bezier(.2,0,0,1), border-color 120ms cubic-bezier(.2,0,0,1), background 120ms cubic-bezier(.2,0,0,1);
+  }
+  .m-filter-chip:hover { border-color: var(--color-ink); color: var(--color-ink); }
+  .m-filter-chip[data-active="true"] { background: var(--color-ink); border-color: var(--color-ink); color: var(--color-paper); }
+  .m-filter-chip:focus-visible { outline: 2px solid var(--color-signal); outline-offset: 2px; }
+
+  /* Grid-based table row (App Shell `.trow`): a hairline-ruled clickable line
+     that lifts to the soft neutral ground on hover. */
+  .m-trow:hover { background: var(--color-neutral-200); }
+
+  /* — Rules — */
+  .m-rule { height: 2px; border: 0; margin: 0; background: var(--color-ink); }
+  .m-rule-soft { height: 1px; border: 0; margin: 0; background: var(--color-neutral-300); }
+
+  /* — Tables — flush-left uppercase headers over a 2px ink rule, hairline rows,
+       every figure tabular. */
+  .m-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .m-table th {
+    text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--color-neutral-700); padding: 10px 12px; border-bottom: 2px solid var(--color-ink);
+  }
+  .m-table td { padding: 12px; border-bottom: 1px solid var(--color-neutral-300); }
+  .m-table tbody tr:hover { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
+
+  /* Tabular figures on demand (columns of money, counts, dates). */
+  .m-num { font-variant-numeric: tabular-nums; }
+
+  /* — Workspace body layout — replicates the App Shell exactly and sidesteps
+       the WASM Tailwind arbitrary-spacing gotcha (grid/gap candidates it drops
+       on hot reload). Two-column body: a content-weighted primary column beside
+       a narrower rail (1.6fr / 1fr, gap 36px), stacking to one column below lg. */
+  .m-2col { display: grid; grid-template-columns: 1fr; gap: 28px; align-items: start; }
+  @media (min-width: 1024px) {
+    .m-2col { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 36px; }
+  }
+
+  /* Student profile single-surface body: the App Shell showStudent grid is a
+     touch wider on its primary column (1.5fr / 1fr, gap 36px) than the shared
+     workspace body. Its own class so the exact ratio survives the WASM
+     Tailwind arbitrary-grid gotcha. */
+  .m-2col-profile { display: grid; grid-template-columns: 1fr; gap: 36px; align-items: start; }
+  @media (min-width: 1024px) {
+    .m-2col-profile { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 36px; }
+  }
+
+  /* A titled section: a 2px ink rule across the top, content below it
+       (padding-top 18px). Sequential panels in a column are separated by 28px —
+       the App Shell's section rhythm, not a loose space-y stack. */
+  .m-panel { border-top: 2px solid var(--color-ink); padding-top: 18px; }
+  .m-panel + .m-panel { margin-top: 28px; }
+
+  /* A hairline-topped list row (Needs you, Record, Term, Collection rows). */
+  .m-row { border-top: 1px solid var(--color-neutral-300); }
+
+  /* — Setting ledger row — a ruled row on the School profile surface: a fixed
+       label column, then the current value with an action word (EDIT/REPLACE/
+       FIXED) pushed flush right, or the inline editor. Stacks to one column
+       below 640px so the value never gets crushed. Own class so the fixed
+       label width survives the WASM Tailwind arbitrary-utility gotcha. */
+  .m-setrow { display: grid; grid-template-columns: 1fr; gap: 8px; border-top: 1px solid var(--color-neutral-300); padding: 20px 0; }
+  .m-setrow__side { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; min-width: 0; }
+  @media (min-width: 640px) {
+    .m-setrow { grid-template-columns: 320px minmax(0, 1fr); gap: 24px; align-items: baseline; }
+  }
 }

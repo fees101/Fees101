@@ -6,7 +6,18 @@ export const STUDENTS_PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 
 export type StudentSortKey = 'class' | 'name' | 'parent' | 'phone' | 'total' | 'paid' | 'status'
 export type StudentSortDir = 'asc' | 'desc'
-export type StudentInvoiceStatusFilter = 'all' | 'paid' | 'partial' | 'pending' | 'no_invoice'
+// 'owing' and 'not_billed' are roster-chip groupings over the current-cycle
+// invoice status: owing = has an invoice that isn't fully paid, not_billed =
+// no current-cycle invoice at all. The rest are the exact current-cycle status
+// values (kept for the granular "More filters" select).
+export type StudentInvoiceStatusFilter = 'all' | 'owing' | 'not_billed' | 'paid' | 'partial' | 'pending' | 'no_invoice'
+
+// Does a current-cycle invoice status satisfy a chosen roster filter?
+function matchInvoiceFilter(status: string, filter: StudentInvoiceStatusFilter): boolean {
+  if (filter === 'owing') return status === 'partial' || status === 'pending'
+  if (filter === 'not_billed') return status === 'no_invoice'
+  return status === filter
+}
 
 const INVOICE_DERIVED_SORT_KEYS = new Set<StudentSortKey>(['total', 'paid', 'status'])
 
@@ -67,6 +78,37 @@ async function resolveSearchFamilyIds(supabase: any, schoolId: string, term: str
   return (data || []).map((f: any) => f.id as string)
 }
 
+// Roster chip counts — All / Owing / Not billed — computed over the SAME
+// lifecycle, class and search filters the list itself uses, but ACROSS every
+// invoice state (the chips are the invoice-state selector, so they must not
+// narrow by it, or every count would collapse to the selected one). A narrow
+// id + current-cycle-status projection keeps this cheap on a large roster.
+async function computeInvoiceChipCounts(
+  supabase: any,
+  schoolId: string,
+  opts: { statusFilter: string; classId: string | null; search: string; searchFamilyIds: string[]; currentCycleId: string },
+): Promise<{ all: number; owing: number; notBilled: number }> {
+  let q = supabase
+    .from('students')
+    .select('id, invoices!left(status)')
+    .eq('school_id', schoolId)
+    .eq('invoices.billing_cycle_id', opts.currentCycleId || '')
+  if (opts.statusFilter !== 'all') q = q.eq('status', opts.statusFilter)
+  if (opts.classId) q = q.eq('class_id', opts.classId)
+  if (opts.search) q = q.or(studentSearchOrClause(opts.search, opts.searchFamilyIds))
+  const { data } = await q
+  let all = 0
+  let owing = 0
+  let notBilled = 0
+  ;(data || []).forEach((r: any) => {
+    all += 1
+    const status = (r.invoices?.[0]?.status as string) || 'no_invoice'
+    if (status === 'partial' || status === 'pending') owing += 1
+    else if (status === 'no_invoice') notBilled += 1
+  })
+  return { all, owing, notBilled }
+}
+
 function studentSearchOrClause(term: string, familyIds: string[]): string {
   const t = `%${term}%`
   const parts = [`first_name.ilike.${t}`, `last_name.ilike.${t}`, `admission_number.ilike.${t}`]
@@ -100,6 +142,7 @@ export interface StudentListRow extends ReturnType<typeof mapStudentRow> {
   invoicePaid: number
   creditApplied: number
   invoiceStatus: string
+  invoiceSent: boolean
   outstandingBalance: number
 }
 
@@ -134,6 +177,7 @@ export async function getStudents(options: GetStudentsOptions = {}) {
     currentTermName: '',
     classCount: 0,
     statusCounts: { active: 0, withdrawn: 0, graduated: 0, all: 0 },
+    invoiceCounts: { all: 0, owing: 0, notBilled: 0 },
     paymentsConfigured: false,
     studentsWithoutDvaCount: 0,
     total: 0,
@@ -164,7 +208,10 @@ export async function getStudents(options: GetStudentsOptions = {}) {
       .single(),
     supabase
       .from('classes')
-      .select('id, name')
+      // section_id + sections(display_order) so classes sort by section first
+      // (Primary 1-6 → JSS 1-3 → SS 1-3), not by a flat per-section
+      // display_order that interleaves the sections. Sorted in JS below.
+      .select('id, name, display_order, section_id, sections(display_order)')
       .eq('school_id', schoolId)
       .eq('is_active', true)
       .order('display_order'),
@@ -194,18 +241,45 @@ export async function getStudents(options: GetStudentsOptions = {}) {
   const paymentsConfigured = !!schoolRow?.payment_provider
   const currentTermName = currentCycle?.name || ''
   const classCount = classes?.length || 0
-  const tail = { classes: classes || [], currentTermName, classCount, statusCounts, paymentsConfigured, studentsWithoutDvaCount: studentsWithoutDvaCount || 0 }
 
-  // Class display order comes from this list, which is already sorted by
-  // the real `display_order` column at the top level (a plain, unjoined
-  // query) — its array position is a safe stand-in for that rank.
+  // Classes carry a per-section display_order (Primary 1-6 and JSS 1-3 both
+  // start at 1), so a flat sort by display_order interleaves the sections
+  // (Primary 1, JSS 1, Primary 2, ...). Order by section first, then the class
+  // within it, so the roster groups read Primary 1-6 → JSS 1-3 → SS 1-3. This
+  // both drives the group-header order and the class-filter dropdown.
+  const sortedClasses = [...((classes as any[]) || [])]
+    .sort((a, b) => {
+      const sa = a.sections?.display_order ?? 9999
+      const sb = b.sections?.display_order ?? 9999
+      if (sa !== sb) return sa - sb
+      const oa = a.display_order ?? 9999
+      const ob = b.display_order ?? 9999
+      if (oa !== ob) return oa - ob
+      return String(a.name).localeCompare(String(b.name), undefined, { numeric: true })
+    })
+    .map((c: any) => ({ id: c.id as string, name: c.name as string }))
+
+  // Resolve parent-name search matches once, up front: both the chip counts and
+  // the list's first pass fold these family ids into their `students.or(...)`.
+  const searchFamilyIds = search ? await resolveSearchFamilyIds(supabase, schoolId, search) : []
+  const invoiceCounts = await computeInvoiceChipCounts(supabase, schoolId, {
+    statusFilter,
+    classId,
+    search,
+    searchFamilyIds,
+    currentCycleId: currentCycle?.id || '',
+  })
+
+  const tail = { classes: sortedClasses, currentTermName, classCount, statusCounts, invoiceCounts, paymentsConfigured, studentsWithoutDvaCount: studentsWithoutDvaCount || 0 }
+
+  // Class display order comes from the section-aware sorted list above, so the
+  // roster's class grouping ranks by section then class, matching the fee
+  // structure matrix and the class dropdown.
   const classOrder: Record<string, number> = {}
-  ;(classes || []).forEach((c: any, i: number) => { classOrder[c.id] = i })
+  sortedClasses.forEach((c, i) => { classOrder[c.id] = i })
 
   const needsInvoiceData = !!invoiceStatusFilter || INVOICE_DERIVED_SORT_KEYS.has(sortKey)
   const needsFirstPass = JS_SORT_KEYS.has(sortKey) || !!invoiceStatusFilter
-
-  const searchFamilyIds = search ? await resolveSearchFamilyIds(supabase, schoolId, search) : []
 
   let studentRows: any[] = []
   let total = 0
@@ -241,7 +315,7 @@ export async function getStudents(options: GetStudentsOptions = {}) {
         status: (inv?.status as string) || 'no_invoice',
       }
     })
-    if (invoiceStatusFilter) derived = derived.filter((d: any) => d.status === invoiceStatusFilter)
+    if (invoiceStatusFilter) derived = derived.filter((d: any) => matchInvoiceFilter(d.status, invoiceStatusFilter as StudentInvoiceStatusFilter))
     total = derived.length
 
     if (JS_SORT_KEYS.has(sortKey)) {
@@ -309,7 +383,7 @@ export async function getStudents(options: GetStudentsOptions = {}) {
   const [{ data: invoices }, { data: allOutstandingInvoices }] = await Promise.all([
     supabase
       .from('invoices')
-      .select('student_id, total_amount, paid_amount, credit_applied, status')
+      .select('student_id, total_amount, paid_amount, credit_applied, status, sent_at')
       .in('student_id', studentIds)
       .eq('billing_cycle_id', currentCycle?.id || ''),
     // Total owed across every non-cancelled, non-superseded invoice — not just
@@ -355,6 +429,10 @@ export async function getStudents(options: GetStudentsOptions = {}) {
       invoicePaid: invoice ? Number(invoice.paid_amount) : 0,
       creditApplied: invoice ? Number(invoice.credit_applied || 0) : 0,
       invoiceStatus: invoice?.status || 'no_invoice',
+      // Whether the current-term invoice has actually been delivered to the
+      // parent. Lets the roster separate an unpaid invoice that's still sitting
+      // un-sent (NOT SENT) from one that's out and overdue (OVERDUE).
+      invoiceSent: !!invoice?.sent_at,
       // All-time outstanding balance (across every term, not just the
       // current one) — the figure that matters for a former student, since
       // they'll never have a current-cycle invoice again.
@@ -626,6 +704,11 @@ export async function getStudentById(studentId: string) {
     currentCycleId: currentCycle?.id || null,
     currentInvoice: currentInvoice ? {
       id: currentInvoice.id,
+      // Read-only surface additions for the single-surface profile's "This
+      // term" panel — the row is already selected with `*`, so no new
+      // columns are queried, only mapped through.
+      invoiceNumber: currentInvoice.invoice_number || null,
+      outstandingAmount: Number(currentInvoice.outstanding_amount ?? (Number(currentInvoice.total_amount) - Number(currentInvoice.paid_amount))),
       lineItems: currentInvoice.line_items || [],
       subtotal: Number(currentInvoice.subtotal || 0),
       discountAmount: Number(currentInvoice.discount_amount || 0),
@@ -780,6 +863,7 @@ export interface StudentFeesData {
     classId: string | null
     className: string
     status: string
+    creditBalance: number
   }
   cycle: {
     id: string
@@ -864,6 +948,7 @@ export async function getStudentFees(studentId: string): Promise<StudentFeesData
     // @ts-expect-error — joined
     className: studentData.classes?.name || '',
     status: studentData.status,
+    creditBalance: Number(studentData.credit_balance || 0),
   }
 
   // Get active billing cycle

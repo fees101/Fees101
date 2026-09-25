@@ -1,35 +1,47 @@
 'use client'
 
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { InvoiceDetail } from '@/lib/queries/fees'
 import { formatPaymentMethod } from '@/lib/paymentMethod'
-import { sendInvoice, sendReceipt, cancelInvoice } from '@/app/(app)/invoices/[id]/actions'
+import { sendInvoice, sendReceipt, cancelInvoice } from '@/app/(app)/money/invoices/[id]/actions'
 import { MessageChannel } from '@/lib/messaging/types'
 import RequestDiscountModal from '@/components/invoices/RequestDiscountModal'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 import Toast from '@/components/ui/Toast'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
+import type { DiscountSettings } from '@/lib/queries/discounts'
 
 const CHANNEL_LABELS: Record<MessageChannel, string> = {
   sms: 'SMS',
   email: 'Email',
 }
 
-function ChannelIcons() {
-  return (
-    <span className="flex items-center gap-1 text-navy/60" title="Sends via SMS, with the PDF emailed too when an address is on file">
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8-1.436 0-2.795-.29-4.001-.804L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-      </svg>
-    </span>
-  )
-}
-
 interface Props {
   invoice: InvoiceDetail
+  discountSettings: DiscountSettings
+  autoApproveThreshold: number | null
+}
+
+// The invoice detail sits on the ink ground (App Shell "showInvoice"): the same
+// dark instrument surface as the invoices ledger it's reached from, so money
+// stays on one continuous surface. Received reads in lifted ledger green,
+// anything awaiting a human in lifted amber; the paper-ground tokens are too
+// dark to read here.
+const INK = {
+  paper: '#f3f2f2',
+  dim: '#9b9797',
+  faint: '#d7d3d3',
+  rule: '#605d5d',
+  ruleSoft: '#444141',
+  panel: '#2d2b2b',
+  green: '#35c483', // --color-ledger, lifted for the ink ground
+  amber: '#f0a13c', // ochre, lifted for the ink ground
+  signal: '#e8664a', // signal red, lifted for the ink ground
+  white: '#ffffff',
 }
 
 function formatNaira(amount: number): string {
@@ -42,26 +54,127 @@ function formatDate(dateStr: string | null): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-function statusBadge(invoice: InvoiceDetail) {
-  // Cancelled overrides everything — a dead invoice never reads as "needs
-  // resend" just because that flag happened to be set at cancellation time.
-  if (invoice.status === 'cancelled') return { cls: 'bg-gray-100 text-gray-500', label: 'cancelled' }
-  if (invoice.needsResend) return { cls: 'bg-amber-50 text-amber-700', label: 'needs resend' }
-  if (invoice.status === 'paid') return { cls: 'bg-mint-light text-mint', label: 'paid' }
-  if (invoice.status === 'partial') return { cls: 'bg-amber-50 text-amber-700', label: 'partial' }
-  if (invoice.status === 'overdue') return { cls: 'bg-red-50 text-red-700', label: 'overdue' }
-  return { cls: 'bg-gray-100 text-gray-600', label: 'pending' }
+// The status headline, as colour-carrying text (no pills). Cancelled overrides
+// everything — a dead invoice never reads as "needs resend" just because that
+// flag happened to be set at cancellation time.
+function inkState(invoice: InvoiceDetail): { label: string; color: string; note: string } {
+  if (invoice.status === 'cancelled')
+    return { label: 'CANCELLED', color: INK.dim, note: 'Voided — excluded from outstanding totals.' }
+  if (invoice.needsResend)
+    return { label: 'SENT · NOT RESENT', color: INK.amber, note: 'Changed since the last send — the parent still holds the old figure.' }
+  if (invoice.status === 'paid')
+    return { label: 'SETTLED', color: INK.green, note: 'Paid in full.' }
+  if (invoice.status === 'partial')
+    return { label: 'PART PAID', color: INK.amber, note: invoice.sentAt ? `Last sent ${formatDate(invoice.sentAt)}.` : 'Not sent to the parent yet.' }
+  if (invoice.sentAt)
+    return { label: 'SENT', color: INK.faint, note: `Last sent ${formatDate(invoice.sentAt)}.` }
+  return { label: 'NOT SENT', color: INK.amber, note: 'Not sent to the parent yet.' }
 }
 
-export default function InvoiceDetailLayout({ invoice }: Props) {
+// The outstanding headline's supporting line — paid / due / overdue.
+function dueNote(invoice: InvoiceDetail): { text: string; color: string } | null {
+  if (invoice.status === 'cancelled') return null
+  if (invoice.status === 'paid') return { text: 'Paid in full', color: INK.green }
+  if (invoice.cycleDueDate) {
+    const due = new Date(invoice.cycleDueDate)
+    const days = Math.floor((Date.now() - due.getTime()) / 86_400_000)
+    if (days > 0) return { text: `Overdue by ${days} day${days === 1 ? '' : 's'}`, color: INK.amber }
+    if (days === 0) return { text: 'Due today', color: INK.amber }
+    return { text: `Due ${formatDate(invoice.cycleDueDate)}`, color: INK.faint }
+  }
+  return null
+}
+
+function kindLabel(kind: string | undefined): string {
+  if (kind === 'opt_in') return 'OPT-IN'
+  if (kind === 'credit_applied') return 'CREDIT'
+  return ''
+}
+
+// "What happened to this invoice" — the lifecycle, assembled only from signals
+// the invoice already carries (no new data layer): generated, discount applied,
+// sent/resent, each payment, carried forward, cancelled. Some steps have no
+// stored timestamp (a discount edit), shown with an em-dash rather than a
+// fabricated time.
+interface LogEntry { what: string; time: string; detail: string; color: string }
+
+function buildLog(invoice: InvoiceDetail): LogEntry[] {
+  const log: LogEntry[] = []
+
+  log.push({
+    what: 'Invoice generated',
+    time: formatDate(invoice.generatedAt),
+    detail: `${invoice.className} · ${invoice.cycleName}`,
+    color: INK.paper,
+  })
+
+  if (invoice.discountAmount > 0) {
+    log.push({
+      what: 'Discount applied',
+      time: '—',
+      detail: `${formatNaira(invoice.discountAmount)} off${invoice.discountReason ? ` · ${invoice.discountReason}` : ''}`,
+      color: INK.paper,
+    })
+  }
+
+  ;[...(invoice.payments || [])]
+    .sort((a, b) => new Date(a.paidAt || 0).getTime() - new Date(b.paidAt || 0).getTime())
+    .forEach((p) => {
+      const parts = [formatPaymentMethod(p.method), formatNaira(p.amount)]
+      if (p.reference) parts.push(`ref ${p.reference}`)
+      if (p.receivedByName) parts.push(`received by ${p.receivedByName}`)
+      let detail = parts.join(' · ')
+      if (p.otherAllocations && p.otherAllocations.length > 0) {
+        const alloc = p.otherAllocations
+          .map((a) => (a.termName ? `${formatNaira(a.amount)} to ${a.termName}` : `${formatNaira(a.amount)} to credit`))
+          .join(', ')
+        detail += ` — part of a ${formatNaira(p.transactionTotal || p.amount)} transfer (${alloc})`
+      }
+      log.push({ what: 'Payment received', time: formatDate(p.paidAt), detail, color: INK.green })
+    })
+
+  if (invoice.sentAt) {
+    log.push({
+      what: invoice.needsResend ? 'Sent — now out of date' : 'Sent to parent',
+      time: formatDate(invoice.sentAt),
+      detail: invoice.needsResend
+        ? 'Changed after this send; the parent holds the old figure.'
+        : 'Delivered via SMS / email.',
+      color: invoice.needsResend ? INK.amber : INK.paper,
+    })
+  }
+
+  if (invoice.carriedForwardToCycleName) {
+    log.push({
+      what: 'Balance carried forward',
+      time: '—',
+      detail: `Moved to ${invoice.carriedForwardToCycleName}.`,
+      color: INK.amber,
+    })
+  }
+
+  if (invoice.status === 'cancelled') {
+    log.push({
+      what: 'Invoice cancelled',
+      time: '—',
+      detail: 'Voided — excluded from outstanding and expected totals from then on.',
+      color: INK.dim,
+    })
+  }
+
+  return log
+}
+
+export default function InvoiceDetailLayout({ invoice, discountSettings, autoApproveThreshold }: Props) {
   const router = useRouter()
   useRealtimeRefresh([
     { table: 'invoices', filter: `id=eq.${invoice.id}` },
     { table: 'payments', filter: `invoice_id=eq.${invoice.id}` },
   ])
-  const badge = statusBadge(invoice)
+  const state = inkState(invoice)
+  const due = dueNote(invoice)
+  const log = buildLog(invoice)
   const pdfUrl = `/api/invoices/${invoice.id}/pdf`
-  const payments = invoice.payments || []
 
   const [sending, setSending] = useState(false)
   const [sendResult, setSendResult] = useState<{ ok: boolean; message: string } | null>(null)
@@ -70,6 +183,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
+  const [cancelResult, setCancelResult] = useState<{ ok: boolean; message: string } | null>(null)
   const pendingDiscount = invoice.pendingDiscount
   const canSendInvoice = useCan('manage-invoices')
   const canRequestDiscount = useCan('request-discounts')
@@ -106,11 +220,11 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
 
   async function handleCancelInvoice() {
     setCancelling(true)
-    setCancelError(null)
     const r = await cancelInvoice(invoice.id)
     setCancelling(false)
-    setCancelConfirmOpen(false)
     if ('error' in r) { setCancelError(r.error); return }
+    setCancelConfirmOpen(false)
+    setCancelResult({ ok: true, message: 'Invoice cancelled.' })
     router.refresh()
   }
 
@@ -126,367 +240,251 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
   // keep the normal invoice send.
   const isFullyPaid = invoice.status === 'paid'
   const sendLabel = isFullyPaid ? 'Send receipt' : invoice.sentAt ? 'Resend to parent' : 'Send to parent'
-  const sendBtnClass = !isFullyPaid && invoice.needsResend
-    ? 'bg-amber-500 text-white hover:bg-amber-600'
-    : 'bg-mint text-navy hover:bg-mint/90'
+
+  const lineItems = invoice.lineItems.filter((item) => item.kind !== 'previous_balance')
 
   return (
     <>
-      {/* Header */}
-      <header className="mb-6 flex items-center gap-3">
-        <h1 className="text-3xl font-bold text-navy">Invoice</h1>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badge.cls}`}>
-          {badge.label}
-        </span>
-      </header>
+      <div
+        style={{ background: 'var(--color-ink)', color: INK.paper }}
+        className="px-5 sm:px-7 py-7 m-anim-fade"
+      >
+      {/* Header — identity / outstanding / state / actions */}
+      <div
+        className="grid gap-6 items-start pt-5"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', borderTop: `2px solid ${INK.paper}` }}
+      >
+        {/* Identity */}
+        <div>
+          <p className="text-[11px] tracking-[0.16em] mb-2 m-num" style={{ color: INK.dim }}>
+            {invoice.invoiceNumber ? `#${invoice.invoiceNumber} · ` : ''}{invoice.cycleName.toUpperCase()}
+          </p>
+          <Link
+            href={`/students/${invoice.studentId}`}
+            className="block text-[28px] font-extrabold leading-none tracking-[-0.02em] hover:underline"
+            style={{ color: INK.white }}
+          >
+            {invoice.studentFirstName} {invoice.studentLastName}
+          </Link>
+          <p className="text-[14px] mt-1.5 m-num" style={{ color: INK.faint }}>
+            {invoice.className} · {invoice.studentAdmissionNumber}
+          </p>
+        </div>
+
+        {/* Outstanding */}
+        <div>
+          <p className="text-[11px] tracking-[0.16em] mb-2" style={{ color: INK.dim }}>OUTSTANDING</p>
+          {invoice.status === 'cancelled' ? (
+            <p className="text-[34px] font-extrabold leading-[0.95] tracking-[-0.03em]" style={{ color: INK.dim }}>Cancelled</p>
+          ) : (
+            <p className="m-num text-[34px] font-extrabold leading-[0.95] tracking-[-0.03em]" style={{ color: INK.white }}>
+              {formatNaira(invoice.outstandingAmount)}
+            </p>
+          )}
+          {due && (
+            <p className="text-[13px] font-semibold mt-1" style={{ color: due.color }}>{due.text}</p>
+          )}
+        </div>
+
+        {/* State */}
+        <div>
+          <p className="text-[11px] tracking-[0.16em] mb-2" style={{ color: INK.dim }}>STATE</p>
+          <p className="text-[14px] font-semibold tracking-[0.06em] mb-1.5" style={{ color: state.color }}>{state.label}</p>
+          <p className="text-[13px]" style={{ color: INK.faint }}>{state.note}</p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-col gap-2">
+          {canSendInvoice && invoice.status !== 'cancelled' && !invoice.carriedForwardToCycleName && (
+            <button
+              onClick={() => setSendConfirmOpen(true)}
+              disabled={sending}
+              className="m-btn m-btn-ink-primary w-full justify-start"
+              title={isFullyPaid ? 'Sends a payment receipt via SMS/email' : invoice.needsResend ? 'The invoice changed since it was last sent — resend to update the parent' : 'Sends via SMS'}
+            >
+              {sending ? 'Sending...' : sendLabel}
+            </button>
+          )}
+
+          <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="m-btn m-btn-ink w-full justify-start">
+            View PDF
+          </a>
+          <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="m-btn m-btn-ink w-full justify-start">
+            Print invoice
+          </a>
+
+          {canRequestDiscount && invoice.status !== 'cancelled' && (
+            pendingDiscount ? (
+              <button disabled title="A discount request is already pending on this invoice" className="m-btn m-btn-ink w-full justify-start">
+                Discount pending
+              </button>
+            ) : invoice.carriedForwardToCycleName ? (
+              <button disabled title={`This balance carried forward to ${invoice.carriedForwardToCycleName} — request the discount there instead`} className="m-btn m-btn-ink w-full justify-start">
+                Request discount
+              </button>
+            ) : invoice.paidAmount > 0 ? (
+              <button disabled title="This invoice already has a payment against it — discounts can no longer be applied" className="m-btn m-btn-ink w-full justify-start">
+                Request discount
+              </button>
+            ) : (
+              <button onClick={() => setDiscountModalOpen(true)} className="m-btn m-btn-ink w-full justify-start">
+                Request discount
+              </button>
+            )
+          )}
+
+          {canCancelInvoice && (
+            <button onClick={() => { setCancelError(null); setCancelConfirmOpen(true) }} className="m-btn m-btn-ink-danger w-full justify-start">
+              Cancel invoice
+            </button>
+          )}
+
+          {invoice.carriedForwardToCycleName && (
+            <p className="text-[12px]" style={{ color: INK.dim }}>
+              This balance carried forward to <span style={{ color: INK.paper }}>{invoice.carriedForwardToCycleName}</span> automatically — send that invoice instead.
+            </p>
+          )}
+          {pendingDiscount && (
+            <p className="text-[12px]" style={{ color: INK.amber }}>
+              Discount requested{pendingDiscount.requestedByName ? ` by ${pendingDiscount.requestedByName}` : ''} on {formatDate(pendingDiscount.requestedAt)} — awaiting admin approval
+            </p>
+          )}
+          {sendResult && (
+            <Toast message={sendResult.message} ok={sendResult.ok} onDismiss={() => setSendResult(null)} />
+          )}
+          {cancelResult && (
+            <Toast message={cancelResult.message} ok={cancelResult.ok} onDismiss={() => setCancelResult(null)} />
+          )}
+        </div>
+      </div>
 
       {invoice.studentCreditBalance > 0 && (
-        <div className="bg-mint-light border border-mint/30 rounded-xl p-4 flex items-start gap-3 mb-6">
-          <svg className="w-5 h-5 text-mint flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p className="text-sm text-navy">
-            <span className="font-semibold">{formatNaira(invoice.studentCreditBalance)}</span> of this student&apos;s credit balance is unapplied — it will be used automatically the next time an invoice is generated or updated.
+        <div className="mt-6 pl-3" style={{ borderLeft: `3px solid ${INK.green}` }}>
+          <p className="text-[13px]" style={{ color: INK.faint }}>
+            <span className="font-semibold m-num" style={{ color: INK.paper }}>{formatNaira(invoice.studentCreditBalance)}</span> of this student&apos;s credit balance is unapplied — it will be used automatically the next time an invoice is generated or updated.
           </p>
         </div>
       )}
 
-      {/* Row 1: Student / Payment / Invoice details */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      {/* Body — line items / lifecycle */}
+      <div
+        className="grid gap-10 mt-8"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}
+      >
+        {/* Line items */}
+        <div>
+          <h3 className="text-[18px] font-extrabold mb-3.5" style={{ color: INK.white }}>Line items</h3>
 
-        {/* Student */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200">
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Student</p>
-          <Link
-            href={`/students/${invoice.studentId}`}
-            className="text-lg font-semibold text-navy hover:text-mint"
-          >
-            {invoice.studentFirstName} {invoice.studentLastName}
-          </Link>
-          <div className="mt-4 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Admission #</span>
-              <span className="text-sm font-medium text-navy">{invoice.studentAdmissionNumber}</span>
+          {lineItems.map((item, idx) => (
+            <div
+              key={idx}
+              className="grid gap-3 items-baseline py-2.5"
+              style={{ gridTemplateColumns: 'minmax(0,1fr) auto auto', borderTop: `1px solid ${INK.ruleSoft}` }}
+            >
+              <span className="text-[14px]" style={{ color: item.kind === 'credit_applied' ? INK.green : INK.paper }}>{item.name}</span>
+              <span className="text-[11px] font-semibold tracking-[0.1em] text-right" style={{ color: INK.dim, minWidth: 84 }}>{kindLabel(item.kind)}</span>
+              <span className="text-[14px] m-num text-right" style={{ color: item.kind === 'credit_applied' ? INK.green : INK.paper, minWidth: 92 }}>{formatNaira(item.amount)}</span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Class</span>
-              <span className="text-sm font-medium text-navy">{invoice.className}</span>
-            </div>
-            {invoice.primaryParentName && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Parent / Guardian</span>
-                <span className="text-sm font-medium text-navy">{invoice.primaryParentName}</span>
-              </div>
-            )}
-            {invoice.primaryParentPhone && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Phone</span>
-                <span className="text-sm font-medium text-navy">{invoice.primaryParentPhone}</span>
-              </div>
-            )}
-          </div>
-        </div>
+          ))}
 
-        {/* Payment */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200">
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Payment</p>
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Total</span>
-              {invoice.creditApplied > 0 ? (
-                <span className="text-sm font-bold text-navy">
-                  {formatNaira(invoice.subtotal)} − {formatNaira(invoice.creditApplied)} credit = {formatNaira(invoice.totalAmount)}
-                </span>
-              ) : (
-                <span className="text-sm font-bold text-navy">{formatNaira(invoice.totalAmount)}</span>
-              )}
+          {(invoice.discountAmount > 0 || invoice.previousBalance > 0 || invoice.creditApplied > 0) && (
+            <div className="grid gap-3 py-2.5" style={{ gridTemplateColumns: 'minmax(0,1fr) auto', borderTop: `1px solid ${INK.ruleSoft}` }}>
+              <span className="text-[14px]" style={{ color: INK.faint }}>Subtotal</span>
+              <span className="text-[14px] m-num text-right" style={{ color: INK.faint }}>{formatNaira(invoice.subtotal)}</span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Paid</span>
-              <span className={`text-sm font-semibold ${invoice.paidAmount > 0 ? 'text-mint' : 'text-gray-400'}`}>
-                {formatNaira(invoice.paidAmount)}
+          )}
+          {invoice.discountAmount > 0 && (
+            <div className="grid gap-3 py-2.5" style={{ gridTemplateColumns: 'minmax(0,1fr) auto', borderTop: `1px solid ${INK.ruleSoft}` }}>
+              <span className="text-[14px]" style={{ color: INK.faint }}>
+                Discount
+                {invoice.discountReason && <span className="block text-[12px]" style={{ color: INK.dim }}>{invoice.discountReason}</span>}
               </span>
+              <span className="text-[14px] m-num text-right" style={{ color: INK.faint }}>-{formatNaira(invoice.discountAmount)}</span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Outstanding</span>
-              {invoice.status === 'cancelled' ? (
-                <span className="text-sm font-semibold text-gray-400">Cancelled</span>
-              ) : (
-                <span className={`text-sm font-semibold ${invoice.outstandingAmount > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-                  {formatNaira(invoice.outstandingAmount)}
-                </span>
-              )}
+          )}
+          {invoice.previousBalance > 0 && (
+            <div className="grid gap-3 py-2.5" style={{ gridTemplateColumns: 'minmax(0,1fr) auto', borderTop: `1px solid ${INK.ruleSoft}` }}>
+              <span className="text-[14px]" style={{ color: INK.amber }}>Previous balance carried forward</span>
+              <span className="text-[14px] m-num text-right" style={{ color: INK.amber }}>{formatNaira(invoice.previousBalance)}</span>
             </div>
+          )}
+
+          <div className="grid gap-3 py-3" style={{ gridTemplateColumns: 'minmax(0,1fr) auto', borderTop: `2px solid ${INK.paper}` }}>
+            <span className="text-[14px] font-extrabold" style={{ color: INK.white }}>Total billed</span>
+            <span className="text-[16px] font-extrabold m-num text-right" style={{ color: INK.white }}>{formatNaira(invoice.totalAmount)}</span>
+          </div>
+          <div className="grid gap-3 py-2.5" style={{ gridTemplateColumns: 'minmax(0,1fr) auto', borderTop: `1px solid ${INK.ruleSoft}` }}>
+            <span className="text-[14px]" style={{ color: INK.faint }}>Paid</span>
+            <span className="text-[14px] font-semibold m-num text-right" style={{ color: invoice.paidAmount > 0 ? INK.green : INK.dim }}>
+              {invoice.paidAmount > 0 ? `− ${formatNaira(invoice.paidAmount)}` : formatNaira(0)}
+            </span>
+          </div>
+          <div className="grid gap-3 pt-3" style={{ gridTemplateColumns: 'minmax(0,1fr) auto', borderTop: `1px solid ${INK.ruleSoft}` }}>
+            <span className="text-[15px] font-extrabold" style={{ color: INK.white }}>Outstanding</span>
+            <span className="text-[20px] font-extrabold m-num text-right" style={{ color: invoice.status === 'cancelled' ? INK.dim : INK.white }}>
+              {invoice.status === 'cancelled' ? '—' : formatNaira(invoice.outstandingAmount)}
+            </span>
           </div>
         </div>
 
-        {/* Invoice details */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200">
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Invoice details</p>
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Invoice date</span>
-              <span className="text-sm font-medium text-navy">{formatDate(invoice.generatedAt)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Due date</span>
-              <span className="text-sm font-medium text-navy">{formatDate(invoice.cycleDueDate)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Term</span>
-              <span className="text-sm font-medium text-navy">{invoice.cycleName}</span>
-            </div>
-            {invoice.invoiceNumber && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Number</span>
-                <span className="text-sm font-medium text-navy">#{invoice.invoiceNumber}</span>
+        {/* Lifecycle */}
+        <div>
+          <h3 className="text-[18px] font-extrabold mb-1" style={{ color: INK.white }}>What happened to this invoice</h3>
+          <p className="text-[13px] mb-3.5" style={{ color: INK.dim }}>
+            Generated, changed, sent and paid — in one column, so a parent query is answerable without leaving the page.
+          </p>
+
+          {log.map((l, idx) => (
+            <div key={idx} className="py-2.5" style={{ borderTop: `1px solid ${INK.ruleSoft}` }}>
+              <div className="flex justify-between gap-2.5 items-baseline">
+                <p className="text-[13px] font-semibold" style={{ color: l.color }}>{l.what}</p>
+                <p className="text-[12px] m-num flex-shrink-0" style={{ color: INK.dim }}>{l.time}</p>
               </div>
-            )}
-          </div>
-        </div>
-      </div>
+              <p className="text-[12px] mt-0.5 m-num" style={{ color: INK.dim }}>{l.detail}</p>
+            </div>
+          ))}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* Left: Line items */}
-        <div className="lg:col-span-2">
-          <div className="bg-white p-6 rounded-xl border border-gray-200">
-            <h2 className="text-navy font-semibold text-lg mb-4">Line items</h2>
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">Item</th>
-                  <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {invoice.lineItems
-                  .filter((item) => item.kind !== 'previous_balance')
-                  .map((item, idx) => (
-                  <tr key={idx}>
-                    <td className="py-3">
-                      <span className="text-sm text-navy">{item.name}</span>
-                      {item.kind === 'opt_in' && (
-                        <span className="ml-2 text-xs text-gray-500">(opt-in)</span>
-                      )}
-                      {item.kind === 'credit_applied' && (
-                        <span className="ml-2 text-xs text-mint">(credit applied)</span>
-                      )}
-                    </td>
-                    <td className="py-3 text-right text-sm text-navy font-medium">
-                      {formatNaira(item.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-gray-100">
-                  <td className="pt-3 text-sm text-gray-600">Subtotal</td>
-                  <td className="pt-3 text-right text-sm text-navy">{formatNaira(invoice.subtotal)}</td>
-                </tr>
-                {invoice.discountAmount > 0 && (
-                  <tr>
-                    <td className="py-1 text-sm text-gray-600">
-                      Discount
-                      {invoice.discountReason && (
-                        <span className="block text-xs text-gray-400 font-normal">{invoice.discountReason}</span>
-                      )}
-                    </td>
-                    <td className="py-1 text-right text-sm text-navy align-top">-{formatNaira(invoice.discountAmount)}</td>
-                  </tr>
-                )}
-                {invoice.previousBalance > 0 && (
-                  <tr>
-                    <td className="py-1 text-sm text-amber-700">Previous balance carried forward</td>
-                    <td className="py-1 text-right text-sm text-amber-700">{formatNaira(invoice.previousBalance)}</td>
-                  </tr>
-                )}
-                <tr className="border-t-2 border-gray-200">
-                  <td className="pt-3 text-base font-bold text-navy">Total due</td>
-                  <td className="pt-3 text-right text-lg font-bold text-navy">{formatNaira(invoice.totalAmount)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-
-        {/* Right: sidebar */}
-        <div className="space-y-6">
-
-          {/* Payment instructions */}
-          <div className="bg-mint-light/40 border border-mint/30 rounded-xl p-6">
-            <p className="text-xs text-mint font-semibold uppercase tracking-wider mb-3">Payment instructions</p>
+          {/* Parent pays into */}
+          <div className="mt-5 pt-3.5" style={{ borderTop: `2px solid ${INK.rule}` }}>
             {invoice.status === 'cancelled' ? (
-              <div className="bg-white border border-gray-200 rounded-lg py-3 px-3 text-center">
-                <p className="text-sm font-semibold text-gray-500">Cancelled — no payment due</p>
-              </div>
+              <p className="text-[13px]" style={{ color: INK.dim }}>Cancelled — no payment due.</p>
             ) : invoice.status === 'paid' ? (
-              <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
-                <p className="text-sm font-semibold text-mint">Paid in full — no further action needed</p>
-              </div>
-            ) : (
+              <p className="text-[13px] font-semibold" style={{ color: INK.green }}>Paid in full — no further action needed.</p>
+            ) : invoice.dvaAccountNumber ? (
               <>
-                {invoice.dvaAccountNumber ? (
-                  <>
-                    <p className="text-sm text-navy mb-3">
-                      Pay directly to the student&apos;s virtual account. Use the admission number as payment reference.
-                    </p>
-                    <div className="bg-white border border-mint/30 rounded-lg py-3 px-3 text-center">
-                      <p className="text-base font-bold text-navy tracking-wide">{invoice.dvaAccountNumber}</p>
-                      <p className="text-xs text-gray-500 mt-1">{invoice.dvaBankName}</p>
-                    </div>
-                  </>
-                ) : (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg py-3 px-3 text-center">
-                    <p className="text-sm font-semibold text-amber-700">No virtual account yet</p>
-                    <p className="text-xs text-amber-600 mt-1">This student needs a virtual account before they can be paid by transfer — create one from the student&apos;s profile to generate their payment details.</p>
-                  </div>
-                )}
+                <p className="text-[11px] tracking-[0.14em] mb-2" style={{ color: INK.dim }}>PARENT PAYS INTO</p>
+                <p className="text-[20px] font-extrabold tracking-[0.02em] m-num" style={{ color: INK.white }}>{invoice.dvaAccountNumber}</p>
+                <p className="text-[13px] mt-1" style={{ color: INK.faint }}>
+                  {invoice.dvaBankName}
+                  {invoice.primaryParentName ? ` · ${invoice.primaryParentName}` : ''}
+                  {invoice.primaryParentPhone ? ` · ${invoice.primaryParentPhone}` : ''}
+                </p>
+                <p className="text-[12px] mt-2" style={{ color: INK.dim }}>Use the admission number as the payment reference.</p>
               </>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-2">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Actions</p>
-
-            {canSendInvoice && invoice.status !== 'cancelled' && !invoice.carriedForwardToCycleName && (
-              <button
-                onClick={() => setSendConfirmOpen(true)}
-                disabled={sending}
-                className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 ${sendBtnClass}`}
-                title={isFullyPaid ? 'Sends a payment receipt via SMS/email' : invoice.needsResend ? 'The invoice changed since it was last sent — resend to update the parent' : 'Sends via SMS'}
-              >
-                <span className="flex items-center gap-2">
-                  <ChannelIcons />
-                  {sending ? 'Sending…' : sendLabel}
-                </span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              </button>
-            )}
-            {invoice.carriedForwardToCycleName ? (
-              <p className="text-xs text-gray-500">
-                This balance carried forward to <span className="font-medium text-navy">{invoice.carriedForwardToCycleName}</span> automatically — send that invoice instead.
-              </p>
-            ) : invoice.status === 'cancelled' ? (
-              <p className="text-xs text-gray-500">Cancelled — nothing to send</p>
-            ) : isFullyPaid ? (
-              <p className="text-xs text-gray-500">Fully paid — send a receipt any time, on request</p>
-            ) : invoice.needsResend ? (
-              <p className="text-xs text-amber-700">Invoice changed since it was last sent — resend to update the parent</p>
-            ) : invoice.sentAt ? (
-              <p className="text-xs text-gray-500">Last sent {formatDate(invoice.sentAt)}</p>
             ) : (
-              <p className="text-xs text-gray-400">Not sent to the parent yet</p>
-            )}
-            {sendResult && (
-              <Toast message={sendResult.message} ok={sendResult.ok} onDismiss={() => setSendResult(null)} />
-            )}
-
-            <a
-              href={pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-navy font-medium hover:bg-gray-50"
-            >
-              View PDF
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            </a>
-            <a
-              href={pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-navy font-medium hover:bg-gray-50"
-            >
-              Print invoice
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-              </svg>
-            </a>
-
-            {canRequestDiscount && invoice.status !== 'cancelled' && (
-              pendingDiscount ? (
-                <button
-                  disabled
-                  title="A discount request is already pending on this invoice"
-                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-400 font-medium opacity-60 cursor-not-allowed"
-                >
-                  Discount pending
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </button>
-              ) : invoice.carriedForwardToCycleName ? (
-                <button
-                  disabled
-                  title={`This balance carried forward to ${invoice.carriedForwardToCycleName} — request the discount there instead`}
-                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-400 font-medium opacity-60 cursor-not-allowed"
-                >
-                  Request discount
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                </button>
-              ) : invoice.paidAmount > 0 ? (
-                <button
-                  disabled
-                  title="This invoice already has a payment against it — discounts can no longer be applied"
-                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-400 font-medium opacity-60 cursor-not-allowed"
-                >
-                  Request discount
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                </button>
-              ) : (
-                <button
-                  onClick={() => setDiscountModalOpen(true)}
-                  className="w-full flex items-center justify-between px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-navy font-medium hover:bg-gray-50"
-                >
-                  Request discount
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                </button>
-              )
-            )}
-            {pendingDiscount && (
-              <p className="text-xs text-amber-600">
-                Discount requested{pendingDiscount.requestedByName ? ` by ${pendingDiscount.requestedByName}` : ''} on {formatDate(pendingDiscount.requestedAt)} — awaiting admin approval
-              </p>
-            )}
-            {canCancelInvoice && (
-              <button
-                onClick={() => setCancelConfirmOpen(true)}
-                className="w-full flex items-center justify-between px-4 py-2.5 border border-red-200 rounded-lg text-sm text-red-700 font-medium hover:bg-red-50"
-              >
-                Cancel invoice
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-            {cancelError && (
-              <Toast message={cancelError} ok={false} onDismiss={() => setCancelError(null)} />
+              <div className="pl-3" style={{ borderLeft: `3px solid ${INK.signal}` }}>
+                <p className="text-[13px] font-semibold" style={{ color: INK.signal }}>No virtual account yet</p>
+                <p className="text-[12px] mt-1" style={{ color: INK.dim }}>This student needs a virtual account before they can be paid by transfer — create one from the student&apos;s profile to generate their payment details.</p>
+              </div>
             )}
           </div>
-
         </div>
       </div>
 
       {cancelConfirmOpen && (
-        <ConfirmDialog
-          title="Cancel this invoice?"
-          message={`This voids the ${formatNaira(invoice.totalAmount)} invoice for ${invoice.studentFirstName} ${invoice.studentLastName} — it's excluded from outstanding/expected totals from then on. Use this when the student won't be paying it (e.g. withdrawn). This cannot be undone from here.`}
-          confirmLabel={cancelling ? 'Cancelling...' : 'Cancel invoice'}
-          onConfirm={handleCancelInvoice}
-          onCancel={() => setCancelConfirmOpen(false)}
-          destructive
+        <DestructiveConfirmModal
+          eyebrow="This cannot be undone from here"
+          title={`Cancel this invoice for ${invoice.studentFirstName} ${invoice.studentLastName}?`}
+          description="Voids the invoice. Use this when the student won't be paying it — e.g. withdrawn — not for a billing mistake on an invoice that's still owed."
+          rows={[
+            { label: 'Invoice amount', value: formatNaira(invoice.totalAmount) },
+            { label: 'After cancelling', value: 'Excluded from outstanding & expected totals', valueClassName: 'text-sm font-semibold text-[var(--color-signal-text)]', emphasize: true },
+          ]}
+          error={cancelError}
+          actions={[
+            { label: 'Keep invoice', onClick: () => setCancelConfirmOpen(false), variant: 'outline', disabled: cancelling },
+            { label: cancelling ? 'Cancelling...' : 'Cancel invoice', onClick: handleCancelInvoice, variant: 'danger', disabled: cancelling },
+          ]}
         />
       )}
 
@@ -495,9 +493,15 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           invoiceId={invoice.id}
           subtotal={invoice.subtotal}
           existingDiscountAmount={invoice.discountAmount}
+          discountSettings={discountSettings}
+          autoApproveThreshold={autoApproveThreshold}
           onClose={() => setDiscountModalOpen(false)}
-          onSuccess={() => {
+          onSuccess={(autoApproved) => {
             setDiscountModalOpen(false)
+            setSendResult({
+              ok: true,
+              message: autoApproved ? 'Discount granted — below the auto-approve threshold.' : 'Discount request submitted — awaiting admin approval.',
+            })
             router.refresh()
           }}
         />
@@ -516,56 +520,7 @@ export default function InvoiceDetailLayout({ invoice }: Props) {
           onCancel={() => setSendConfirmOpen(false)}
         />
       )}
-
-      {/* Payment history — full width */}
-      <div className="mt-6 bg-white p-6 rounded-xl border border-gray-200">
-        <h2 className="text-navy font-semibold text-lg mb-4">Payment history</h2>
-        {payments.length === 0 ? (
-          <p className="text-sm text-gray-500 py-4 text-center">
-            No payments recorded yet.
-          </p>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2 pr-4">Date</th>
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2 pr-4">Method</th>
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2 pr-4">Reference</th>
-                <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider pb-2 pr-4">Amount</th>
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider pb-2">Received by</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {payments.map(p => (
-                <Fragment key={p.id}>
-                  <tr>
-                    <td className="py-3 pr-4 text-sm text-navy">{formatDate(p.paidAt)}</td>
-                    <td className="py-3 pr-4 text-sm text-gray-600">{formatPaymentMethod(p.method)}</td>
-                    <td className="py-3 pr-4 text-sm text-gray-600">{p.reference || '—'}</td>
-                    <td className="py-3 pr-4 text-right text-sm font-medium text-navy">{formatNaira(p.amount)}</td>
-                    <td className="py-3 text-sm text-gray-600">{p.receivedByName || '—'}</td>
-                  </tr>
-                  {p.otherAllocations && p.otherAllocations.length > 0 && (
-                    <tr>
-                      <td colSpan={5} className="pb-3 -mt-1">
-                        <div className="bg-mint-light/40 border border-mint/20 rounded-lg px-3 py-2 text-xs text-navy">
-                          Part of a {formatNaira(p.transactionTotal || p.amount)} transfer — {formatNaira(p.amount)} applied here,{' '}
-                          {p.otherAllocations.map((a, i) => (
-                            <span key={i}>
-                              {a.termName ? `${formatNaira(a.amount)} applied to ${a.termName}` : `${formatNaira(a.amount)} added to credit balance`}
-                              {i < p.otherAllocations!.length - 1 ? ', ' : ''}
-                            </span>
-                          ))}.
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+    </div>
     </>
   )
 }

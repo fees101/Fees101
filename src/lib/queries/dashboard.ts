@@ -7,16 +7,23 @@ export async function getDashboardKPIs() {
   const { supabase, schoolId, userId } = ctx
   if (!schoolId) throw new Error('No school context')
 
+  // Overdue = past due for more than two weeks. Compared against the term's
+  // payment due_date (a date column), so a plain YYYY-MM-DD cutoff string
+  // compares correctly.
+  const cutoff14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10)
+
   const [
     { data: currentCycle },
     { count: studentsCount },
-    { count: pendingApprovalsCount },
+    { data: pendingDiscounts },
     { count: myPendingRequestsCount },
-    { count: needsResendCount },
+    { data: needsResendRows },
+    { data: overdueRows },
   ] = await Promise.all([
     supabase
       .from('billing_cycles')
-      .select('id, name, start_date, end_date')
+      // due_date drives overdue/close reasoning; end_date is the term close.
+      .select('id, name, start_date, end_date, due_date')
       .eq('school_id', schoolId)
       .eq('status', 'active')
       .order('start_date', { ascending: false })
@@ -29,11 +36,12 @@ export async function getDashboardKPIs() {
       .eq('status', 'active'),
     // Pending discount requests, sourced from the real discounts table (not the
     // disconnected/unused pending_approvals queue — nothing ever inserts into
-    // that table). Two counts: how many need THIS user's review (only
-    // meaningful for approvers) vs. how many THIS user is themselves waiting on.
+    // that table). Left-join the invoice subtotal so we can estimate the naira
+    // at stake; a left join keeps the row (and the count) even if the invoice
+    // link is missing.
     supabase
       .from('discounts')
-      .select('id', { count: 'exact', head: true })
+      .select('amount, is_percentage, invoices(subtotal)')
       .eq('school_id', schoolId)
       .eq('status', 'pending'),
     supabase
@@ -44,22 +52,32 @@ export async function getDashboardKPIs() {
       .eq('requested_by', userId),
     // School-wide, term-independent — a stale invoice in an older still-open
     // term is exactly the kind of thing that gets missed if this were scoped
-    // to just the current cycle.
+    // to just the current cycle. Selecting the amounts (not head:true) so the
+    // "money at stake" figure comes from the same rows as the count.
     supabase
       .from('invoices')
-      .select('id', { count: 'exact', head: true })
+      .select('outstanding_amount, total_amount')
       .eq('school_id', schoolId)
       .eq('needs_resend', true)
       // A cancelled invoice can carry a stale needs_resend flag from before
       // it was cancelled — it's a dead record, never worth resending.
       .neq('status', 'cancelled'),
+    // Invoices overdue past 14 days, school-wide: still owing, on a term whose
+    // payment due_date passed more than two weeks ago.
+    supabase
+      .from('invoices')
+      .select('outstanding_amount, billing_cycles!inner(due_date)')
+      .eq('school_id', schoolId)
+      .neq('status', 'cancelled')
+      .gt('outstanding_amount', 0)
+      .lt('billing_cycles.due_date', cutoff14),
   ])
 
   // invoices + collected both depend on currentCycle, so they run after it.
   const [{ data: invoices }, totalCollected] = await Promise.all([
     supabase
       .from('invoices')
-      .select('total_amount, paid_amount, outstanding_amount, credit_applied, status')
+      .select('total_amount, paid_amount, outstanding_amount, credit_applied, status, student_id, students(status)')
       .eq('school_id', schoolId)
       .eq('billing_cycle_id', currentCycle?.id || ''),
     // Collected = real money received while this term was active, by payment
@@ -84,6 +102,61 @@ export async function getDashboardKPIs() {
     ? Math.round((totalCollected / totalExpected) * 100)
     : 0
 
+  // Count invoices and billed students on the same basis the cycle-detail page
+  // and the generator use, so the three never disagree for a single term:
+  //  - "Invoices issued" = every invoice row for the term (a cancelled invoice
+  //    was still issued; the cycle page counts it and lists it too).
+  //  - "Students billed" / "no invoice this term" = *active* students who hold
+  //    an invoice of any status. A cancelled invoice is deliberate and sticky —
+  //    the generator treats that student as already invoiced and won't re-issue,
+  //    so they are billed, not "missing". Only active students count, so a
+  //    withdrawn student's stray invoice can't push billed past the active roll.
+  const invoicesIssued = (invoices || []).length
+  const billedStudentIds = new Set(
+    (invoices || [])
+      .filter((inv: any) => inv.students?.status === 'active')
+      .map((inv: any) => inv.student_id)
+  )
+  const studentsBilled = billedStudentIds.size
+  const unbilledCount = Math.max(0, (studentsCount || 0) - studentsBilled)
+
+  // needs-resend: count + the naira still owed on those invoices.
+  const needsResendCount = (needsResendRows || []).length
+  const needsResendAmount = (needsResendRows || []).reduce(
+    (sum, inv) => sum + Number(inv.outstanding_amount ?? inv.total_amount ?? 0), 0)
+
+  // overdue past 14 days: count + naira still owed.
+  const overdue14Count = (overdueRows || []).length
+  const overdue14Amount = (overdueRows || []).reduce(
+    (sum, inv) => sum + Number(inv.outstanding_amount ?? 0), 0)
+
+  // pending discount approvals: count + estimated naira at stake. A percentage
+  // discount is estimated against the invoice subtotal (ignores any
+  // non-discountable items, so it reads as an upper-bound estimate); a flat
+  // discount is its own amount.
+  const pendingApprovalsCount = (pendingDiscounts || []).length
+  const pendingApprovalsAmount = (pendingDiscounts || []).reduce((sum, d) => {
+    // @ts-expect-error — joined object
+    const subtotal = Number(d.invoices?.subtotal || 0)
+    const amount = Number(d.amount || 0)
+    return sum + (d.is_percentage ? (subtotal * amount) / 100 : amount)
+  }, 0)
+
+  // Coarse term-level overdue split: without a per-invoice due date, the whole
+  // outstanding balance counts as overdue once the term's payment due_date has
+  // passed, otherwise it's all due later. Honest given the schema, and it
+  // matches the single close date shown alongside it.
+  const today = new Date().toISOString().slice(0, 10)
+  const termPastDue = currentCycle?.due_date ? currentCycle.due_date < today : false
+  const overdueAmount = termPastDue ? totalOutstanding : 0
+  const dueLaterAmount = totalOutstanding - overdueAmount
+
+  const closeDate = currentCycle?.end_date || null
+  let daysToClose: number | null = null
+  if (closeDate) {
+    daysToClose = Math.max(0, Math.ceil((new Date(closeDate).getTime() - Date.now()) / 86400000))
+  }
+
   return {
     currentCycleName: currentCycle?.name || null,
     studentsCount: studentsCount || 0,
@@ -91,9 +164,20 @@ export async function getDashboardKPIs() {
     totalCollected,
     totalOutstanding,
     collectionPercentage,
-    pendingApprovalsCount: pendingApprovalsCount || 0,
+    overdueAmount,
+    dueLaterAmount,
+    closeDate,
+    daysToClose,
+    invoicesIssued,
+    studentsBilled,
+    unbilledCount,
+    needsResendCount,
+    needsResendAmount,
+    overdue14Count,
+    overdue14Amount,
+    pendingApprovalsCount,
+    pendingApprovalsAmount,
     myPendingRequestsCount: myPendingRequestsCount || 0,
-    needsResendCount: needsResendCount || 0,
   }
 }
 
@@ -128,7 +212,7 @@ export async function getCollectionByClass() {
   if (!currentCycle) return []
   if (!classes) return []
 
-  // Same per-cycle GROUP BY the /payments analytics page uses (see
+  // Same per-cycle GROUP BY the /money/collections analytics page uses (see
   // analytics_class_series in db/analytics_functions.sql), filtered here to
   // the active cycle. Note this makes "collected" invoice-based (paid_amount +
   // credit_applied), not the date-based cash-received figure this used to
@@ -163,7 +247,12 @@ export async function getCollectionByClass() {
   return classData
 }
 
-export async function getRecentActivity(limit: number = 7) {
+// showFinancials mirrors the see-financial-totals check the caller (dashboard
+// page) already made for its own hero panel — the event itself ("payment
+// received from X") still shows either way, only the naira figure drops from
+// the line, matching the "item shows, only the amount redacts" convention
+// used for the dashboard's "Needs you" queue.
+export async function getRecentActivity(limit: number = 7, showFinancials: boolean = false) {
   const ctx = await getAuthContext()
   if (!ctx) throw new Error('Not authenticated')
   const { supabase, schoolId } = ctx
@@ -215,24 +304,24 @@ export async function getRecentActivity(limit: number = 7) {
   type ActivityEvent = {
     id: string
     type: 'payment' | 'invoice_generated'
-    amount?: number
+    // The person the event is about (payer / billed family), shown bold.
+    name: string
+    // The coloured second line: green for money received, neutral otherwise.
+    line: string
+    tone: 'ledger' | 'neutral'
     timestamp: string
-    description: string
   }
 
   const paymentEvents: ActivityEvent[] = (payments || []).map((p) => {
     // @ts-expect-error — joined object
-    const studentName = `${p.students?.first_name || ''} ${p.students?.last_name || ''}`.trim()
-    // @ts-expect-error — joined object
-    const className = p.students?.classes?.name || ''
-    // @ts-expect-error — joined object
-    const parentName = p.students?.families?.primary_parent_name || 'family'
+    const parentName = p.students?.families?.primary_parent_name || 'Family'
     return {
       id: p.id,
       type: 'payment' as const,
-      amount: Number(p.amount),
+      name: parentName,
+      line: showFinancials ? `₦${Number(p.amount).toLocaleString('en-NG')} received` : 'Payment received',
+      tone: 'ledger' as const,
       timestamp: p.paid_at,
-      description: `Payment received from ${parentName} for ${studentName} (${className})`,
     }
   })
 
@@ -241,14 +330,13 @@ export async function getRecentActivity(limit: number = 7) {
     const studentName = `${inv.students?.first_name || ''} ${inv.students?.last_name || ''}`.trim()
     // @ts-expect-error — joined object
     const className = inv.students?.classes?.name || ''
-    // @ts-expect-error — joined object
-    const parentName = inv.students?.families?.primary_parent_name || 'family'
     return {
       id: inv.id,
       type: 'invoice_generated' as const,
-      amount: Number(inv.total_amount),
+      name: studentName || 'Student',
+      line: className ? `Invoice issued · ${className}` : 'Invoice issued',
+      tone: 'neutral' as const,
       timestamp: inv.generated_at,
-      description: `Invoice sent to ${parentName} for ${studentName} (${className})`,
     }
   })
 

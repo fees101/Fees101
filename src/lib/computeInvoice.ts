@@ -253,6 +253,7 @@ export async function computeInvoiceForStudent(
     supabase,
     schoolId,
     { id: student.id, family_id: student.family_id },
+    subtotal,
     discountableSubtotal,
     discountSettings,
     existingInvoiceId,

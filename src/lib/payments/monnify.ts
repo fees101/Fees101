@@ -9,6 +9,7 @@
 
 import crypto from 'crypto'
 import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction, DVATransactionSummary } from './types'
+import { isProviderDownError } from './providerErrors'
 
 const DEFAULT_BASE_URL = 'https://sandbox.monnify.com'
 // Refresh well before the real ~60-minute expiry, not right at it.
@@ -108,12 +109,17 @@ export class MonnifyProvider implements PaymentProvider {
   }
 
   // Just enough to prove the api key + secret authenticate against Monnify.
-  // getAccessToken throws when auth fails, so a clean return means valid creds.
+  // getAccessToken throws when auth fails, so a clean return means valid
+  // creds. Only a genuine auth rejection is swallowed to `false` here — a
+  // network-level failure (provider unreachable) is deliberately rethrown so
+  // the caller can tell "your keys are wrong" apart from "Monnify is down"
+  // (see isProviderDownError).
   async verifyCredentials(): Promise<boolean> {
     try {
       await getAccessToken(this.creds, this.baseUrl)
       return true
-    } catch {
+    } catch (err) {
+      if (isProviderDownError(err)) throw err
       return false
     }
   }

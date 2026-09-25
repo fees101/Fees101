@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ExportAllDataButton from './ExportAllDataButton'
-import { requestAccountDeletion } from '@/app/(app)/settings/data-privacy/actions'
+import { requestAccountDeletion } from '@/app/(app)/team/data-privacy/actions'
 import { DELETION_ACKNOWLEDGEMENT, formatDeletionDate } from '@/lib/dataPrivacy/config'
 
 interface Props {
@@ -52,85 +52,88 @@ export default function DeleteAccountSection({
     setTimeout(() => router.push('/login?error=scheduled_deletion'), 4000)
   }
 
-  // ---- Already scheduled: read-only state ----
+  // ---- Already scheduled: read-only ledger row ----
   if (scheduledFor) {
     return (
-      <section className="bg-white border border-red-200 rounded-xl p-5 sm:p-6">
-        <h2 className="text-lg font-semibold text-red-700">Account scheduled for deletion</h2>
-        <p className="mt-2 text-sm text-gray-600">
-          This account is scheduled to be permanently deleted on{' '}
-          <span className="font-semibold text-navy">{formatDeletionDate(scheduledFor)}</span>. All staff
-          sign-in has been disabled. To cancel and restore access, contact us at{' '}
-          <a href={`mailto:${contactEmail}`} className="text-navy font-medium underline">
-            {contactEmail}
-          </a>{' '}
-          before that date.
-        </p>
-      </section>
+      <div className="m-setrow">
+        <div style={{ minWidth: 0 }}>
+          <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-ink)', margin: 0 }}>Close this school</p>
+          <p className="text-[13px] text-[var(--color-neutral-700)]" style={{ margin: '4px 0 0' }}>
+            All staff sign-in is disabled. To cancel and restore access, contact{' '}
+            <a href={`mailto:${contactEmail}`} className="text-[var(--color-ink)] font-medium underline">{contactEmail}</a>{' '}
+            before the date below.
+          </p>
+        </div>
+        <div className="m-setrow__side">
+          <p className="text-[15px] font-semibold m-num" style={{ margin: 0, color: 'var(--color-signal-text)' }}>
+            Deletes {formatDeletionDate(scheduledFor)}
+          </p>
+          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', color: 'var(--color-neutral-500)', whiteSpace: 'nowrap' }}>FIXED</span>
+        </div>
+      </div>
     )
   }
 
   return (
-    <section className="bg-white border border-red-200 rounded-xl p-5 sm:p-6">
-      <h2 className="text-lg font-semibold text-red-700">Close account &amp; delete data</h2>
-      <p className="mt-1 text-sm text-gray-500">
-        Permanently close this account and delete your school&apos;s data.
-      </p>
-      <p className="mt-3 text-sm text-gray-600">
-        This deactivates every staff login immediately and schedules your data for permanent deletion
-        after a {graceDays}-day grace period. Within that window you can contact us to cancel. After it,
-        personal data is erased for good — financial records are kept anonymised for {retentionYears} years
-        for tax/audit, then deleted too. <span className="font-medium text-navy">Export your data first</span>{' '}
-        if you might need it — the grace window, not the export file, is how an account is restored.
-      </p>
-
-      <button
-        onClick={() => {
-          setOpen(true)
-          setError(null)
-        }}
-        className="mt-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold py-2 px-3.5 border border-red-300 text-red-700 hover:bg-red-50 transition-colors"
-      >
-        Delete my school&apos;s data
-      </button>
+    <div className="m-setrow">
+      <div style={{ minWidth: 0 }}>
+        <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-ink)', margin: 0 }}>Close this school</p>
+        <p className="text-[13px] text-[var(--color-neutral-700)]" style={{ margin: '4px 0 0' }}>
+          Schedules deletion of everything after a {graceDays}-day grace period. Deactivates every staff login
+          immediately; only cancellable within the window by contacting us.
+        </p>
+      </div>
+      <div className="m-setrow__side">
+        <p className="text-[15px]" style={{ margin: 0, color: 'var(--color-neutral-500)' }}>Not scheduled</p>
+        <button
+          onClick={() => {
+            setOpen(true)
+            setError(null)
+          }}
+          style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', color: 'var(--color-signal-text)', whiteSpace: 'nowrap' }}
+          className="hover:text-[var(--color-signal)]"
+        >
+          REQUEST
+        </button>
+      </div>
 
       {open && (
-        <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)] z-[70] flex items-center justify-center p-4 m-anim-fade">
+          <div className="bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-md w-full max-h-[90vh] overflow-y-auto m-anim-scale">
             {done ? (
               // ---- Final confirmation, then redirect to login ----
               <div className="p-6">
-                <h3 className="text-base font-semibold text-navy mb-2">Account closed</h3>
-                <p className="text-sm text-gray-600">
+                <h3 className="text-base font-extrabold text-[var(--color-ink)] mb-2">Account closed</h3>
+                <p className="text-sm text-[var(--color-neutral-700)]">
                   Your account has been closed and your data is scheduled for permanent deletion
                   {done ? (
                     <>
-                      {' '}on <span className="font-semibold text-navy">{formatDeletionDate(done)}</span>
+                      {' '}on <span className="font-semibold text-[var(--color-ink)] m-num">{formatDeletionDate(done)}</span>
                     </>
                   ) : null}
                   . You&apos;ve been signed out. To cancel before then, contact{' '}
-                  <a href={`mailto:${contactEmail}`} className="text-navy font-medium underline">
+                  <a href={`mailto:${contactEmail}`} className="text-[var(--color-ink)] font-medium underline">
                     {contactEmail}
                   </a>
                   .
                 </p>
-                <p className="mt-3 text-xs text-gray-400">Taking you to the sign-in screen…</p>
+                <p className="mt-3 text-xs text-[var(--color-neutral-500)]">Taking you to the sign-in screen...</p>
               </div>
             ) : (
               <>
                 <div className="p-6">
-                  <h3 className="text-base font-semibold text-red-700 mb-2">
+                  <h3 className="text-base font-extrabold text-[var(--color-signal-text)] mb-2">
                     Delete {schoolName}&apos;s data?
                   </h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-[var(--color-neutral-700)]">
                     This closes the account for everyone and permanently deletes your data after{' '}
                     {graceDays} days. This can only be undone by contacting us during the grace period.
                   </p>
 
                   {/* Step 1 — export first */}
-                  <div className="mt-4 rounded-lg border border-gray-200 p-3">
-                    <p className="text-xs font-medium text-navy">1. Download your data first (recommended)</p>
-                    <p className="text-xs text-gray-500 mt-1 mb-2">
+                  <div className="mt-4 border border-[var(--color-neutral-300)] p-3">
+                    <p className="text-xs font-medium text-[var(--color-ink)]">1. Download your data first (recommended)</p>
+                    <p className="text-xs text-[var(--color-neutral-700)] mt-1 mb-2">
                       Take a copy before it&apos;s gone. The export can&apos;t restore the account — it&apos;s
                       for your records.
                     </p>
@@ -145,14 +148,13 @@ export default function DeleteAccountSection({
                       onChange={e => setAcknowledged(e.target.checked)}
                       className="mt-0.5"
                     />
-                    <span className="text-sm text-gray-700">{DELETION_ACKNOWLEDGEMENT}</span>
+                    <span className="text-sm text-[var(--color-neutral-700)]">{DELETION_ACKNOWLEDGEMENT}</span>
                   </label>
 
                   {/* Step 3 — type the name */}
                   <div className="mt-4">
-                    <label className="text-xs font-medium text-navy">
-                      2. Type your school name to confirm:{' '}
-                      <span className="font-semibold">{schoolName}</span>
+                    <label className="m-label">
+                      2. Type your school name to confirm: <span className="font-semibold text-[var(--color-ink)]">{schoolName}</span>
                     </label>
                     <input
                       type="text"
@@ -160,31 +162,31 @@ export default function DeleteAccountSection({
                       onChange={e => setConfirmName(e.target.value)}
                       placeholder={schoolName}
                       autoComplete="off"
-                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
+                      className="m-input"
                     />
                   </div>
 
                   {error && (
-                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                    <div className="mt-3 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">
                       {error}
                     </div>
                   )}
                 </div>
 
-                <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                <div className="p-4 border-t-2 border-[var(--color-ink)] flex items-center justify-end gap-2">
                   <button
                     onClick={() => setOpen(false)}
                     disabled={submitting}
-                    className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
+                    className="m-btn m-btn-outline m-btn-sm"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={confirm}
                     disabled={!canConfirm}
-                    className="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                    className="m-btn m-btn-danger m-btn-sm"
                   >
-                    {submitting ? 'Closing account…' : 'Permanently delete'}
+                    {submitting ? 'Closing account...' : 'Permanently delete'}
                   </button>
                 </div>
               </>
@@ -192,6 +194,6 @@ export default function DeleteAccountSection({
           </div>
         </div>
       )}
-    </section>
+    </div>
   )
 }

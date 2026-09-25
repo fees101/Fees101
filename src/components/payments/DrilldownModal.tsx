@@ -19,15 +19,15 @@ function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
-function statusBadge(status: string) {
-  if (status === 'paid') return { cls: 'bg-mint-light text-mint', label: 'paid' }
-  if (status === 'partial') return { cls: 'bg-amber-50 text-amber-700', label: 'partial' }
-  if (status === 'overdue') return { cls: 'bg-red-50 text-red-700', label: 'overdue' }
-  return { cls: 'bg-gray-100 text-gray-600', label: 'unpaid' }
+function statusChip(status: string): { color: string; label: string } {
+  if (status === 'paid') return { color: 'var(--color-ledger)', label: 'PAID' }
+  if (status === 'partial') return { color: 'var(--color-ochre-text)', label: 'PARTIAL' }
+  if (status === 'overdue') return { color: 'var(--color-ochre-text)', label: 'OVERDUE' }
+  return { color: 'var(--color-neutral-500)', label: 'UNPAID' }
 }
 
 // Row-click drill-down for the "By class" and "By fee" tables — reuses the
-// invoice list's status-badge convention (see InvoicesListLayout) rather than
+// invoice list's status convention (see InvoicesListLayout) rather than
 // inventing a new one.
 export default function DrilldownModal({ title, subtitle, cycleIds, className, feeName, showFinancials, onClose }: Props) {
   const [rows, setRows] = useState<DrilldownRow[] | null>(null)
@@ -50,57 +50,62 @@ export default function DrilldownModal({ title, subtitle, cycleIds, className, f
   }, [cycleIds, className, feeName])
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
-        <div className="p-6 border-b border-gray-100 flex items-start justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-navy">{title}</h3>
-            <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+    <div className="fixed inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)] z-[60] flex items-center justify-center p-4 m-anim-fade">
+      <div className="bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-2xl w-full max-h-[80vh] flex flex-col m-anim-scale">
+        <div className="p-6 border-b-2 border-[var(--color-ink)] flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h3 className="text-lg font-extrabold tracking-[-0.01em] text-[var(--color-ink)] truncate">{title}</h3>
+            <p className="text-xs text-[var(--color-neutral-700)] mt-0.5">{subtitle}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+          <button onClick={onClose} aria-label="Close" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-ink)] flex-shrink-0">
+            Close
           </button>
         </div>
 
         <div className="overflow-y-auto">
-          {error && <p className="px-6 py-8 text-sm text-red-600">{error}</p>}
-          {!error && rows === null && <p className="px-6 py-8 text-sm text-gray-500">Loading…</p>}
-          {!error && rows?.length === 0 && <p className="px-6 py-8 text-sm text-gray-500">No students found for this selection.</p>}
+          {error && <p className="px-6 py-8 text-sm text-[var(--color-signal-text)]">{error}</p>}
+          {!error && rows === null && (
+            <div className="px-6 py-8">
+              <div className="m-loading mb-3" />
+              <p className="text-sm text-[var(--color-neutral-700)]">Loading students…</p>
+            </div>
+          )}
+          {!error && rows?.length === 0 && <p className="px-6 py-8 text-sm text-[var(--color-neutral-700)]">No students found for this selection.</p>}
           {!error && rows && rows.length > 0 && (
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-white">
-                <tr className="text-left text-xs uppercase tracking-wider text-gray-400 border-b border-gray-100">
-                  <th className="px-6 py-3 font-semibold">Student</th>
-                  <th className="px-6 py-3 font-semibold">Class</th>
-                  <th className="px-6 py-3 font-semibold text-right">Owed</th>
-                  <th className="px-6 py-3 font-semibold text-right">Paid</th>
-                  <th className="px-6 py-3 font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {rows.map(r => {
-                  const badge = statusBadge(r.status)
-                  return (
-                    <tr key={r.studentId} className="hover:bg-gray-50/50">
-                      <td className="px-6 py-3 font-medium text-navy">{r.studentName}</td>
-                      <td className="px-6 py-3 text-gray-600">{r.className}</td>
-                      <td className="px-6 py-3 text-right tabular-nums text-gray-600">{amt(r.amountOwed)}</td>
-                      <td className="px-6 py-3 text-right tabular-nums text-mint font-medium">{amt(r.amountPaid)}</td>
-                      <td className="px-6 py-3">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.cls}`}>{badge.label}</span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="m-table min-w-[560px]">
+                <thead className="sticky top-0 bg-[var(--color-paper)]">
+                  <tr>
+                    <th>Student</th>
+                    <th>Class</th>
+                    <th className="text-right">Owed</th>
+                    <th className="text-right">Paid</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => {
+                    const chip = statusChip(r.status)
+                    return (
+                      <tr key={r.studentId}>
+                        <td className="font-medium text-[var(--color-ink)]">{r.studentName}</td>
+                        <td className="text-[var(--color-neutral-700)]">{r.className}</td>
+                        <td className="text-right text-[var(--color-neutral-700)] m-num">{amt(r.amountOwed)}</td>
+                        <td className="text-right text-[var(--color-ledger)] font-medium m-num">{amt(r.amountPaid)}</td>
+                        <td>
+                          <span className="text-xs font-semibold uppercase" style={{ letterSpacing: '0.08em', color: chip.color }}>{chip.label}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-100 flex items-center justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+        <div className="p-4 border-t-2 border-[var(--color-ink)] flex items-center justify-end">
+          <button onClick={onClose} className="m-btn m-btn-outline m-btn-sm">
             Close
           </button>
         </div>

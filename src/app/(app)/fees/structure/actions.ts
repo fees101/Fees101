@@ -3,6 +3,7 @@
 import { requirePermission } from '@/lib/auth/permissions'
 import { revalidatePath } from 'next/cache'
 import { logAuditEvent } from '@/lib/audit/logAudit'
+import { type BillingFrequency, isRecurringFromFrequency, frequencyFromRow } from '@/lib/fees/billingFrequency'
 
 async function getContext() {
   // Gated on the 'manage-fee-structure' permission (owner/super_admin/is_admin bypass).
@@ -50,8 +51,13 @@ export async function addFeeItem(cycleId: string, form: {
   isRequired: boolean
   scope: 'one' | 'multiple' | 'all-school'
   classIds: string[]
+  // When set, each selected class is billed its own amount (the matrix mental
+  // model — Tuition can be ₦142k for Primary and ₦248k for SS in one add).
+  // Falls back to `amount` for any class not present in the map. Ignored for
+  // all-school scope, which is a single row with one price.
+  perClassAmounts?: Record<string, number>
   isDiscountable?: boolean
-  isRecurring?: boolean
+  billingFrequency?: BillingFrequency
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -61,15 +67,31 @@ export async function addFeeItem(cycleId: string, form: {
   const { cycle } = cycleResult
 
   if (!form.name.trim()) return { error: 'Name is required' }
-  if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
   const isDiscountable = form.isDiscountable ?? true
-  const isRecurring = form.isRecurring ?? true
+  const billingFrequency = form.billingFrequency ?? 'per_term'
+  const isRecurring = isRecurringFromFrequency(billingFrequency)
   const name = form.name.trim()
+
+  // Per-class pricing only applies when the fee targets specific classes.
+  const usePerClass = form.scope !== 'all-school'
+    && !!form.perClassAmounts
+    && Object.keys(form.perClassAmounts).length > 0
+
+  // The amount charged to a given class: its own entry when in per-class mode,
+  // otherwise the single uniform amount.
+  const amountForClass = (classId: string): number => {
+    if (usePerClass) {
+      const a = form.perClassAmounts![classId]
+      if (a !== undefined && a > 0) return a
+    }
+    return form.amount
+  }
 
   let scopeSummary = 'school-wide'
   let insertedIds: string[] = []
 
   if (form.scope === 'all-school') {
+    if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
     const { data: inserted, error } = await supabase.from('fee_items').insert({
       school_id: schoolId,
       billing_cycle_id: cycle.id,
@@ -80,22 +102,30 @@ export async function addFeeItem(cycleId: string, form: {
       is_optional_extra: !form.isRequired,
       is_discountable: isDiscountable,
       is_recurring: isRecurring,
+      billing_frequency: billingFrequency,
     }).select('id')
     if (error) return { error: error.message }
     insertedIds = (inserted || []).map(r => r.id)
   } else {
     if (form.classIds.length === 0) return { error: 'Select at least one class' }
+    // Every class must resolve to a positive amount, whether uniform or its own.
+    for (const classId of form.classIds) {
+      if (amountForClass(classId) <= 0) {
+        return { error: 'Every selected class needs an amount greater than 0' }
+      }
+    }
 
     const rows = form.classIds.map(classId => ({
       school_id: schoolId,
       billing_cycle_id: cycle.id,
       class_id: classId,
       name,
-      amount: form.amount,
+      amount: amountForClass(classId),
       is_mandatory: form.isRequired,
       is_optional_extra: !form.isRequired,
       is_discountable: isDiscountable,
       is_recurring: isRecurring,
+      billing_frequency: billingFrequency,
     }))
 
     const { data: inserted, error } = await supabase.from('fee_items').insert(rows).select('id')
@@ -106,19 +136,117 @@ export async function addFeeItem(cycleId: string, form: {
     scopeSummary = (classRows || []).map((c: { name: string }) => c.name).join(', ') || `${form.classIds.length} class(es)`
   }
 
+  const amountSummary = usePerClass && form.scope !== 'all-school'
+    ? 'per-class amounts'
+    : `₦${form.amount.toLocaleString()}`
+
   await logAuditEvent(supabase, {
     schoolId,
     actorId: userId,
     action: 'fee_item.added',
     targetType: 'fee_item',
     targetId: insertedIds[0],
-    summary: `Added fee item ${name} (₦${form.amount.toLocaleString()}) to ${scopeSummary}`,
-    metadata: { name, amount: form.amount, isRequired: form.isRequired, scope: form.scope, classIds: form.classIds, cycleId: cycle.id, insertedIds },
+    summary: `Added fee item ${name} (${amountSummary}) to ${scopeSummary}`,
+    metadata: { name, amount: usePerClass ? undefined : form.amount, perClassAmounts: usePerClass ? form.perClassAmounts : undefined, isRequired: form.isRequired, scope: form.scope, classIds: form.classIds, cycleId: cycle.id, insertedIds },
   })
 
   revalidatePath('/fees/structure')
   revalidatePath('/fees')
   return { success: true }
+}
+
+// Copy the fee structure from the term that ran immediately before this one
+// into the (open) target term — the "Copy from last term" convenience on the
+// structure page, for standing up a new term's fees without retyping them.
+// Only the fee definitions are copied; per-student opt-ins are term-specific
+// and are never carried over here. Fees that already exist in the target
+// (same name + class + required/optional) are skipped, so copying twice is safe.
+export async function copyFeesFromLastTerm(cycleId: string) {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+  const cycleResult = await getCycleOrError(supabase, schoolId, cycleId)
+  if ('error' in cycleResult) return { error: cycleResult.error }
+  const { cycle } = cycleResult
+
+  // The target term's own start_date anchors "the term before this one".
+  const { data: target } = await supabase
+    .from('billing_cycles')
+    .select('id, start_date')
+    .eq('id', cycle.id)
+    .eq('school_id', schoolId)
+    .single()
+  if (!target) return { error: 'Term not found' }
+
+  // Previous term = the most recent term that started before this one.
+  const { data: prev } = await supabase
+    .from('billing_cycles')
+    .select('id, name')
+    .eq('school_id', schoolId)
+    .lt('start_date', target.start_date)
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!prev) return { error: 'There is no earlier term to copy from.' }
+
+  const { data: sourceFees } = await supabase
+    .from('fee_items')
+    .select('class_id, name, amount, is_mandatory, is_optional_extra, is_discountable, is_recurring, billing_frequency, display_order')
+    .eq('billing_cycle_id', prev.id)
+    .eq('school_id', schoolId)
+  if (!sourceFees || sourceFees.length === 0) {
+    return { error: `${prev.name} has no fees to copy.` }
+  }
+
+  // Skip anything already in this term so a second copy is a no-op, not a
+  // duplicate. Identity = name + class + required/optional.
+  const { data: existing } = await supabase
+    .from('fee_items')
+    .select('name, class_id, is_optional_extra')
+    .eq('billing_cycle_id', cycle.id)
+    .eq('school_id', schoolId)
+  const keyFor = (name: string, classId: string | null, isOptional: boolean) =>
+    `${name}::${classId ?? 'null'}::${isOptional}`
+  const existingKeys = new Set(
+    (existing || []).map(e => keyFor(e.name, e.class_id, e.is_optional_extra))
+  )
+
+  const toInsert = sourceFees
+    .filter(f => !existingKeys.has(keyFor(f.name, f.class_id, f.is_optional_extra)))
+    .map(f => ({
+      school_id: schoolId,
+      billing_cycle_id: cycle.id,
+      class_id: f.class_id,
+      name: f.name,
+      amount: f.amount,
+      is_mandatory: f.is_mandatory,
+      is_optional_extra: f.is_optional_extra,
+      is_discountable: f.is_discountable,
+      is_recurring: f.is_recurring,
+      billing_frequency: frequencyFromRow(f),
+      display_order: f.display_order || 0,
+    }))
+
+  if (toInsert.length === 0) {
+    return { error: `Every fee from ${prev.name} is already in this term.` }
+  }
+
+  const { error } = await supabase.from('fee_items').insert(toInsert)
+  if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'fee_item.copied_from_term',
+    targetType: 'billing_cycle',
+    targetId: cycle.id,
+    summary: `Copied ${toInsert.length} fee item(s) from ${prev.name} into ${cycle.name}`,
+    metadata: { fromCycleId: prev.id, fromTerm: prev.name, toCycleId: cycle.id, copied: toInsert.length },
+  })
+
+  revalidatePath('/fees/structure')
+  revalidatePath('/fees')
+  return { success: true, copied: toInsert.length, fromTerm: prev.name }
 }
 
 export async function addPerClassFeeItem(cycleId: string, form: {
@@ -174,7 +302,7 @@ export async function addOptionalFeeItem(cycleId: string, form: {
   name: string
   amount: number
   isDiscountable?: boolean
-  isRecurring?: boolean
+  billingFrequency?: BillingFrequency
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -186,6 +314,7 @@ export async function addOptionalFeeItem(cycleId: string, form: {
   if (!form.name.trim()) return { error: 'Name is required' }
   if (form.amount <= 0) return { error: 'Amount must be greater than 0' }
   const name = form.name.trim()
+  const billingFrequency = form.billingFrequency ?? 'per_term'
 
   const { data, error } = await supabase.from('fee_items').insert({
     school_id: schoolId,
@@ -196,7 +325,8 @@ export async function addOptionalFeeItem(cycleId: string, form: {
     is_mandatory: false,
     is_optional_extra: true,
     is_discountable: form.isDiscountable ?? true,
-    is_recurring: form.isRecurring ?? true,
+    is_recurring: isRecurringFromFrequency(billingFrequency),
+    billing_frequency: billingFrequency,
   }).select('id').single()
 
   if (error) return { error: error.message }
@@ -220,7 +350,7 @@ export async function updateFeeItem(id: string, form: {
   name: string
   amount: number
   isDiscountable?: boolean
-  isRecurring?: boolean
+  billingFrequency?: BillingFrequency
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -247,7 +377,10 @@ export async function updateFeeItem(id: string, form: {
       name,
       amount: form.amount,
       ...(form.isDiscountable !== undefined ? { is_discountable: form.isDiscountable } : {}),
-      ...(form.isRecurring !== undefined ? { is_recurring: form.isRecurring } : {}),
+      ...(form.billingFrequency !== undefined ? {
+        billing_frequency: form.billingFrequency,
+        is_recurring: isRecurringFromFrequency(form.billingFrequency),
+      } : {}),
     })
     .eq('id', id)
 
@@ -367,52 +500,152 @@ export async function bulkDeleteFeeItemByName(cycleId: string, name: string) {
 
 // ============ OPT-IN MANAGEMENT ============
 
-export async function getOptInsForFeeItem(feeItemId: string) {
+function mapOptInStudentRows(data: any[] | null): OptInStudentRow[] {
+  return (data || []).map(s => ({
+    id: s.id,
+    firstName: s.first_name,
+    lastName: s.last_name,
+    admissionNumber: s.admission_number,
+    classId: s.classes?.id || '',
+    className: s.classes?.name || '',
+  }))
+}
+
+// classId/active per student id, used to compute the running opt-in total
+// and eligibility for students that may not be on the currently-loaded page.
+async function fetchStudentClassInfo(supabase: Ctx['supabase'], schoolId: string, ids: string[]): Promise<Record<string, { classId: string | null; active: boolean }>> {
+  if (ids.length === 0) return {}
+  const { data } = await supabase.from('students').select('id, class_id, status').eq('school_id', schoolId).in('id', ids)
+  const map: Record<string, { classId: string | null; active: boolean }> = {}
+  for (const row of data || []) map[row.id] = { classId: row.class_id, active: row.status === 'active' }
+  return map
+}
+
+// Same escaping rationale as students.ts's sanitizeSearchTerm — Postgrest's
+// or()/and() grammar uses "," and "()" as operators, so free-text search
+// strips them rather than trying to escape them (a school admin typing a
+// comma means it literally).
+function sanitizeOptInSearch(raw: string): string {
+  return raw.trim().replace(/[,()]/g, '')
+}
+
+function optInSearchClause(term: string): string {
+  const t = `%${term}%`
+  return [`first_name.ilike.${t}`, `last_name.ilike.${t}`, `admission_number.ilike.${t}`].join(',')
+}
+
+export interface OptInStudentRow {
+  id: string
+  firstName: string
+  lastName: string
+  admissionNumber: string
+  classId: string
+  className: string
+}
+
+export interface OptInsPageParams {
+  page: number
+  perPage: number
+  search: string
+  classId: string | null
+}
+
+export interface OptInsPageResult {
+  error?: string
+  students: OptInStudentRow[]
+  total: number
+}
+
+// Everything about *who's already opted in* — fetched once when the panel
+// opens, independent of pagination, so navigating pages/search never
+// clobbers in-progress (unsaved) selections with server truth again.
+export interface OptInsSummaryResult {
+  error?: string
+  eligibleTotal: number
+  optedInStudentIds: string[]
+  // classId per opted-in student — needed to compute the running total for a
+  // student who isn't on the currently-loaded page. A student no longer
+  // eligible (moved class / archived since they opted in) has classId null;
+  // Save still preserves their row (see bulkUpdateOptIns's outsideScope
+  // handling), it's just excluded from the eligible/total counts.
+  optedInClassMap: Record<string, string | null>
+  eligibleClassIds: string[] | null
+}
+
+export interface EligibleIdsParams {
+  search: string
+  classId: string | null
+}
+
+export interface EligibleIdsResult {
+  error?: string
+  ids: { id: string; classId: string }[]
+}
+
+export async function getOptInsSummaryForFeeItem(feeItemId: string): Promise<OptInsSummaryResult> {
   const ctx = await getContext()
-  if (!ctx) return { error: 'Not authenticated', students: [], optedInStudentIds: [] }
+  if (!ctx) return { error: 'Not authenticated', eligibleTotal: 0, optedInStudentIds: [], optedInClassMap: {}, eligibleClassIds: null }
   const { supabase, schoolId } = ctx
 
   const { data: feeItem } = await supabase
-    .from('fee_items')
-    .select('id')
-    .eq('id', feeItemId)
-    .eq('school_id', schoolId)
-    .maybeSingle()
-  if (!feeItem) return { error: 'Fee item not found', students: [], optedInStudentIds: [] }
+    .from('fee_items').select('id').eq('id', feeItemId).eq('school_id', schoolId).maybeSingle()
+  if (!feeItem) return { error: 'Fee item not found', eligibleTotal: 0, optedInStudentIds: [], optedInClassMap: {}, eligibleClassIds: null }
 
-  const { data: students } = await supabase
-    .from('students')
-    .select(`
-      id,
-      first_name,
-      last_name,
-      admission_number,
-      classes!inner(id, name)
-    `)
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .order('last_name')
+  const { count: eligibleTotal } = await supabase
+    .from('students').select('id', { count: 'exact', head: true })
+    .eq('school_id', schoolId).eq('status', 'active')
 
   const { data: optIns } = await supabase
-    .from('student_fee_adjustments')
-    .select('student_id')
-    .eq('fee_item_id', feeItemId)
-    .eq('school_id', schoolId)
-    .eq('adjustment_type', 'opt_in')
+    .from('student_fee_adjustments').select('student_id')
+    .eq('fee_item_id', feeItemId).eq('school_id', schoolId).eq('adjustment_type', 'opt_in')
+  const optedInStudentIds = (optIns || []).map(o => o.student_id)
 
-  return {
-    students: (students || []).map(s => ({
-      id: s.id,
-      firstName: s.first_name,
-      lastName: s.last_name,
-      admissionNumber: s.admission_number,
-      // @ts-expect-error — joined object
-      classId: s.classes?.id || '',
-      // @ts-expect-error — joined object
-      className: s.classes?.name || '',
-    })),
-    optedInStudentIds: (optIns || []).map(o => o.student_id),
+  const info = await fetchStudentClassInfo(supabase, schoolId, optedInStudentIds)
+  const optedInClassMap: Record<string, string | null> = {}
+  for (const id of optedInStudentIds) {
+    optedInClassMap[id] = info[id]?.active ? info[id].classId : null
   }
+
+  return { eligibleTotal: eligibleTotal || 0, optedInStudentIds, optedInClassMap, eligibleClassIds: null }
+}
+
+export async function getOptInsPageForFeeItem(feeItemId: string, params: OptInsPageParams): Promise<OptInsPageResult> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated', students: [], total: 0 }
+  const { supabase, schoolId } = ctx
+
+  const { data: feeItem } = await supabase
+    .from('fee_items').select('id').eq('id', feeItemId).eq('school_id', schoolId).maybeSingle()
+  if (!feeItem) return { error: 'Fee item not found', students: [], total: 0 }
+
+  let q = supabase.from('students')
+    .select('id, first_name, last_name, admission_number, classes!inner(id, name)', { count: 'exact' })
+    .eq('school_id', schoolId).eq('status', 'active')
+  if (params.classId) q = q.eq('class_id', params.classId)
+  const search = sanitizeOptInSearch(params.search)
+  if (search) q = q.or(optInSearchClause(search))
+  q = q.order('last_name').range((params.page - 1) * params.perPage, params.page * params.perPage - 1)
+
+  const { data, count } = await q
+  return { students: mapOptInStudentRows(data), total: count || 0 }
+}
+
+export async function getEligibleIdsForFeeItem(feeItemId: string, params: EligibleIdsParams): Promise<EligibleIdsResult> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated', ids: [] }
+  const { supabase, schoolId } = ctx
+
+  const { data: feeItem } = await supabase
+    .from('fee_items').select('id').eq('id', feeItemId).eq('school_id', schoolId).maybeSingle()
+  if (!feeItem) return { error: 'Fee item not found', ids: [] }
+
+  let q = supabase.from('students').select('id, class_id').eq('school_id', schoolId).eq('status', 'active')
+  if (params.classId) q = q.eq('class_id', params.classId)
+  const search = sanitizeOptInSearch(params.search)
+  if (search) q = q.or(optInSearchClause(search))
+
+  const { data } = await q
+  return { ids: (data || []).map(s => ({ id: s.id, classId: s.class_id })) }
 }
 
 export async function bulkUpdateOptIns(feeItemId: string, studentIds: string[]) {
@@ -484,7 +717,7 @@ export async function editFeeGroup(cycleId: string, form: {
   perClassAmounts?: Record<string, number>  // classId → amount (overrides uniformAmount)
   selectedClassIds: string[]  // Only for per-class groups
   isDiscountable?: boolean
-  isRecurring?: boolean
+  billingFrequency?: BillingFrequency
 }) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
@@ -541,7 +774,10 @@ export async function editFeeGroup(cycleId: string, form: {
         name: newName,
         amount: form.uniformAmount,
         ...(form.isDiscountable !== undefined ? { is_discountable: form.isDiscountable } : {}),
-        ...(form.isRecurring !== undefined ? { is_recurring: form.isRecurring } : {}),
+        ...(form.billingFrequency !== undefined ? {
+          billing_frequency: form.billingFrequency,
+          is_recurring: isRecurringFromFrequency(form.billingFrequency),
+        } : {}),
       })
       .in('id', existingRows.map(r => r.id))
 
@@ -586,7 +822,7 @@ export async function editFeeGroup(cycleId: string, form: {
   // Load existing rows for this group
   const { data: existingRows } = await supabase
     .from('fee_items')
-    .select('id, class_id, amount, is_discountable, is_recurring')
+    .select('id, class_id, amount, is_discountable, is_recurring, billing_frequency')
     .eq('school_id', schoolId)
     .eq('billing_cycle_id', cycle.id)
     .eq('name', form.currentName)
@@ -594,10 +830,10 @@ export async function editFeeGroup(cycleId: string, form: {
     .eq('is_optional_extra', form.isOptional)
     .eq('is_mandatory', !form.isOptional)
 
-  const existingByClass = new Map<string, { id: string, amount: number, isDiscountable: boolean, isRecurring: boolean }>()
+  const existingByClass = new Map<string, { id: string, amount: number, isDiscountable: boolean, billingFrequency: BillingFrequency }>()
   existingRows?.forEach(r => {
     if (r.class_id) {
-      existingByClass.set(r.class_id, { id: r.id, amount: Number(r.amount), isDiscountable: r.is_discountable !== false, isRecurring: r.is_recurring !== false })
+      existingByClass.set(r.class_id, { id: r.id, amount: Number(r.amount), isDiscountable: r.is_discountable !== false, billingFrequency: frequencyFromRow(r) })
     }
   })
 
@@ -651,11 +887,11 @@ export async function editFeeGroup(cycleId: string, form: {
     const existing = existingByClass.get(classId)!
     const newAmount = amountForClass(classId)
     const newIsDiscountable = form.isDiscountable ?? existing.isDiscountable
-    const newIsRecurring = form.isRecurring ?? existing.isRecurring
-    if (newName !== form.currentName || newAmount !== existing.amount || newIsDiscountable !== existing.isDiscountable || newIsRecurring !== existing.isRecurring) {
+    const newBillingFrequency = form.billingFrequency ?? existing.billingFrequency
+    if (newName !== form.currentName || newAmount !== existing.amount || newIsDiscountable !== existing.isDiscountable || newBillingFrequency !== existing.billingFrequency) {
       const { error: upErr } = await supabase
         .from('fee_items')
-        .update({ name: newName, amount: newAmount, is_discountable: newIsDiscountable, is_recurring: newIsRecurring })
+        .update({ name: newName, amount: newAmount, is_discountable: newIsDiscountable, billing_frequency: newBillingFrequency, is_recurring: isRecurringFromFrequency(newBillingFrequency) })
         .eq('id', existing.id)
       if (upErr) return { error: upErr.message }
       updated++
@@ -664,6 +900,7 @@ export async function editFeeGroup(cycleId: string, form: {
 
   // Step 3: Insert new rows for newly-added classes
   if (toAdd.length > 0) {
+    const addFrequency = form.billingFrequency ?? 'per_term'
     const rows = toAdd.map(classId => ({
       school_id: schoolId,
       billing_cycle_id: cycle.id,
@@ -673,7 +910,8 @@ export async function editFeeGroup(cycleId: string, form: {
       is_mandatory: !form.isOptional,
       is_optional_extra: form.isOptional,
       is_discountable: form.isDiscountable ?? true,
-      is_recurring: form.isRecurring ?? true,
+      is_recurring: isRecurringFromFrequency(addFrequency),
+      billing_frequency: addFrequency,
     }))
     const { error: addErr } = await supabase
       .from('fee_items')
@@ -710,6 +948,7 @@ export async function getFeeGroupDetails(cycleId: string, currentName: string, i
       amount,
       is_discountable,
       is_recurring,
+      billing_frequency,
       classes(id, name, display_order)
     `)
     .eq('school_id', schoolId)
@@ -752,6 +991,7 @@ export async function getFeeGroupDetails(cycleId: string, currentName: string, i
       amount: Number(d.amount),
       isDiscountable: d.is_discountable !== false,
       isRecurring: d.is_recurring !== false,
+      billingFrequency: frequencyFromRow(d),
       optInCount: optInCounts[d.id] || 0,
     })),
   }
@@ -759,73 +999,117 @@ export async function getFeeGroupDetails(cycleId: string, currentName: string, i
 // ============ GROUP OPT-IN MANAGEMENT ============
 
 // Get all students eligible for any fee_item in this group, plus current opt-ins
-export async function getOptInsForFeeGroup(feeItemIds: string[]) {
-  const ctx = await getContext()
-  if (!ctx) return { error: 'Not authenticated', students: [], optedInStudentIds: [], eligibleClassIds: [] }
-  const { supabase, schoolId } = ctx
-
-  if (feeItemIds.length === 0) {
-    return { students: [], optedInStudentIds: [], eligibleClassIds: [] }
-  }
-
-  // Get the fee items to find their class scope
+// Resolves which classes are eligible for a fee-item group: null means
+// "all classes" (at least one item in the group is school-wide), otherwise
+// the union of classes covered by the group's per-class items.
+async function resolveGroupEligibility(supabase: Ctx['supabase'], schoolId: string, feeItemIds: string[]): Promise<{ error?: string; eligibleClassIds: string[] | null }> {
   const { data: feeItems } = await supabase
-    .from('fee_items')
-    .select('id, class_id')
-    .in('id', feeItemIds)
-    .eq('school_id', schoolId)
-
-  if (!feeItems || feeItems.length === 0) return { error: 'Could not load fee items', students: [], optedInStudentIds: [], eligibleClassIds: [] }
-
-  // Determine eligible classes (null class_id = school-wide, all students eligible)
+    .from('fee_items').select('id, class_id').in('id', feeItemIds).eq('school_id', schoolId)
+  if (!feeItems || feeItems.length === 0) return { error: 'Could not load fee items', eligibleClassIds: null }
   const hasSchoolWide = feeItems.some(f => f.class_id === null)
-  const eligibleClassIds = hasSchoolWide
-    ? null  // null means "all classes"
-    : feeItems.map(f => f.class_id).filter(Boolean) as string[]
+  return { eligibleClassIds: hasSchoolWide ? null : (feeItems.map(f => f.class_id).filter(Boolean) as string[]) }
+}
 
-  // Get students — all active if school-wide, otherwise scoped to eligible classes
-  let studentsQuery = supabase
-    .from('students')
-    .select(`
-      id,
-      first_name,
-      last_name,
-      admission_number,
-      classes!inner(id, name)
-    `)
-    .eq('school_id', schoolId)
-    .eq('status', 'active')
-    .order('last_name')
+export async function getOptInsSummaryForFeeGroup(feeItemIds: string[]): Promise<OptInsSummaryResult> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated', eligibleTotal: 0, optedInStudentIds: [], optedInClassMap: {}, eligibleClassIds: null }
+  const { supabase, schoolId } = ctx
+  if (feeItemIds.length === 0) return { eligibleTotal: 0, optedInStudentIds: [], optedInClassMap: {}, eligibleClassIds: [] }
 
-  if (eligibleClassIds && eligibleClassIds.length > 0) {
-    studentsQuery = studentsQuery.in('class_id', eligibleClassIds)
-  }
+  const scope = await resolveGroupEligibility(supabase, schoolId, feeItemIds)
+  if (scope.error) return { error: scope.error, eligibleTotal: 0, optedInStudentIds: [], optedInClassMap: {}, eligibleClassIds: null }
+  const { eligibleClassIds } = scope
 
-  const { data: students } = await studentsQuery
+  let countQuery = supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'active')
+  if (eligibleClassIds && eligibleClassIds.length > 0) countQuery = countQuery.in('class_id', eligibleClassIds)
+  const { count: eligibleTotal } = await countQuery
 
-  // Get current opt-ins across all fee items in the group
   const { data: optIns } = await supabase
-    .from('student_fee_adjustments')
-    .select('student_id')
-    .in('fee_item_id', feeItemIds)
-    .eq('adjustment_type', 'opt_in')
+    .from('student_fee_adjustments').select('student_id')
+    .in('fee_item_id', feeItemIds).eq('school_id', schoolId).eq('adjustment_type', 'opt_in')
+  const optedInStudentIds = Array.from(new Set((optIns || []).map(o => o.student_id)))
 
-  const optedInSet = new Set((optIns || []).map(o => o.student_id))
-
-  return {
-    students: (students || []).map(s => ({
-      id: s.id,
-      firstName: s.first_name,
-      lastName: s.last_name,
-      admissionNumber: s.admission_number,
-      // @ts-expect-error — joined
-      classId: s.classes?.id || '',
-      // @ts-expect-error — joined
-      className: s.classes?.name || '',
-    })),
-    optedInStudentIds: Array.from(optedInSet),
-    eligibleClassIds: eligibleClassIds || [],
+  const info = await fetchStudentClassInfo(supabase, schoolId, optedInStudentIds)
+  const optedInClassMap: Record<string, string | null> = {}
+  for (const id of optedInStudentIds) {
+    const rec = info[id]
+    const eligible = !!rec?.active && (eligibleClassIds === null || (!!rec.classId && eligibleClassIds.includes(rec.classId)))
+    optedInClassMap[id] = eligible ? rec!.classId : null
   }
+
+  return { eligibleTotal: eligibleTotal || 0, optedInStudentIds, optedInClassMap, eligibleClassIds: eligibleClassIds || [] }
+}
+
+export async function getOptInsPageForFeeGroup(feeItemIds: string[], params: OptInsPageParams): Promise<OptInsPageResult> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated', students: [], total: 0 }
+  const { supabase, schoolId } = ctx
+  if (feeItemIds.length === 0) return { students: [], total: 0 }
+
+  const scope = await resolveGroupEligibility(supabase, schoolId, feeItemIds)
+  if (scope.error) return { error: scope.error, students: [], total: 0 }
+  const { eligibleClassIds } = scope
+
+  let q = supabase.from('students')
+    .select('id, first_name, last_name, admission_number, classes!inner(id, name)', { count: 'exact' })
+    .eq('school_id', schoolId).eq('status', 'active')
+  if (eligibleClassIds && eligibleClassIds.length > 0) q = q.in('class_id', eligibleClassIds)
+  if (params.classId) q = q.eq('class_id', params.classId)
+  const search = sanitizeOptInSearch(params.search)
+  if (search) q = q.or(optInSearchClause(search))
+  q = q.order('last_name').range((params.page - 1) * params.perPage, params.page * params.perPage - 1)
+
+  const { data, count } = await q
+  return { students: mapOptInStudentRows(data), total: count || 0 }
+}
+
+export async function getEligibleIdsForFeeGroup(feeItemIds: string[], params: EligibleIdsParams): Promise<EligibleIdsResult> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated', ids: [] }
+  const { supabase, schoolId } = ctx
+  if (feeItemIds.length === 0) return { ids: [] }
+
+  const scope = await resolveGroupEligibility(supabase, schoolId, feeItemIds)
+  if (scope.error) return { error: scope.error, ids: [] }
+  const { eligibleClassIds } = scope
+
+  let q = supabase.from('students').select('id, class_id').eq('school_id', schoolId).eq('status', 'active')
+  if (eligibleClassIds && eligibleClassIds.length > 0) q = q.in('class_id', eligibleClassIds)
+  if (params.classId) q = q.eq('class_id', params.classId)
+  const search = sanitizeOptInSearch(params.search)
+  if (search) q = q.or(optInSearchClause(search))
+
+  const { data } = await q
+  return { ids: (data || []).map(s => ({ id: s.id, classId: s.class_id })) }
+}
+
+export interface OptInClassOption { id: string; name: string }
+
+// Classes to offer in the opt-ins panel's filter dropdown — a separate lean
+// query rather than deriving it from whichever page of students happens to
+// be loaded, since with real pagination most classes may never appear on a
+// loaded page at all.
+export async function getEligibleClassesForFeeItem(feeItemId: string): Promise<{ error?: string; classes: OptInClassOption[] }> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated', classes: [] }
+  const { supabase, schoolId } = ctx
+  const { data: feeItem } = await supabase.from('fee_items').select('id').eq('id', feeItemId).eq('school_id', schoolId).maybeSingle()
+  if (!feeItem) return { error: 'Fee item not found', classes: [] }
+  const { data } = await supabase.from('classes').select('id, name').eq('school_id', schoolId).eq('is_active', true).order('display_order')
+  return { classes: data || [] }
+}
+
+export async function getEligibleClassesForFeeGroup(feeItemIds: string[]): Promise<{ error?: string; classes: OptInClassOption[] }> {
+  const ctx = await getContext()
+  if (!ctx) return { error: 'Not authenticated', classes: [] }
+  const { supabase, schoolId } = ctx
+  if (feeItemIds.length === 0) return { classes: [] }
+  const scope = await resolveGroupEligibility(supabase, schoolId, feeItemIds)
+  if (scope.error) return { error: scope.error, classes: [] }
+  let q = supabase.from('classes').select('id, name').eq('school_id', schoolId).eq('is_active', true).order('display_order')
+  if (scope.eligibleClassIds && scope.eligibleClassIds.length > 0) q = q.in('id', scope.eligibleClassIds)
+  const { data } = await q
+  return { classes: data || [] }
 }
 
 // Sync opt-ins across a fee group — figures out which fee_item_id matches each student's class

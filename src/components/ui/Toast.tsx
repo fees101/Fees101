@@ -4,11 +4,15 @@ import { useEffect } from 'react'
 
 interface Props {
   message: string
+  // Optional bold heading above the message — used by the field-edit-drawer
+  // save confirmation ("Change saved" / "{Field} — recorded in the audit log").
+  // Plain single-line callers (role created, etc.) omit it.
+  title?: string
   ok: boolean
   onDismiss: () => void
 }
 
-export default function Toast({ message, ok, onDismiss }: Props) {
+export default function Toast({ message, title, ok, onDismiss }: Props) {
   useEffect(() => {
     const timer = setTimeout(onDismiss, 6000)
     return () => clearTimeout(timer)
@@ -16,21 +20,13 @@ export default function Toast({ message, ok, onDismiss }: Props) {
 
   return (
     <div className="fixed bottom-6 right-6 z-50 max-w-sm">
-      <div className={`flex items-start gap-3 p-4 rounded-xl shadow-lg border ${ok ? 'bg-white border-mint/30' : 'bg-white border-red-200'}`}>
-        {ok ? (
-          <svg className="w-5 h-5 text-mint flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        ) : (
-          <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-        )}
-        <p className="text-sm text-navy flex-1">{message}</p>
-        <button onClick={onDismiss} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+      <div className={`flex items-start gap-3 p-4 bg-[var(--color-ink)] text-[var(--color-paper)] border-l-[5px] m-anim-slab ${ok ? 'border-[var(--color-paper)]' : 'border-[var(--color-signal)]'}`}>
+        <div className="flex-1 min-w-0">
+          {title && <p className="text-sm font-extrabold" style={{ margin: '0 0 2px' }}>{title}</p>}
+          <p className="text-sm m-num" style={{ margin: 0, opacity: title ? 0.85 : 1 }}>{message}</p>
+        </div>
+        <button onClick={onDismiss} aria-label="Dismiss" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-400)] hover:text-[var(--color-paper)] flex-shrink-0">
+          Dismiss
         </button>
       </div>
     </div>

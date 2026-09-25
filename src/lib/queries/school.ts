@@ -10,7 +10,14 @@ export interface SchoolSettings {
   addressCity: string | null
   addressState: string | null
   phone: string | null
+  // Whether `phone` above has an SMS OTP confirming it's live — same purpose
+  // as emailVerifiedAt, just proven with a code instead of a click.
+  phoneVerifiedAt: string | null
   email: string | null
+  // Whether `email` above has been clicked-to-confirm — this is Fees101's own
+  // contact channel to the school, not a login credential, so this only
+  // tracks deliverability/typos, not security. Meaningless while email is null.
+  emailVerifiedAt: string | null
   proprietressTitle: string | null
   proprietressFirstName: string | null
   proprietressLastName: string | null
@@ -30,7 +37,7 @@ export async function getSchoolSettings(): Promise<SchoolSettings | null> {
   const { data: school } = await supabase
     .from('schools')
     .select(`
-      id, name, logo_url, phone, email, subscription_status, settings,
+      id, name, logo_url, phone, phone_verified_at, email, email_verified_at, subscription_status, settings,
       address_street, address_city, address_state,
       proprietress_title, proprietress_first_name, proprietress_last_name
     `)
@@ -48,7 +55,9 @@ export async function getSchoolSettings(): Promise<SchoolSettings | null> {
     addressCity: school.address_city,
     addressState: school.address_state,
     phone: school.phone,
+    phoneVerifiedAt: school.phone_verified_at,
     email: school.email,
+    emailVerifiedAt: school.email_verified_at,
     proprietressTitle: school.proprietress_title,
     proprietressFirstName: school.proprietress_first_name,
     proprietressLastName: school.proprietress_last_name,

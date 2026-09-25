@@ -17,6 +17,11 @@ export interface ReminderSettings {
   overdueIntervalValue: number
   // Stop sending overdue reminders after this many. null = no cap.
   overdueMaxReminders: number | null
+  // Which channels a reminder goes out on. SMS is the only channel that
+  // actually sends today, and can't be turned off — it's the one that
+  // works. Email sends for real (Brevo) when a parent email is on file.
+  // WhatsApp has no send path yet, so it's always off regardless of this flag.
+  channels: { sms: true; email: boolean; whatsapp: boolean }
 }
 
 export const DEFAULT_REMINDER_SETTINGS: Omit<ReminderSettings, 'schoolId'> = {
@@ -28,6 +33,7 @@ export const DEFAULT_REMINDER_SETTINGS: Omit<ReminderSettings, 'schoolId'> = {
   overdueIntervalUnit: 'days',
   overdueIntervalValue: 7,
   overdueMaxReminders: null,
+  channels: { sms: true, email: true, whatsapp: false },
 }
 
 async function getSchoolId() {

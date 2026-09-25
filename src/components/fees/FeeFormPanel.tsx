@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { addFeeItem, updateFeeItem } from '@/app/(app)/fees/structure/actions'
+import { type BillingFrequency, BILLING_FREQUENCY_OPTIONS } from '@/lib/fees/billingFrequency'
 
 interface ClassRow { id: string, name: string, displayOrder: number }
 
@@ -15,6 +16,7 @@ interface FeeItem {
   isSchoolWide: boolean
   isDiscountable?: boolean
   isRecurring?: boolean
+  billingFrequency?: BillingFrequency
 }
 
 interface Props {
@@ -23,49 +25,210 @@ interface Props {
   classes: ClassRow[]
   currentClassId?: string
   editItem?: FeeItem
+  // Headcounts + already-sent count drive the "what this will do" ledger so the
+  // person adding a fee sees who it lands on before they commit.
+  studentCountByClass?: Record<string, number>
+  totalActiveStudents?: number
+  issuedInvoiceCount?: number
   onClose: () => void
   onSuccess: () => void
 }
 
-export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, editItem, onClose, onSuccess }: Props) {
+// Paper-ground palette, matching FeeStructureLayout and the App Shell canvas.
+const INK = '#201e1d'
+const PAPER = '#f3f2f2'
+const META = '#605d5d'
+const HINT = '#605d5d'
+const RULE_SOFT = '#d7d3d3'
+const GREEN = '#0a6b3d'
+const OCHRE = '#8a4805'
+const DIM = '#9b9797'
+
+function naira(n: number): string {
+  return '₦' + Math.round(n).toLocaleString('en-NG')
+}
+
+// 14px square selection mark, ink border, filled with an inset white ring when
+// on — the App Shell .mk. Inline-styled to dodge the WASM Tailwind safelist.
+function Mark({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 14,
+        height: 14,
+        flexShrink: 0,
+        marginTop: 2,
+        border: `2px solid ${INK}`,
+        background: on ? INK : 'transparent',
+        boxShadow: on ? 'inset 0 0 0 2px #fff' : 'none',
+        display: 'block',
+      }}
+    />
+  )
+}
+
+// Field label: ink, 0.1em tracking — matches the canvas field labels and
+// AddStudentModal's labelCls. (The "WHAT THIS WILL DO" eyebrow is a separate,
+// dimmer 0.14em label, inlined where it's used.)
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p style={{ fontSize: 11, letterSpacing: '0.1em', color: INK, fontWeight: 600, textTransform: 'uppercase', margin: '0 0 6px' }}>
+      {children}
+    </p>
+  )
+}
+
+// A bordered radio/checkbox row inside a 2px-ink box (the App Shell .opt).
+function OptRow({
+  on, onClick, title, hint, last = false,
+}: { on: boolean, onClick: () => void, title: string, hint?: string, last?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        gap: 10,
+        alignItems: 'flex-start',
+        width: '100%',
+        textAlign: 'left',
+        padding: '11px 12px',
+        borderBottom: last ? 'none' : `1px solid ${RULE_SOFT}`,
+        background: on ? '#eae7e7' : 'transparent',
+        cursor: 'pointer',
+      }}
+    >
+      <Mark on={on} />
+      <span style={{ display: 'block' }}>
+        <span style={{ display: 'block', fontSize: 13, color: INK, fontWeight: 600 }}>{title}</span>
+        {hint && <span style={{ display: 'block', fontSize: 12, color: HINT, marginTop: 2 }}>{hint}</span>}
+      </span>
+    </button>
+  )
+}
+
+export default function FeeFormPanel({
+  mode, cycleId, classes, currentClassId, editItem,
+  studentCountByClass = {}, totalActiveStudents = 0, issuedInvoiceCount = 0,
+  onClose, onSuccess,
+}: Props) {
   const isEdit = mode === 'edit'
 
   const [name, setName] = useState(editItem?.name || '')
   const [amount, setAmount] = useState(editItem ? String(editItem.amount) : '')
   const [isRequired, setIsRequired] = useState(editItem ? editItem.isRequired : true)
   const [isDiscountable, setIsDiscountable] = useState(editItem ? editItem.isDiscountable !== false : true)
-  const [isRecurring, setIsRecurring] = useState(editItem ? editItem.isRecurring !== false : true)
-  const [scope, setScope] = useState<'one' | 'multiple' | 'all-school'>(
-    editItem
-      ? (editItem.isSchoolWide ? 'all-school' : 'one')
-      : 'one'
-  )
+  const [billingFrequency, setBillingFrequency] = useState<BillingFrequency>(editItem?.billingFrequency || 'per_term')
+
+  // "All students · school-wide" is one fee row with no class (it grows on its
+  // own as students are added). Otherwise the fee spans the ticked classes.
+  const [schoolWide, setSchoolWide] = useState(editItem ? editItem.isSchoolWide : false)
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(
-    new Set(currentClassId ? [currentClassId] : [])
+    new Set(!editItem && currentClassId ? [currentClassId] : [])
   )
+  // Per-class pricing only matters for a multi-class add where the price differs
+  // by class (the matrix mental model). Off by default; on reveals a price field
+  // beside each ticked class in place of the single amount.
+  const [pricingMode, setPricingMode] = useState<'uniform' | 'per-class'>('uniform')
+  const [perClassAmounts, setPerClassAmounts] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const currentClass = classes.find(c => c.id === currentClassId)
+  const perClassActive = !isEdit && !schoolWide && pricingMode === 'per-class' && selectedClassIds.size > 0
 
   function toggleClass(classId: string) {
+    if (isEdit) return
+    setSchoolWide(false)
     const next = new Set(selectedClassIds)
     if (next.has(classId)) {
       next.delete(classId)
     } else {
       next.add(classId)
+      if (pricingMode === 'per-class' && !perClassAmounts[classId] && amount) {
+        setPerClassAmounts(prev => ({ ...prev, [classId]: amount }))
+      }
     }
     setSelectedClassIds(next)
   }
 
-  async function handleSubmit() {
-    if (!name.trim()) {
-      setError('Item name is required')
-      return
+  function chooseSchoolWide() {
+    if (isEdit) return
+    setSchoolWide(true)
+    setSelectedClassIds(new Set())
+    setPricingMode('uniform')
+  }
+
+  function selectAllClasses() {
+    setSchoolWide(false)
+    setSelectedClassIds(new Set(classes.map(c => c.id)))
+    if (pricingMode === 'per-class' && amount) {
+      const seeded: Record<string, string> = { ...perClassAmounts }
+      classes.forEach(c => { if (!seeded[c.id]) seeded[c.id] = amount })
+      setPerClassAmounts(seeded)
     }
-    const amt = parseInt(amount)
-    if (isNaN(amt) || amt <= 0) {
-      setError('Amount must be greater than 0')
+  }
+
+  function switchPricing(mode: 'uniform' | 'per-class') {
+    if (mode === 'per-class' && amount) {
+      const seeded: Record<string, string> = { ...perClassAmounts }
+      Array.from(selectedClassIds).forEach(cid => { if (!seeded[cid]) seeded[cid] = amount })
+      setPerClassAmounts(seeded)
+    }
+    setPricingMode(mode)
+  }
+
+  // ── "What this will do" ledger ──────────────────────────────────────────
+  const ledger = useMemo(() => {
+    const uniform = parseInt(amount) || 0
+
+    // Who gets billed. An opt-in fee bills nobody until students opt in.
+    let studentsBilled = 0
+    if (schoolWide) {
+      studentsBilled = totalActiveStudents
+    } else {
+      for (const cid of Array.from(selectedClassIds)) {
+        studentsBilled += studentCountByClass[cid] || 0
+      }
+    }
+    const billedNow = isRequired ? studentsBilled : 0
+
+    // What it adds to this term's gross potential (before discounts).
+    let grossAdded = 0
+    if (isRequired) {
+      if (perClassActive) {
+        for (const cid of Array.from(selectedClassIds)) {
+          const a = parseInt(perClassAmounts[cid] || '') || 0
+          grossAdded += a * (studentCountByClass[cid] || 0)
+        }
+      } else {
+        grossAdded = uniform * studentsBilled
+      }
+    }
+
+    return { billedNow, grossAdded, optIn: !isRequired, eligible: studentsBilled }
+  }, [amount, schoolWide, selectedClassIds, studentCountByClass, totalActiveStudents, isRequired, perClassActive, perClassAmounts])
+
+  async function handleSubmit() {
+    if (!name.trim()) { setError('Fee name is required'); return }
+
+    if (perClassActive) {
+      if (selectedClassIds.size === 0) { setError('Select at least one class'); return }
+      for (const cid of Array.from(selectedClassIds)) {
+        const a = parseInt(perClassAmounts[cid] || '')
+        if (isNaN(a) || a <= 0) {
+          const cls = classes.find(c => c.id === cid)
+          setError(`Enter an amount for ${cls?.name || 'each selected class'}`)
+          return
+        }
+      }
+    } else {
+      const amt = parseInt(amount)
+      if (isNaN(amt) || amt <= 0) { setError('Amount must be greater than 0'); return }
+    }
+
+    if (!isEdit && !schoolWide && selectedClassIds.size === 0) {
+      setError('Choose school-wide, or tick at least one class')
       return
     }
 
@@ -76,19 +239,27 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
     if (isEdit) {
       result = await updateFeeItem(editItem!.id, {
         name,
-        amount: amt,
+        amount: parseInt(amount),
         isDiscountable,
-        ...(editItem!.isOptional ? { isRecurring } : {}),
+        billingFrequency,
       })
     } else {
+      const perClass: Record<string, number> = {}
+      if (perClassActive) {
+        Array.from(selectedClassIds).forEach(cid => {
+          const a = parseInt(perClassAmounts[cid] || '')
+          if (!isNaN(a) && a > 0) perClass[cid] = a
+        })
+      }
       result = await addFeeItem(cycleId, {
         name,
-        amount: amt,
+        amount: perClassActive ? 0 : parseInt(amount),
         isRequired,
-        scope,
-        classIds: scope === 'all-school' ? [] : Array.from(selectedClassIds),
+        scope: schoolWide ? 'all-school' : 'multiple',
+        classIds: schoolWide ? [] : Array.from(selectedClassIds),
+        ...(perClassActive ? { perClassAmounts: perClass } : {}),
         isDiscountable,
-        ...(!isRequired ? { isRecurring } : {}),
+        billingFrequency,
       })
     }
 
@@ -100,247 +271,247 @@ export default function FeeFormPanel({ mode, cycleId, classes, currentClassId, e
     onSuccess()
   }
 
+  const boxStyle: React.CSSProperties = { border: `2px solid ${INK}`, background: '#fff' }
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 flex flex-col h-fit sticky top-6">
+    <div className="fixed inset-0 z-50 flex m-anim-fade">
+      <div
+        className="flex-1 bg-[color-mix(in_srgb,var(--color-ink)_45%,transparent)]"
+        onClick={onClose}
+      />
 
-      {/* Header */}
-      <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-base font-semibold text-navy">
-          {isEdit ? 'Edit fee item' : 'Add fee item'}
-        </h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+      {/* Same shell as AddStudentModal: 420px, single p-[22px] scroll (header,
+          fields and footer all scroll together — no sticky split). */}
+      <aside
+        style={{ width: '420px', maxWidth: '100%' }}
+        className="h-full overflow-y-auto bg-[var(--color-paper)] border-l-2 border-[var(--color-ink)] p-[22px] m-anim-slide"
+      >
+        {/* Header row: title + CLOSE, then the subtitle spans below it. */}
+        <div className="flex items-baseline justify-between gap-3 mb-1">
+          <h2 className="text-[22px] font-extrabold tracking-[-0.01em]" style={{ color: INK }}>
+            {isEdit ? 'Edit a fee' : 'Add a fee'}
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--color-signal-text)] hover:underline"
+          >
+            Close
+          </button>
+        </div>
+        <p className="text-[13px] leading-relaxed mb-5" style={{ color: META }}>
+          {isEdit
+            ? 'Change what this fee is called, its amount, or how often it bills.'
+            : 'One fee, its price, who it lands on, and how often it bills.'}
+        </p>
 
-      {/* Body */}
-      <div className="p-5 space-y-4">
+        {/* The 2px ink rule opens the field stack (matches the canvas). */}
+        <div style={{ borderTop: `2px solid ${INK}`, paddingTop: 16 }}>
 
-        {!isEdit && (
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Type *</label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setIsRequired(true)}
-                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                  isRequired
-                    ? 'bg-mint-light text-navy border-mint'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                Required
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsRequired(false)}
-                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                  !isRequired
-                    ? 'bg-amber-50 text-amber-900 border-amber-400'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                Optional
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-1.5">
-              {isRequired
-                ? 'Charged automatically to every student in scope'
-                : 'Students opt in individually'}
+          {/* FEE NAME */}
+          <div style={{ marginBottom: 18 }}>
+            <SectionLabel>Fee name</SectionLabel>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={isRequired ? 'e.g. Tuition, Development levy, PTA' : 'e.g. Bus fee, Lunch, Chess club'}
+              autoFocus
+              style={{ ...boxStyle, padding: '8px 11px', fontSize: 13, width: '100%', color: INK }}
+            />
+            <p className="text-[12px] mt-1.5" style={{ color: HINT }}>
+              Parents see this exact wording as a line on their invoice.
             </p>
           </div>
-        )}
 
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Item name *</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={isRequired ? 'e.g. Tuition, Books, PTA Levy' : 'e.g. Bus fee, Lunch, Chess club'}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-            autoFocus
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Amount (₦) *</label>
-          <input
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="e.g. 100000"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-          />
-        </div>
-
-        <label className="flex items-start gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isDiscountable}
-            onChange={(e) => setIsDiscountable(e.target.checked)}
-            className="mt-0.5 text-mint"
-          />
-          <div>
-            <span className="text-sm text-navy">Eligible for discounts</span>
-            <p className="text-xs text-gray-500">Sibling/staff discounts reduce this item's share of the invoice. Turn off for fees like exams or uniforms that shouldn't be discounted.</p>
-          </div>
-        </label>
-
-        {(isEdit ? editItem?.isOptional : !isRequired) && (
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Once a student opts in *</label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setIsRecurring(true)}
-                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                  isRecurring
-                    ? 'bg-mint-light text-navy border-mint'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                Recurring
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsRecurring(false)}
-                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                  !isRecurring
-                    ? 'bg-amber-50 text-amber-900 border-amber-400'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                One-time
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-1.5">
-              {isRecurring
-                ? 'Stays on their invoice every term until they opt out'
-                : 'Billed once, then automatically drops off future terms (e.g. uniform)'}
-            </p>
-          </div>
-        )}
-
-        {!isEdit && (
-          <div>
-            <label className="block text-xs text-gray-500 mb-2">Apply to *</label>
-            <div className="space-y-1.5">
-              {currentClass && (
-                <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="radio"
-                    checked={scope === 'one'}
-                    onChange={() => setScope('one')}
-                    className="mt-0.5 text-mint"
-                  />
-                  <div>
-                    <span className="text-sm text-navy">Just this class ({currentClass.name})</span>
-                  </div>
-                </label>
-              )}
-              <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
+          {/* AMOUNT PER STUDENT — hidden when pricing each class separately */}
+          {!perClassActive && (
+            <div style={{ marginBottom: 18 }}>
+              <SectionLabel>Amount per student</SectionLabel>
+              <div style={{ display: 'flex', ...boxStyle }}>
+                <span style={{ background: INK, color: PAPER, fontSize: 14, fontWeight: 700, padding: '10px 12px', display: 'flex', alignItems: 'center' }}>₦</span>
                 <input
-                  type="radio"
-                  checked={scope === 'multiple'}
-                  onChange={() => setScope('multiple')}
-                  className="mt-0.5 text-mint"
+                  type="number"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="100,000"
+                  className="m-num"
+                  style={{ border: 0, borderLeft: 0, padding: '8px 11px', fontSize: 13, width: '100%', background: '#fff', color: INK }}
                 />
-                <div>
-                  <span className="text-sm text-navy">Multiple classes</span>
-                  <p className="text-xs text-gray-500">Choose specific classes below</p>
-                </div>
-              </label>
-              <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
-                <input
-                  type="radio"
-                  checked={scope === 'all-school'}
-                  onChange={() => setScope('all-school')}
-                  className="mt-0.5 text-mint"
-                />
-                <div>
-                  <span className="text-sm text-navy">All students (school-wide)</span>
-                  <p className="text-xs text-gray-500">One fee that applies to everyone</p>
-                </div>
-              </label>
-            </div>
-          </div>
-        )}
-
-        {!isEdit && scope === 'multiple' && (
-          <div className="p-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-gray-500">
-                {selectedClassIds.size} selected
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedClassIds(new Set(classes.map(c => c.id)))}
-                  className="text-xs text-mint font-medium hover:underline"
-                >
-                  All
-                </button>
-                <span className="text-gray-300">·</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedClassIds(new Set())}
-                  className="text-xs text-gray-600 font-medium hover:underline"
-                >
-                  Clear
-                </button>
               </div>
             </div>
-            <div className="space-y-1 max-h-56 overflow-y-auto">
-              {classes.map(cls => (
-                <label key={cls.id} className="flex items-center gap-2 p-1.5 rounded hover:bg-white cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedClassIds.has(cls.id)}
-                    onChange={() => toggleClass(cls.id)}
-                    className="text-mint"
-                  />
-                  <span className="text-sm text-navy">{cls.name}</span>
-                </label>
+          )}
+
+          {/* HOW IT IS BILLED — add only (an item's type is fixed once created) */}
+          {!isEdit && (
+            <div style={{ marginBottom: 18 }}>
+              <SectionLabel>How it is billed</SectionLabel>
+              <div style={boxStyle}>
+                <OptRow
+                  on={isRequired}
+                  onClick={() => setIsRequired(true)}
+                  title="Compulsory"
+                  hint="Charged automatically to every student it applies to."
+                />
+                <OptRow
+                  on={!isRequired}
+                  onClick={() => setIsRequired(false)}
+                  title="Opt-in"
+                  hint="Only billed to students you enrol, one by one."
+                  last
+                />
+              </div>
+            </div>
+          )}
+
+          {/* WHEN — the 3-way frequency, for every fee */}
+          <div style={{ marginBottom: 18 }}>
+            <SectionLabel>When</SectionLabel>
+            <div style={boxStyle}>
+              {BILLING_FREQUENCY_OPTIONS.map((opt, i) => (
+                <OptRow
+                  key={opt.value}
+                  on={billingFrequency === opt.value}
+                  onClick={() => setBillingFrequency(opt.value)}
+                  title={opt.label}
+                  hint={opt.hint}
+                  last={i === BILLING_FREQUENCY_OPTIONS.length - 1}
+                />
               ))}
             </div>
           </div>
-        )}
 
-        {!isEdit && !isRequired && (
-          <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg">
-            <p className="text-xs text-amber-900">
-              After creating, click <strong>Manage opt-ins</strong> to enroll students.
+          {/* Eligible for discounts */}
+          <div style={{ ...boxStyle, marginBottom: 18 }}>
+            <OptRow
+              on={isDiscountable}
+              onClick={() => setIsDiscountable(v => !v)}
+              title="Eligible for discounts"
+              hint="Sibling and staff discounts can reduce this fee. Turn off for exams or uniforms."
+              last
+            />
+          </div>
+
+          {/* WHICH CLASSES — add only (scope is fixed on a single-item edit) */}
+          {!isEdit && (
+            <div style={{ marginBottom: 18 }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+                <p style={{ fontSize: 11, letterSpacing: '0.1em', color: INK, fontWeight: 600, textTransform: 'uppercase', margin: 0 }}>Which classes</p>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={selectAllClasses} className="text-[11px] font-semibold" style={{ color: INK }}>All</button>
+                  <button type="button" onClick={() => { setSchoolWide(false); setSelectedClassIds(new Set()) }} className="text-[11px] font-semibold" style={{ color: META }}>Clear</button>
+                </div>
+              </div>
+
+              <div style={{ borderTop: `1px solid ${RULE_SOFT}` }}>
+                {/* School-wide row */}
+                <button
+                  type="button"
+                  onClick={chooseSchoolWide}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${RULE_SOFT}`, cursor: 'pointer', background: 'transparent' }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Mark on={schoolWide} />
+                    <span style={{ fontSize: 13, color: INK, fontWeight: 600 }}>All students · school-wide</span>
+                  </span>
+                  <span className="m-num" style={{ fontSize: 12, color: schoolWide ? INK : META }}>{totalActiveStudents}</span>
+                </button>
+
+                {/* Per-class rows */}
+                {classes.map(cls => {
+                  const selected = !schoolWide && selectedClassIds.has(cls.id)
+                  const count = studentCountByClass[cls.id] || 0
+                  return (
+                    <div
+                      key={cls.id}
+                      onClick={() => toggleClass(cls.id)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${RULE_SOFT}`, cursor: 'pointer', opacity: schoolWide ? 0.4 : 1 }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <Mark on={selected} />
+                        <span style={{ fontSize: 13, color: INK }}>{cls.name}</span>
+                      </span>
+                      {selected && perClassActive ? (
+                        <input
+                          type="number"
+                          value={perClassAmounts[cls.id] || ''}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setPerClassAmounts(prev => ({ ...prev, [cls.id]: e.target.value }))}
+                          placeholder="0"
+                          className="m-num"
+                          style={{ width: 96, border: `2px solid ${INK}`, padding: '4px 8px', fontSize: 13, textAlign: 'right', background: '#fff', color: INK }}
+                        />
+                      ) : (
+                        <span className="m-num" style={{ fontSize: 12, color: count === 0 ? DIM : META }}>{count}</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Price-per-class toggle — only meaningful across 2+ classes */}
+              {!schoolWide && selectedClassIds.size > 1 && (
+                <button
+                  type="button"
+                  onClick={() => switchPricing(pricingMode === 'per-class' ? 'uniform' : 'per-class')}
+                  className="text-[12px] font-semibold"
+                  style={{ color: INK, marginTop: 10, textDecoration: 'underline' }}
+                >
+                  {pricingMode === 'per-class' ? 'Use one amount for all' : 'Price each class differently'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* WHAT THIS WILL DO */}
+          <div style={{ borderTop: `2px solid ${INK}`, paddingTop: 14, marginBottom: 18 }}>
+            <p style={{ fontSize: 11, letterSpacing: '0.14em', color: META, textTransform: 'uppercase', margin: '0 0 10px' }}>What this will do</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', rowGap: 10, columnGap: 16, alignItems: 'baseline' }}>
+              <span style={{ fontSize: 13, color: META }}>Students billed now</span>
+              <span className="m-num" style={{ fontSize: 13, color: ledger.billedNow === 0 ? DIM : INK, textAlign: 'right', fontWeight: 600 }}>
+                {ledger.optIn ? '0 until opt-ins' : ledger.billedNow.toLocaleString('en-NG')}
+              </span>
+
+              <span style={{ fontSize: 13, color: META }}>Added to gross potential</span>
+              <span className="m-num" style={{ fontSize: 13, color: ledger.grossAdded === 0 ? DIM : INK, textAlign: 'right', fontWeight: 700 }}>
+                {ledger.optIn ? '—' : naira(ledger.grossAdded)}
+              </span>
+
+              <span style={{ fontSize: 13, color: META }}>Invoices already sent</span>
+              <span className="m-num" style={{ fontSize: 13, color: issuedInvoiceCount === 0 ? DIM : OCHRE, textAlign: 'right', fontWeight: 600 }}>
+                {issuedInvoiceCount.toLocaleString('en-NG')}
+              </span>
+            </div>
+            <p className="text-[12px]" style={{ color: HINT, marginTop: 12, lineHeight: 1.5 }}>
+              Adding a fee does not change an invoice a parent is already holding. You choose when to re-issue, from Fees → Cycles.
             </p>
           </div>
-        )}
 
-        {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            {error}
+          {!isEdit && !isRequired && (
+            <div style={{ paddingLeft: 12, borderLeft: `2px solid ${OCHRE}`, marginBottom: 18 }}>
+              <p className="text-[12px]" style={{ color: OCHRE }}>
+                After creating, select the fee and choose <strong>Manage opt-ins</strong> to enrol students.
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <div style={{ paddingLeft: 12, borderLeft: `2px solid var(--color-signal)`, marginBottom: 18 }}>
+              <p className="text-[13px]" style={{ color: 'var(--color-signal-text)' }}>{error}</p>
+            </div>
+          )}
+
+          {/* Footer — scrolls with the content, like AddStudentModal / the canvas */}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={handleSubmit} disabled={loading} className="m-btn m-btn-primary" style={{ flex: 1 }}>
+              {loading ? 'Saving...' : isEdit ? 'Save changes' : 'Add fee'}
+            </button>
+            <button onClick={onClose} disabled={loading} className="m-btn m-btn-outline">
+              Cancel
+            </button>
           </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="p-5 border-t border-gray-100 flex items-center justify-end gap-2 flex-shrink-0">
-        <button
-          onClick={onClose}
-          disabled={loading}
-          className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
-        >
-          {loading ? 'Saving...' : isEdit ? 'Save' : 'Add fee item'}
-        </button>
-      </div>
+        </div>
+      </aside>
     </div>
   )
 }

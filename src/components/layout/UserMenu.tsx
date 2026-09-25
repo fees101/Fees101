@@ -29,74 +29,86 @@ export default function UserMenu({
   const roleLabel = userRole.replace('_', ' ')
 
   async function handleLogout() {
-    await fetch('/logout', { method: 'POST' })
+    // The route always actually signs out regardless of what comes back here
+    // (see src/app/logout/route.ts) — this response is only read to decide
+    // whether landing on /login needs to say "N invoices were still
+    // sending" instead of a plain sign-in screen. If it fails to parse for
+    // any reason, fall back to the zero-jobs (plain) redirect rather than
+    // blocking sign-out on it.
+    let invoicesInFlight = 0
+    try {
+      const res = await fetch('/logout', { method: 'POST' })
+      const data = await res.json()
+      if (typeof data?.invoicesInFlight === 'number') invoicesInFlight = data.invoicesInFlight
+    } catch {
+      // Sign-out already happened server-side; just can't report the count.
+    }
     try {
       localStorage.removeItem(ACTIVE_JOBS_STORAGE_KEY)
     } catch {
       // Private-browsing/storage-blocked contexts — nothing to clean up.
     }
-    window.location.href = '/login'
+    window.location.href = invoicesInFlight > 0
+      ? `/login?notice=signed_out&jobs=${invoicesInFlight}`
+      : '/login'
   }
 
   return (
     <div className="relative w-full">
       <button
         onClick={() => setOpen(!open)}
-        className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors ${collapsed ? 'justify-center' : ''}`}
+        className={`w-full flex items-center gap-3 px-1 py-1.5 transition-colors hover:bg-white/5 ${collapsed ? 'justify-center' : ''}`}
       >
-        <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+        {/* 32px school mark. A real logo shows in full (contained on white, never
+            cropped); with no logo uploaded yet it falls back to initials on the
+            brand red. Zero radius. */}
+        <span className="w-8 h-8 flex-shrink-0 overflow-hidden">
           {schoolLogoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={schoolLogoUrl} alt={schoolName} className="w-full h-full object-cover" />
+            <span className="w-full h-full flex items-center justify-center bg-white">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={schoolLogoUrl} alt={schoolName} className="max-w-full max-h-full object-contain" />
+            </span>
           ) : (
-            <span className="text-mint text-xs font-bold">{schoolInitials}</span>
+            <span className="w-full h-full flex items-center justify-center bg-[var(--color-signal)] text-white text-xs font-extrabold tracking-tight">
+              {schoolInitials}
+            </span>
           )}
-        </div>
+        </span>
         {!collapsed && (
-          <>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-[13px] font-medium text-white leading-snug line-clamp-2 break-words">
-                {schoolName}
-              </p>
-              <p className="text-xs text-white/40 capitalize">{roleLabel}</p>
-            </div>
-            <svg className="w-4 h-4 text-white/40 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </>
+          <span className="flex-1 min-w-0 text-left">
+            <span className="block text-[13px] font-semibold text-[var(--color-paper)] leading-tight truncate">
+              {userName}
+            </span>
+            <span className="block text-[11px] text-[var(--color-neutral-500)] capitalize truncate">
+              {roleLabel} · {schoolName}
+            </span>
+          </span>
         )}
       </button>
 
       {open && (
         <>
           {/* Backdrop to close menu */}
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setOpen(false)}
-          />
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
 
-          {/* Dropdown */}
-          <div className={`absolute w-64 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden ${
+          {/* Dropdown — flat surface, 2px ink border, zero radius. */}
+          <div className={`absolute w-64 bg-[var(--color-paper)] border-2 border-[var(--color-ink)] z-20 ${
             dropDirection === 'up' ? 'left-0 bottom-full mb-2' : 'right-0 mt-2'
           }`}>
-            <div className="p-4 border-b border-gray-100">
-              <p className="text-navy font-semibold text-sm">{userName}</p>
-              <p className="text-gray-500 text-xs mt-1">{userEmail}</p>
-              <div className="mt-2 flex items-center gap-2">
-                <span className="text-xs text-gray-500">{schoolName}</span>
-                <span className="text-xs px-2 py-0.5 bg-mint-light text-navy rounded-full capitalize">
-                  {roleLabel}
-                </span>
+            <div className="p-4 border-b-2 border-[var(--color-ink)]">
+              <p className="text-[var(--color-ink)] font-semibold text-sm">{userName}</p>
+              <p className="text-[var(--color-neutral-700)] text-xs mt-1 break-words">{userEmail}</p>
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-[var(--color-neutral-700)]">{schoolName}</span>
+                <span className="m-chip m-chip-neutral capitalize">{roleLabel}</span>
               </div>
             </div>
-            <div className="py-1">
-              <button
-                onClick={handleLogout}
-                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                Sign out
-              </button>
-            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full text-left px-4 py-3 text-sm font-medium text-[var(--color-signal-text)] hover:bg-[var(--color-signal-100)] transition-colors"
+            >
+              Sign out
+            </button>
           </div>
         </>
       )}

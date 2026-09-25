@@ -1,176 +1,209 @@
 import { notFound, redirect } from 'next/navigation'
-import Link from 'next/link'
+import type { Metadata } from 'next'
+import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
 import StudentActivityTimeline from '@/components/students/StudentActivityTimeline'
 import GenerateInvoiceButton from '@/components/students/GenerateInvoiceButton'
-import StudentSettingsTab from '@/components/students/StudentSettingsTab'
-import StudentPaymentHistoryTab from '@/components/students/StudentPaymentHistoryTab'
+import EditRecordDrawer from '@/components/students/EditRecordDrawer'
 import StudentFeesTab from '@/components/students/StudentFeesTab'
 import HeaderVirtualAccount from '@/components/students/HeaderVirtualAccount'
 import SendReminderButton from '@/components/students/SendReminderButton'
 import ApplyDiscountButton from '@/components/students/ApplyDiscountButton'
 import StudentRealtimeRefresh from '@/components/students/StudentRealtimeRefresh'
+import AccessDenied from '@/components/layout/AccessDenied'
 import { getStudentById, getStudentPaymentHistory, getStudentFees } from '@/lib/queries/students'
+import { getDiscountSettings, mergeDiscountSettings } from '@/lib/queries/discounts'
 import { getAuthContext, can } from '@/lib/auth/permissions'
+import { formatDate } from '@/lib/format/date'
+
+export const metadata: Metadata = { title: 'Student' }
 
 interface PageProps {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ tab?: string }>
 }
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-}
+// Grid columns for the "Every term, every payment" ledger — one template shared
+// by the header row and every data row so they line up. Inline (not a Tailwind
+// class) because the WASM build drops arbitrary multi-minmax grid candidates.
+const LEDGER_GRID = 'minmax(94px,1.4fr) minmax(70px,1fr) minmax(70px,1fr) minmax(80px,0.9fr)'
+const LEDGER_LABEL = 'text-[11px] font-semibold tracking-[0.1em] text-[var(--color-neutral-700)]'
 
-function getInitials(firstName: string, lastName: string): string {
-  const f = firstName.trim()[0] || ''
-  const l = lastName.trim()[0] || ''
-  return (f + l).toUpperCase() || '?'
-}
-
-export default async function StudentDetailPage({ params, searchParams }: PageProps) {
+export default async function StudentDetailPage({ params }: PageProps) {
   const ctx = await getAuthContext()
   if (!ctx) redirect('/login')
-  if (!can(ctx, 'see-students')) redirect('/dashboard')
+  if (!can(ctx, 'see-students')) {
+    return (
+      <>
+        <WorkspaceHeader workspaceKey="students" title="Student" back={{ href: '/students', label: 'Students' }} />
+        <AccessDenied ctx={ctx} permissionKey="see-students" />
+      </>
+    )
+  }
 
   const { id } = await params
-  const { tab } = await searchParams
-  const activeTab = tab === 'settings' ? 'settings' : tab === 'payments' ? 'payments' : tab === 'fees' ? 'fees' : 'overview'
-  // The student and whichever tab-specific dataset is active depend only on
-  // the id, not on one another — fetch them together.
-  const [student, paymentHistory, feesData] = await Promise.all([
+  // All three datasets depend only on the id, not on one another — and every
+  // panel of the single surface is visible at once, so all three are fetched
+  // together on every load (read-only; no schema/server-action change).
+  const [student, paymentHistory, feesData, discountSettings] = await Promise.all([
     getStudentById(id),
-    activeTab === 'payments' ? getStudentPaymentHistory(id) : Promise.resolve(null),
-    activeTab === 'fees' ? getStudentFees(id) : Promise.resolve(null),
+    getStudentPaymentHistory(id),
+    getStudentFees(id),
+    getDiscountSettings(),
   ])
 
   if (!student) {
     notFound()
   }
 
-  const initials = getInitials(student.firstName, student.lastName)
-  const outstanding = student.currentInvoice 
-    ? student.currentInvoice.totalAmount - student.currentInvoice.paidAmount 
-    : 0
-  const collectionPercentage = student.currentInvoice && student.currentInvoice.totalAmount > 0
-    ? Math.round((student.currentInvoice.paidAmount / student.currentInvoice.totalAmount) * 100)
-    : 0
+  const inv = student.currentInvoice
+  const outstanding = inv
+    ? inv.totalAmount - inv.paidAmount
+    : (paymentHistory?.summary.outstanding ?? 0)
+  // A running balance from overpayment/opt-out refund-in-kind — spent
+  // automatically against this student's next generated invoice
+  // (computeInvoice.ts), never shown to parents until then. Surfaced here so
+  // staff know it exists rather than discovering it as a smaller-than-expected
+  // invoice next term.
+  const creditBalance = paymentHistory?.summary.unappliedCredit ?? 0
+
+  // Status line under OUTSTANDING NOW. Green only where the term is fully paid
+  // (money arrived); ochre where a human still owes; neutral when inert.
+  let statusLabel: string
+  let statusColor: string
+  if (inv) {
+    if (inv.status === 'paid') {
+      statusLabel = 'Paid in full'
+      statusColor = 'var(--color-ledger)'
+    } else if (outstanding > 0) {
+      statusLabel = inv.status === 'partial' ? 'Part-paid this term' : 'Not yet paid'
+      statusColor = 'var(--color-ochre-text)'
+    } else {
+      statusLabel = 'Settled'
+      statusColor = 'var(--color-neutral-700)'
+    }
+  } else if (outstanding > 0) {
+    statusLabel = 'Owed from a past term'
+    statusColor = 'var(--color-ochre-text)'
+  } else {
+    statusLabel = 'No invoice this term'
+    statusColor = 'var(--color-neutral-700)'
+  }
+
+  const termLabel = (student.currentTermName || 'This term').toUpperCase()
+  const invLabel = inv?.invoiceNumber ? ` · ${inv.invoiceNumber}` : ''
+
+  // Record panel — status reads as uppercase colour-carrying text, never green
+  // (green is reserved for money that arrived, per the design gate).
+  const statusRecord =
+    student.status === 'active'
+      ? { label: 'ENROLLED', color: 'var(--color-ink)' }
+      : student.status === 'withdrawn'
+        ? { label: 'WITHDRAWN', color: 'var(--color-neutral-700)' }
+        : { label: 'GRADUATED', color: 'var(--color-neutral-700)' }
+
+  const siblingSuffix = student.siblingsTotalCount > 0
+    ? ` · ${student.siblingsTotalCount + 1} children`
+    : ''
 
   return (
-    <main className="px-6 py-6">
-      <div className="max-w-[1440px] mx-auto">
-        <StudentRealtimeRefresh studentId={student.id} />
+    <>
+      <StudentRealtimeRefresh studentId={student.id} />
 
-        {/* Breadcrumb */}
-        <nav className="mb-4 flex items-center gap-2 text-sm text-gray-500">
-          <Link href="/students" className="hover:text-navy">Students</Link>
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-          <span className="text-navy font-medium">{student.firstName} {student.lastName}</span>
-        </nav>
+      <WorkspaceHeader
+        workspaceKey="students"
+        title={`${student.firstName} ${student.lastName}`}
+        back={{ href: '/students', label: 'Students' }}
+      />
 
-        {/* Header card */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 mb-6">
-          <div className="flex items-start justify-between gap-6">
-            
-            <div className="flex items-start gap-4 flex-1">
-              <div className="w-20 h-20 rounded-full bg-mint-light flex items-center justify-center flex-shrink-0">
-                <span className="text-navy text-2xl font-bold">{initials}</span>
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-navy">
-                  {student.firstName} {student.lastName}
-                </h1>
-                <p className="text-sm text-gray-500 mt-1">
-                  {student.className} · Admission #{student.admissionNumber} · Enrolled {formatDate(student.admissionDate)}
-                </p>
-                <span className="inline-flex items-center gap-1 mt-3 px-3 py-1 text-xs font-medium bg-mint-light text-mint rounded-full">
-                  <span className="w-1.5 h-1.5 bg-mint rounded-full"></span>
-                  {student.status === 'active' ? 'Active' : student.status}
-                </span>
-              </div>
-            </div>
+      <div className="px-4 sm:px-7 py-7 m-anim-fade">
 
-            <div className="border-l border-gray-200 pl-6">
-              <HeaderVirtualAccount
-                studentId={student.id}
-                providerConfigured={student.virtualAccount.providerConfigured}
-                hasAccount={student.virtualAccount.hasAccount}
-                accountNumber={student.virtualAccount.accountNumber}
-                bankName={student.virtualAccount.bankName}
-              />
-            </div>
+        {/* Identity header: identity · outstanding · virtual account · actions */}
+        <div
+          style={{
+            borderTop: '2px solid var(--color-ink)',
+            paddingTop: 18,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+            gap: 24,
+            alignItems: 'start',
+          }}
+        >
+          <div className="min-w-0">
+            <p className="text-[11px] tracking-[0.16em] text-[var(--color-neutral-700)] mb-2">
+              {student.className} · {student.admissionNumber}
+            </p>
+            <h2 className="text-[30px] font-extrabold tracking-[-0.02em] leading-none mb-1.5 break-words">
+              {student.firstName} {student.lastName}
+            </h2>
+            <p className="text-[14px] text-[var(--color-neutral-800)]">
+              {student.family.primaryParentName} <span className="text-[var(--color-neutral-400)]">·</span>{' '}
+              <span className="m-num">{student.family.primaryParentPhone}</span>
+            </p>
+          </div>
 
-            <div className="flex flex-col gap-2">
-              <SendReminderButton
-                studentId={student.id}
-                needsResend={student.currentInvoice?.needsResend}
-                sentAt={student.currentInvoice?.sentAt}
-                status={student.currentInvoice?.status}
-              />
-              <ApplyDiscountButton
-                currentInvoiceId={student.currentInvoice?.id ?? null}
-                currentInvoiceSubtotal={student.currentInvoice?.subtotal}
-                currentInvoiceDiscountAmount={student.currentInvoice?.discountAmount}
-                discounts={student.currentInvoice?.revocableDiscounts ?? student.fallbackDiscounts}
-                canAddDiscount={student.currentInvoice?.canAddDiscount ?? false}
-                canFullyRevoke={student.currentInvoice?.canFullyRevokeDiscount ?? student.fallbackCanFullyRevoke}
-              />
-            </div>
+          <div>
+            <p className="text-[11px] tracking-[0.16em] text-[var(--color-neutral-700)] mb-2">OUTSTANDING NOW</p>
+            <p className="text-[34px] font-extrabold leading-[0.95] tracking-[-0.03em] mb-1 m-num">
+              {formatNaira(outstanding)}
+            </p>
+            <p className="text-[13px] font-semibold" style={{ color: statusColor }}>{statusLabel}</p>
+            {creditBalance > 0 && (
+              <p className="text-[13px] font-semibold m-num mt-1" style={{ color: 'var(--color-ledger)' }}>
+                {formatNaira(creditBalance)} credit on file
+              </p>
+            )}
+          </div>
 
+          <HeaderVirtualAccount
+            studentId={student.id}
+            providerConfigured={student.virtualAccount.providerConfigured}
+            hasAccount={student.virtualAccount.hasAccount}
+            accountNumber={student.virtualAccount.accountNumber}
+            bankName={student.virtualAccount.bankName}
+          />
+
+          <div className="flex flex-col gap-2 items-stretch">
+            <SendReminderButton
+              studentId={student.id}
+              needsResend={inv?.needsResend}
+              sentAt={inv?.sentAt}
+              status={inv?.status}
+            />
+            <ApplyDiscountButton
+              currentInvoiceId={inv?.id ?? null}
+              currentInvoiceSubtotal={inv?.subtotal}
+              currentInvoiceDiscountAmount={inv?.discountAmount}
+              discounts={inv?.revocableDiscounts ?? student.fallbackDiscounts}
+              canAddDiscount={inv?.canAddDiscount ?? false}
+              canFullyRevoke={inv?.canFullyRevokeDiscount ?? student.fallbackCanFullyRevoke}
+              discountSettings={discountSettings ?? mergeDiscountSettings('', undefined)}
+              autoApproveThreshold={discountSettings?.approval.thresholdNaira ?? null}
+            />
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
-          <div className="flex gap-6">
-            <Link 
-              href={`/students/${id}`}
-              className={`px-1 py-3 text-sm font-medium ${activeTab === 'overview' ? 'text-navy border-b-2 border-mint' : 'text-gray-500 hover:text-navy'}`}
-            >
-              Overview
-            </Link>
-            <Link 
-              href={`/students/${id}?tab=payments`}
-              className={`px-1 py-3 text-sm font-medium ${activeTab === 'payments' ? 'text-navy border-b-2 border-mint' : 'text-gray-500 hover:text-navy'}`}
-            >
-              Payment History
-            </Link>
-            <Link 
-              href={`/students/${id}?tab=fees`}
-              className={`px-1 py-3 text-sm font-medium ${activeTab === 'fees' ? 'text-navy border-b-2 border-mint' : 'text-gray-500 hover:text-navy'}`}
-            >
-              Fees
-            </Link>
-            <Link 
-              href={`/students/${id}?tab=settings`}
-              className={`px-1 py-3 text-sm font-medium ${activeTab === 'settings' ? 'text-navy border-b-2 border-mint' : 'text-gray-500 hover:text-navy'}`}
-            >
-              Settings
-            </Link>
-          </div>
-        </div>
+        {/* Two-column body: ledger (1.5fr) beside activity/record (1fr) */}
+        <div className="m-2col-profile mt-7">
 
-          {activeTab === 'overview' && (
-            <>
-          {/* Two-column layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          
-          {/* Left: Invoice card */}
-          <div className="lg:col-span-2">
-            <div className="bg-white p-6 rounded-xl border border-gray-200 h-full">
-              <h2 className="text-navy font-semibold text-lg mb-4">
-                {student.currentTermName || 'Current Term'} Invoice
-              </h2>
+          {/* Left column */}
+          <div>
 
-              {!student.currentInvoice ? (
-                <div className="py-8 text-center">
-                  <p className="text-gray-500 text-sm mb-3">No invoice generated for this term yet.</p>
+            {/* This term */}
+            <div className="m-panel">
+              <div className="flex items-baseline justify-between gap-3 mb-1">
+                <h3 className="text-[22px] font-extrabold">This term</h3>
+                <span className="text-[12px] tracking-[0.08em] text-[var(--color-neutral-700)]">{termLabel}{invLabel}</span>
+              </div>
+              <p className="text-[14px] text-[var(--color-neutral-800)] mb-3.5">
+                What was billed, and what has been paid against it.
+              </p>
+
+              {!inv ? (
+                <div className="py-10 text-center border-2 border-dashed border-[var(--color-neutral-300)]">
+                  <p className="text-sm text-[var(--color-neutral-700)] mb-4">No invoice generated for this term yet.</p>
                   <GenerateInvoiceButton
                     studentId={student.id}
                     studentName={`${student.firstName} ${student.lastName}`}
@@ -179,212 +212,246 @@ export default async function StudentDetailPage({ params, searchParams }: PagePr
                 </div>
               ) : (
                 <>
-                  <table className="w-full mb-4">
-                    <thead>
-                      <tr className="border-b border-gray-100">
-                        <th className="text-left text-xs text-gray-500 font-medium uppercase pb-2">Item</th>
-                        <th className="text-right text-xs text-gray-500 font-medium uppercase pb-2">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-sm">
-                      {(student.currentInvoice.lineItems as Array<{name: string, amount: number}>).map((item, idx) => (
-                        <tr key={idx} className="border-b border-gray-50">
-                          <td className="py-2 text-navy">{item.name}</td>
-                          <td className="py-2 text-right text-navy">{formatNaira(Number(item.amount))}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="text-sm">
-                      <tr>
-                        <td className="pt-3 text-navy">Subtotal</td>
-                        <td className="pt-3 text-right text-navy">{formatNaira(student.currentInvoice.subtotal)}</td>
-                      </tr>
-                      {student.currentInvoice.discountAmount > 0 && (
-                        <tr>
-                          <td className="py-1 text-gray-600">
-                            Discount
-                            {student.currentInvoice.discountReason && (
-                              <span className="block text-xs text-gray-400 font-normal">{student.currentInvoice.discountReason}</span>
-                            )}
-                          </td>
-                          <td className="py-1 text-right text-navy align-top">-{formatNaira(student.currentInvoice.discountAmount)}</td>
-                        </tr>
-                      )}
-                      <tr>
-                        <td className="pt-3 text-navy font-semibold">Total</td>
-                        <td className="pt-3 text-right text-navy font-bold">{formatNaira(student.currentInvoice.totalAmount)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                  {(inv.lineItems as Array<{ name: string, amount: number }>).map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="grid gap-3.5 items-baseline py-2.5 border-t border-[var(--color-neutral-300)]"
+                      style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}
+                    >
+                      <span className="text-[14px] text-[var(--color-ink)]">{item.name}</span>
+                      <span className="text-[14px] m-num text-right text-[var(--color-ink)]" style={{ minWidth: 96 }}>
+                        {formatNaira(Number(item.amount))}
+                      </span>
+                    </div>
+                  ))}
 
-                  <div className="pt-4 border-t border-gray-100">
-                    <div className="flex items-end justify-between mb-3">
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Paid</p>
-                        <p className={`text-2xl font-bold ${student.currentInvoice.status === 'paid' ? 'text-mint' : 'text-navy'}`}>
-                          {formatNaira(student.currentInvoice.paidAmount)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Outstanding</p>
-                        <p className={`text-2xl font-bold ${outstanding > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
-                          {formatNaira(outstanding)}
-                        </p>
-                      </div>
-                      <div>
-                        {student.currentInvoice.status === 'paid' ? (
-                          <span className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium bg-mint-light text-mint rounded-full">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                            Paid in Full
-                          </span>
-                        ) : student.currentInvoice.status === 'partial' ? (
-                          <span className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium bg-amber-100 text-amber-700 rounded-full">
-                            Partial Payment
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium bg-red-100 text-red-700 rounded-full">
-                            Unpaid
-                          </span>
+                  {inv.discountAmount > 0 && (
+                    <div
+                      className="grid gap-3.5 items-baseline py-2.5 border-t border-[var(--color-neutral-300)]"
+                      style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}
+                    >
+                      <span className="text-[14px] text-[var(--color-neutral-800)]">
+                        Discount
+                        {inv.discountReason && (
+                          <span className="block text-[12px] text-[var(--color-neutral-700)]">{inv.discountReason}</span>
                         )}
-                      </div>
+                      </span>
+                      <span className="text-[14px] m-num text-right text-[var(--color-ink)]" style={{ minWidth: 96 }}>
+                        − {formatNaira(inv.discountAmount)}
+                      </span>
                     </div>
+                  )}
 
-                    <div className="w-full bg-gray-100 rounded-full h-2 mb-2">
-                      <div 
-                        className={`h-2 rounded-full ${student.currentInvoice.status === 'paid' ? 'bg-mint' : 'bg-amber-500'}`}
-                        style={{ width: `${collectionPercentage}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-gray-500">
-                      {collectionPercentage}% paid
-                      {student.currentInvoice.fullyPaidAt && ` · Fully paid on ${formatDate(student.currentInvoice.fullyPaidAt)}`}
-                    </p>
+                  <div
+                    className="grid gap-3.5 py-3"
+                    style={{ gridTemplateColumns: 'minmax(0,1fr) auto', borderTop: '2px solid var(--color-ink)' }}
+                  >
+                    <span className="text-[14px] font-extrabold">Total billed</span>
+                    <span className="text-[16px] font-extrabold m-num text-right">{formatNaira(inv.totalAmount)}</span>
+                  </div>
+
+                  <div
+                    className="grid gap-3.5 py-2.5 border-t border-[var(--color-neutral-300)]"
+                    style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}
+                  >
+                    <span className="text-[14px] text-[var(--color-neutral-800)]">Paid so far</span>
+                    <span
+                      className="text-[14px] font-semibold m-num text-right"
+                      style={{ color: inv.paidAmount > 0 ? 'var(--color-ledger)' : 'var(--color-neutral-700)' }}
+                    >
+                      {inv.paidAmount > 0 ? '− ' : ''}{formatNaira(inv.paidAmount)}
+                    </span>
+                  </div>
+
+                  <div
+                    className="grid gap-3.5 pt-3 border-t border-[var(--color-neutral-300)]"
+                    style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}
+                  >
+                    <span className="text-[15px] font-extrabold">Still to pay</span>
+                    <span
+                      className="text-[20px] font-extrabold m-num text-right"
+                      style={{ color: outstanding > 0 ? 'var(--color-ochre-text)' : 'var(--color-neutral-700)' }}
+                    >
+                      {formatNaira(outstanding)}
+                    </span>
                   </div>
                 </>
               )}
             </div>
+
+            {/* Every term, every payment */}
+            <div className="m-panel">
+              <h3 className="text-[22px] font-extrabold mb-1">Every term, every payment</h3>
+              <p className="text-[14px] text-[var(--color-neutral-800)] mb-3.5" style={{ maxWidth: '62ch' }}>
+                Every term of history as one continuous ledger rather than a stack of expandable cards — read down a
+                column to see whether this family usually pays on time.
+              </p>
+
+              {!paymentHistory || paymentHistory.invoices.length === 0 ? (
+                <p className="text-sm text-[var(--color-neutral-700)] py-2">No invoices yet for this student.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <div
+                    className="grid gap-2.5 pb-2"
+                    style={{ gridTemplateColumns: LEDGER_GRID, minWidth: 380, borderBottom: '2px solid var(--color-ink)' }}
+                  >
+                    <span className={LEDGER_LABEL}>TERM</span>
+                    <span className={`${LEDGER_LABEL} text-right`}>BILLED</span>
+                    <span className={`${LEDGER_LABEL} text-right`}>PAID</span>
+                    <span className={`${LEDGER_LABEL} text-right`}>SETTLED</span>
+                  </div>
+                  {paymentHistory.invoices.map(row => {
+                    const settled = row.status === 'paid'
+                    return (
+                      <div
+                        key={row.id}
+                        className="grid gap-2.5 items-baseline py-[11px] border-b border-[var(--color-neutral-300)]"
+                        style={{ gridTemplateColumns: LEDGER_GRID, minWidth: 380 }}
+                      >
+                        <span className="text-[14px] font-semibold">{row.termName}</span>
+                        <span className="text-[14px] text-right m-num text-[var(--color-neutral-800)]">{formatNaira(row.totalAmount)}</span>
+                        <span
+                          className="text-[14px] text-right m-num"
+                          style={{ color: row.paidAmount > 0 ? 'var(--color-ledger)' : 'var(--color-neutral-700)' }}
+                        >
+                          {formatNaira(row.paidAmount)}
+                        </span>
+                        <span
+                          className="text-[13px] text-right m-num"
+                          style={{ color: settled ? 'var(--color-neutral-700)' : 'var(--color-ochre-text)' }}
+                        >
+                          {settled ? formatDate(row.fullyPaidAt) : 'Owing'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Fees management re-homed here from the former Fees tab. Kept in
+                the left column, right after this term's ledger, rather than
+                below the whole two-column row — the right column (Activity +
+                Record + Siblings) can run much taller than this column for a
+                large family, and a sibling-after-the-grid element would then
+                render below the taller column instead of this one, leaving a
+                dead gap under "Every term, every payment" with the fee
+                structure pushed out of view. */}
+            <div className="m-panel mt-7">
+              <h3 className="text-[22px] font-extrabold mb-1">Fees this term</h3>
+              <p className="text-[14px] text-[var(--color-neutral-800)] mb-5">
+                Manage what this student is billed, and generate or update the invoice.
+              </p>
+              {feesData ? (
+                <StudentFeesTab data={feesData} />
+              ) : (
+                <p className="text-[14px] text-[var(--color-signal-text)]">
+                  Couldn't load this student's fees. Refresh the page — if it keeps happening, contact support.
+                </p>
+              )}
+            </div>
+
           </div>
 
-          {/* Right: Family card */}
+          {/* Right column */}
           <div>
-            <div className="bg-white p-6 rounded-xl border border-gray-200 h-full">
-              <h2 className="text-navy font-semibold text-lg mb-4">Family</h2>
-              
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Primary parent</p>
-                <p className="text-base font-semibold text-navy mb-3">{student.family.primaryParentName}</p>
-                
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <svg className="w-4 h-4 text-mint flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                    </svg>
-                    <span className="text-navy">{student.family.primaryParentPhone}</span>
-                  </div>
-                  {student.family.primaryParentEmail && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                      </svg>
-                      <span className="text-navy break-all">{student.family.primaryParentEmail}</span>
-                    </div>
-                  )}
-                </div>
+            <StudentActivityTimeline
+              studentId={student.id}
+              studentName={`${student.firstName} ${student.lastName}`}
+              parentName={student.family.primaryParentName}
+            />
 
-                {student.family.secondaryParentName && (
-                  <div className="mt-4 pt-4 border-t border-gray-100">
-                    <p className="text-xs text-gray-500 mb-1">Secondary parent</p>
-                    <p className="text-base font-semibold text-navy mb-2">{student.family.secondaryParentName}</p>
-                    {student.family.secondaryParentPhone && (
-                      <p className="text-sm text-gray-700">{student.family.secondaryParentPhone}</p>
-                    )}
-                    {student.family.secondaryParentEmail && (
-                      <p className="text-sm text-gray-700 break-all">{student.family.secondaryParentEmail}</p>
-                    )}
-                  </div>
-                )}
-              </div>
+            {/* Record */}
+            <div className="m-panel">
+              <h3 className="text-[18px] font-extrabold mb-1">Record</h3>
+              <p className="text-[13px] text-[var(--color-neutral-800)] mb-3">
+                Everything editable about this student, in one place.
+              </p>
 
-                {student.siblings.length > 0 && (
-                <div className="mt-6 pt-6 border-t border-gray-100">
-                    <p className="text-xs text-gray-500 mb-2">
-                      Siblings at this school
-                      {student.siblingsTotalCount > student.siblings.length && (
-                        <span className="text-gray-400"> (showing {student.siblings.length} of {student.siblingsTotalCount})</span>
-                      )}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                    {student.siblings.map(sibling => {
-                        const statusDot =
-                          sibling.invoiceStatus === 'paid' ? 'bg-mint' :
-                          sibling.invoiceStatus === 'partial' ? 'bg-amber-500' :
-                          sibling.invoiceStatus === 'pending' ? 'bg-red-500' :
-                          'bg-gray-300'
-                        const statusLabel =
-                          sibling.invoiceStatus === 'paid' ? 'Paid' :
-                          sibling.invoiceStatus === 'partial' ? 'Partial' :
-                          sibling.invoiceStatus === 'pending' ? 'Unpaid' :
-                          'No invoice'
-                        return (
-                          <Link
-                            key={sibling.id}
-                            href={`/students/${sibling.id}`}
-                            title={`${sibling.firstName} ${sibling.lastName} · ${sibling.className} · ${statusLabel}`}
-                            className="inline-flex items-center gap-1.5 pl-1 pr-2 py-1 border border-gray-100 rounded-full text-xs hover:bg-gray-50 hover:border-gray-200 group max-w-[9.5rem]"
-                          >
-                            <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot}`} />
-                            <span className="font-medium text-navy truncate">{sibling.firstName} {sibling.lastName}</span>
-                          </Link>
-                        )
-                    })}
-                    </div>
-                </div>
-                )}
+              <RecordRow label="Status">
+                <span className="text-[12px] font-semibold uppercase" style={{ color: statusRecord.color, letterSpacing: '0.08em' }}>
+                  {statusRecord.label}
+                </span>
+              </RecordRow>
+              <RecordRow label="Class">
+                <span className="text-[13px]">{student.className || '—'}</span>
+              </RecordRow>
+              <RecordRow label="Family">
+                <span className="text-[13px]">{student.family.primaryParentName}{siblingSuffix}</span>
+              </RecordRow>
+              <RecordRow label="Admitted">
+                <span className="text-[13px] m-num">{formatDate(student.admissionDate)}</span>
+              </RecordRow>
+              <RecordRow label="Notes">
+                <span className="text-[13px] text-right" style={{ color: student.family.notes ? 'var(--color-ink)' : 'var(--color-neutral-500)' }}>
+                  {student.family.notes ? student.family.notes : 'None'}
+                </span>
+              </RecordRow>
 
-              <div className="mt-6 pt-6 border-t border-gray-100">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs text-gray-500">Notes</p>
-                  <button className="text-xs text-mint font-medium hover:underline flex items-center gap-1">
-                    Edit notes
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                </div>
-                {student.family.notes ? (
-                  <p className="text-sm text-gray-700">{student.family.notes}</p>
-                ) : (
-                  <p className="text-sm text-gray-400 italic">No notes yet</p>
-                )}
-              </div>
+              <EditRecordDrawer student={student} />
             </div>
+
+            {/* Siblings — re-homed from the former family panel; each links to
+                its own profile, with this term's invoice state as colour text. */}
+            {student.siblings.length > 0 && (
+              <div className="m-panel">
+                <h3 className="text-[18px] font-extrabold mb-1">Siblings</h3>
+                <p className="text-[13px] text-[var(--color-neutral-800)] mb-3">
+                  {student.siblingsTotalCount} other{student.siblingsTotalCount === 1 ? '' : 's'} in this family, and where they stand this term.
+                </p>
+                {/* Capped so a large family (this list already caps at
+                    SIBLINGS_LIMIT=20) scrolls inside its own panel instead of
+                    stretching the whole right column past the left column's
+                    content. */}
+                <div className="overflow-y-auto" style={{ maxHeight: 420 }}>
+                {student.siblings.map(sib => {
+                  const sc = sib.invoiceStatus === 'paid'
+                    ? { label: 'Paid', color: 'var(--color-ledger)' }
+                    : sib.invoiceStatus === 'partial'
+                      ? { label: 'Partial', color: 'var(--color-ochre-text)' }
+                      : sib.invoiceStatus === 'pending'
+                        ? { label: 'Unpaid', color: 'var(--color-ochre-text)' }
+                        : { label: 'No invoice', color: 'var(--color-neutral-700)' }
+                  return (
+                    <a
+                      key={sib.id}
+                      href={`/students/${sib.id}`}
+                      className="grid gap-2.5 items-baseline py-2.5 border-t border-[var(--color-neutral-300)] hover:bg-[color-mix(in_srgb,var(--color-ink)_4%,transparent)]"
+                      style={{ gridTemplateColumns: '1fr auto' }}
+                    >
+                      <span className="min-w-0">
+                        <span className="text-[13px] font-semibold text-[var(--color-ink)]">{sib.firstName} {sib.lastName}</span>
+                        {sib.className && <span className="text-[12px] text-[var(--color-neutral-700)]"> · {sib.className}</span>}
+                      </span>
+                      <span className="text-[12px] font-semibold uppercase" style={{ color: sc.color, letterSpacing: '0.08em' }}>{sc.label}</span>
+                    </a>
+                  )
+                })}
+                {student.siblingsTotalCount > student.siblings.length && (
+                  <p className="text-[12px] text-[var(--color-neutral-700)] pt-2.5 border-t border-[var(--color-neutral-300)]">
+                    +{student.siblingsTotalCount - student.siblings.length} more not shown
+                  </p>
+                )}
+                </div>
+              </div>
+            )}
           </div>
 
         </div>
-
-        {/* Full-width activity timeline */}
-                <StudentActivityTimeline 
-                  studentId={student.id}
-                  studentName={`${student.firstName} ${student.lastName}`}
-                  parentName={student.family.primaryParentName}
-                />
-          </>
-        )}
-
-        {activeTab === 'settings' && (
-          <StudentSettingsTab student={student} />
-        )}
-
-        {activeTab === 'payments' && paymentHistory && (
-          <StudentPaymentHistoryTab data={paymentHistory} />
-        )}
-        {activeTab === 'fees' && feesData && (
-          <StudentFeesTab data={feesData} />
-        )}
-
       </div>
-    </main>
+    </>
+  )
+}
+
+// A hairline-topped label/value row for the Record panel (grid 1fr / auto).
+function RecordRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="grid gap-2.5 py-2.5 items-baseline border-t border-[var(--color-neutral-300)]"
+      style={{ gridTemplateColumns: '1fr auto' }}
+    >
+      <span className="text-[13px] text-[var(--color-neutral-800)]">{label}</span>
+      {children}
+    </div>
   )
 }

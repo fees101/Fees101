@@ -4,6 +4,7 @@
 
 import { getPaymentProviderForSchool } from './getProvider'
 import { PaymentProvider } from './types'
+import { isProviderDownError, providerDownMessage } from './providerErrors'
 import { createJob, findRunningJob } from '@/lib/jobs/backgroundJobs'
 
 // Core: create the DVA at the provider (with a retry + lost-response recovery)
@@ -156,6 +157,16 @@ export async function processBulkDVAChunk(
       await provisionStudentDVA(supabase, schoolId, provider, s.id, fullName)
       created++
     } catch (err: any) {
+      if (isProviderDownError(err)) {
+        // The provider itself is unreachable, not rejecting this specific
+        // student — retrying the rest of the chunk against a dead endpoint
+        // just produces N identical noisy failures. Stop here and leave the
+        // untried students unprocessed (not failed) so the job's own
+        // resume-from-N+1 logic picks them back up once the outage clears,
+        // instead of permanently marking them as errors.
+        failures.push({ label: 'Provider outage', error: providerDownMessage(provider.name) })
+        break
+      }
       failures.push({ label: fullName || s.id, error: err?.message || 'unknown error' })
     }
   }

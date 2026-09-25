@@ -1,7 +1,3 @@
-'use client'
-
-import { useState } from 'react'
-
 interface ClassData {
   class: string
   studentCount: number
@@ -16,152 +12,41 @@ interface CollectionChartProps {
   data: ClassData[]
 }
 
-function formatNaira(value: number): string {
-  return '₦' + value.toLocaleString('en-NG')
-}
-
-type View = 'bullet' | 'table'
-
-const LABEL_COL = '120px'
-const VALUE_COL = '52px'
-const GRID_COLS = `${LABEL_COL} 1fr ${VALUE_COL}`
-
-function RowTooltip({ cls }: { cls: ClassData }) {
-  return (
-    <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 transition-opacity absolute left-0 top-full mt-1 z-20 bg-navy text-white text-xs rounded-lg px-3 py-2 shadow-lg whitespace-nowrap">
-      <p className="font-semibold mb-1">{cls.class}</p>
-      <p>Collected: {formatNaira(cls.collected)}</p>
-      <p>Expected: {formatNaira(cls.expected)}</p>
-      {cls.outstanding > 0 && <p>Outstanding: {formatNaira(cls.outstanding)}</p>}
-      <p className="text-gray-300 mt-1">
-        {cls.studentCount} {cls.studentCount === 1 ? 'student' : 'students'} · {cls.invoicedCount} invoiced
-      </p>
-    </div>
-  )
-}
-
 export default function CollectionChart({ data }: CollectionChartProps) {
-  const [view, setView] = useState<View>('bullet')
-
-  if (data.length === 0) {
-    return (
-      <div className="bg-white p-6 rounded-xl border border-gray-200">
-        <h2 className="text-navy font-semibold text-lg mb-2">Collection by class</h2>
-        <p className="text-gray-500 text-sm">No invoices yet for current term.</p>
-      </div>
-    )
-  }
-
-  // Invoice-based "collected" can never exceed 100% of what's billed (excess
-  // rolls forward as credit rather than counting toward this term), so the
-  // scale just needs fixed headroom past the 100% target line.
-  const scaleMax = 120
-  const targetLeft = (100 / scaleMax) * 100
+  // Worst first: the classes furthest from collected sit at the top, where
+  // they need attention, not in roster order.
+  const rows = [...data].sort((a, b) => a.percentage - b.percentage)
 
   return (
-    <div className="bg-white p-6 rounded-xl border border-gray-200">
-      <div className="flex items-center justify-between mb-1 gap-3 flex-wrap">
-        <div>
-          <h2 className="text-navy font-semibold text-lg">Collection by class</h2>
-          <p className="text-gray-500 text-xs mt-0.5">Current term, by class order</p>
-        </div>
-        <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 flex-shrink-0">
-          {(['bullet', 'table'] as View[]).map(v => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              className={`text-xs font-medium rounded-md px-2.5 py-1.5 capitalize transition-colors ${
-                view === v ? 'bg-white text-navy shadow-sm' : 'text-gray-500 hover:text-navy'
-              }`}
+    <section className="m-panel">
+      <h2 className="text-[22px] font-extrabold text-[var(--color-ink)] mb-1">Collection by class</h2>
+      <p className="text-[14px] text-[var(--color-neutral-800)] mb-4">
+        Green is collected, ochre is outstanding. Sorted worst first — the point of the chart is to find the problem class.
+      </p>
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-[var(--color-neutral-700)]">No invoices yet for the current term.</p>
+      ) : (
+        rows.map(cls => {
+          const collectedPct = cls.expected > 0 ? Math.min(100, (cls.collected / cls.expected) * 100) : 0
+          const outstandingPct = cls.expected > 0 ? Math.max(0, 100 - collectedPct) : 0
+          return (
+            <div
+              key={cls.class}
+              className="grid items-center gap-3.5 py-[7px]"
+              style={{ gridTemplateColumns: '76px minmax(0,1fr) 54px' }}
+              title={`${cls.class}: ${cls.percentage}% collected · ${cls.outstanding.toLocaleString('en-NG')} outstanding`}
             >
-              {v === 'bullet' ? 'Bullet' : 'Table'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {view === 'bullet' && (
-        <>
-          <div className="mt-4 space-y-2">
-            {data.map(cls => {
-              const barWidth = (cls.percentage / scaleMax) * 100
-              const band1 = (50 / scaleMax) * 100
-              const band2 = (80 / scaleMax) * 100
-              return (
-                <div
-                  key={cls.class}
-                  tabIndex={0}
-                  className="group relative grid items-center gap-2 outline-none rounded-lg focus-visible:ring-2 focus-visible:ring-mint"
-                  style={{ gridTemplateColumns: GRID_COLS }}
-                >
-                  <p className="text-sm font-medium text-navy truncate">{cls.class}</p>
-
-                  {/* Qualitative zone bands (red/amber/green) with the navy measure bar on top and a target tick at 100%. */}
-                  <div className="relative h-5 flex items-center">
-                    <div className="absolute inset-0 flex rounded-sm overflow-hidden">
-                      <div className="h-full bg-red-500/20" style={{ width: `${band1}%` }} />
-                      <div className="h-full bg-amber-500/20" style={{ width: `${band2 - band1}%` }} />
-                      <div className="h-full bg-mint/25" style={{ width: `${100 - band2}%` }} />
-                    </div>
-                    <div
-                      className="relative h-2 rounded-r-sm bg-navy"
-                      style={{ width: `${barWidth}%` }}
-                    />
-                    {/* Comparative marker — the term target, taller than the measure bar so it reads as a tick. */}
-                    <div
-                      className="absolute top-0 bottom-0 w-0.5 bg-navy/70"
-                      style={{ left: `${targetLeft}%` }}
-                    />
-                  </div>
-
-                  <p className="text-sm font-semibold text-navy text-right tabular-nums">
-                    {cls.percentage}%
-                  </p>
-
-                  <RowTooltip cls={cls} />
-                </div>
-              )
-            })}
-          </div>
-          <p className="text-[11px] text-gray-400 mt-3">
-            Navy bar = collected. Tick = term target (100%). Band shade = zone (red under 50%, amber 50–79%, green 80%+).
-          </p>
-        </>
+              <span className="text-[13px] font-semibold text-[var(--color-ink)] truncate">{cls.class}</span>
+              <span className="flex h-3.5 w-full bg-[var(--color-neutral-200)]">
+                <span className="h-full bg-[var(--color-ledger)]" style={{ width: `${collectedPct}%` }} />
+                <span className="h-full bg-[var(--color-ochre)]" style={{ width: `${outstandingPct}%` }} />
+              </span>
+              <span className="text-[13px] text-[var(--color-neutral-800)] text-right m-num">{cls.percentage}%</span>
+            </div>
+          )
+        })
       )}
-
-      {view === 'table' && (
-        <div className="mt-4 -mx-1">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-400 text-xs border-b border-gray-100">
-                <th className="font-medium py-2 px-1">Class</th>
-                <th className="font-medium py-2 px-1 text-right">Students</th>
-                <th className="font-medium py-2 px-1 text-right">Invoiced</th>
-                <th className="font-medium py-2 px-1 text-right">Collected</th>
-                <th className="font-medium py-2 px-1 text-right">Expected</th>
-                <th className="font-medium py-2 px-1 text-right">Outstanding</th>
-                <th className="font-medium py-2 px-1 text-right">%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map(cls => (
-                <tr key={cls.class} className="border-b border-gray-50 last:border-0">
-                  <td className="py-2 px-1 text-navy font-medium">{cls.class}</td>
-                  <td className="py-2 px-1 text-right text-gray-500 tabular-nums">{cls.studentCount}</td>
-                  <td className="py-2 px-1 text-right text-gray-500 tabular-nums">{cls.invoicedCount}</td>
-                  <td className="py-2 px-1 text-right text-navy tabular-nums">{formatNaira(cls.collected)}</td>
-                  <td className="py-2 px-1 text-right text-gray-500 tabular-nums">{formatNaira(cls.expected)}</td>
-                  <td className="py-2 px-1 text-right text-gray-500 tabular-nums">{formatNaira(cls.outstanding)}</td>
-                  <td className="py-2 px-1 text-right font-semibold text-navy tabular-nums">
-                    {cls.percentage}%
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+    </section>
   )
 }

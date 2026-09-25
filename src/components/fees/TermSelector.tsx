@@ -11,16 +11,10 @@ interface Props {
   paramName?: string
 }
 
-function statusBadgeClasses(status: 'draft' | 'active' | 'closed') {
-  if (status === 'active') return 'bg-mint-light text-mint'
-  if (status === 'draft') return 'bg-amber-50 text-amber-700'
-  return 'bg-gray-100 text-gray-500'
-}
-
-function statusDot(status: 'draft' | 'active' | 'closed') {
-  if (status === 'active') return 'bg-mint'
-  if (status === 'draft') return 'bg-amber-500'
-  return 'bg-gray-400'
+function statusColor(status: 'draft' | 'active' | 'closed') {
+  if (status === 'active') return 'var(--color-ink)'
+  if (status === 'draft') return 'var(--color-ochre-text)'
+  return 'var(--color-neutral-500)'
 }
 
 export default function TermSelector({ cycles, currentCycleId, paramName = 'cycle' }: Props) {
@@ -42,8 +36,8 @@ export default function TermSelector({ cycles, currentCycleId, paramName = 'cycl
     }
   }, [open])
 
-  const current = cycles.find(c => c.id === currentCycleId) 
-    || cycles.find(c => c.status === 'active') 
+  const current = cycles.find(c => c.id === currentCycleId)
+    || cycles.find(c => c.status === 'active')
     || cycles.find(c => c.status === 'draft')
     || cycles[0]
 
@@ -76,10 +70,7 @@ export default function TermSelector({ cycles, currentCycleId, paramName = 'cycl
 
   if (!current) {
     return (
-      <Link
-        href="/fees/cycles"
-        className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
-      >
+      <Link href="/fees/cycles" className="m-btn m-btn-primary">
         + Create first term
       </Link>
     )
@@ -89,41 +80,31 @@ export default function TermSelector({ cycles, currentCycleId, paramName = 'cycl
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 min-w-[280px]"
+        className="flex items-center gap-2 px-4 py-2 border border-[var(--color-neutral-300)] text-sm hover:border-[var(--color-ink)] min-w-[240px] sm:min-w-[280px]"
       >
-        <span className={`w-1.5 h-1.5 rounded-full ${statusDot(current.status)}`}></span>
-        <span className="text-navy font-medium flex-1 text-left">{current.name}</span>
-        <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadgeClasses(current.status)}`}>
-          {current.status}
-        </span>
-        <svg className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+        <span className="text-[var(--color-ink)] font-medium flex-1 text-left truncate">{current.name}</span>
+        <span className="text-xs font-semibold uppercase" style={{ letterSpacing: '0.08em', color: statusColor(current.status) }}>{current.status}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] flex-shrink-0">{open ? 'Hide' : 'Show'}</span>
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 mt-1 w-[360px] bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-[400px] overflow-y-auto">
+        <div className="absolute top-full right-0 mt-1 w-[min(360px,90vw)] bg-[var(--color-paper)] border-2 border-[var(--color-ink)] z-50 max-h-[400px] overflow-y-auto m-anim-scale">
 
           {Object.entries(grouped).map(([sessionName, sessionCycles]) => (
             <div key={sessionName}>
-              <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 sticky top-0">
-                <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">{sessionName}</p>
+              <div className="px-3 py-2 bg-[var(--color-surface)] border-b border-[var(--color-neutral-300)] sticky top-0">
+                <p className="text-[11px] text-[var(--color-neutral-700)] uppercase tracking-wider font-semibold">{sessionName}</p>
               </div>
               {sessionCycles.map(c => (
                 <button
                   key={c.id}
                   onClick={() => selectCycle(c.id)}
-                  className={`w-full px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-gray-50 ${
-                    c.id === current.id ? 'bg-mint-light/40' : ''
+                  className={`w-full px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-[var(--color-surface)] border-b border-[var(--color-neutral-300)] last:border-0 ${
+                    c.id === current.id ? 'bg-[var(--color-surface)]' : ''
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot(c.status)}`}></span>
-                    <span className="text-sm text-navy truncate text-left">{c.name}</span>
-                  </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${statusBadgeClasses(c.status)}`}>
-                    {c.status}
-                  </span>
+                  <span className="text-sm text-[var(--color-ink)] truncate text-left flex-1">{c.name}</span>
+                  <span className="text-xs font-semibold uppercase flex-shrink-0" style={{ letterSpacing: '0.08em', color: statusColor(c.status) }}>{c.status}</span>
                 </button>
               ))}
             </div>
@@ -131,39 +112,31 @@ export default function TermSelector({ cycles, currentCycleId, paramName = 'cycl
 
           {ungrouped.length > 0 && (
             <div>
-              <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
-                <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">No session</p>
+              <div className="px-3 py-2 bg-[var(--color-surface)] border-b border-[var(--color-neutral-300)]">
+                <p className="text-[11px] text-[var(--color-neutral-700)] uppercase tracking-wider font-semibold">No session</p>
               </div>
               {ungrouped.map(c => (
                 <button
                   key={c.id}
                   onClick={() => selectCycle(c.id)}
-                  className={`w-full px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-gray-50 ${
-                    c.id === current.id ? 'bg-mint-light/40' : ''
+                  className={`w-full px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-[var(--color-surface)] border-b border-[var(--color-neutral-300)] last:border-0 ${
+                    c.id === current.id ? 'bg-[var(--color-surface)]' : ''
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot(c.status)}`}></span>
-                    <span className="text-sm text-navy truncate text-left">{c.name}</span>
-                  </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${statusBadgeClasses(c.status)}`}>
-                    {c.status}
-                  </span>
+                  <span className="text-sm text-[var(--color-ink)] truncate text-left flex-1">{c.name}</span>
+                  <span className="text-xs font-semibold uppercase flex-shrink-0" style={{ letterSpacing: '0.08em', color: statusColor(c.status) }}>{c.status}</span>
                 </button>
               ))}
             </div>
           )}
 
-          <div className="border-t border-gray-100 sticky bottom-0 bg-white">
+          <div className="border-t-2 border-[var(--color-ink)] sticky bottom-0 bg-[var(--color-paper)]">
             <Link
               href="/fees/cycles"
-              className="flex items-center gap-2 px-3 py-3 hover:bg-gray-50 text-sm text-mint font-medium"
+              className="flex items-center gap-2 px-3 py-3 hover:bg-[var(--color-surface)] text-sm font-semibold text-[var(--color-ink)]"
               onClick={() => setOpen(false)}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              Manage terms & sessions
+              Manage terms &amp; sessions
             </Link>
           </div>
 

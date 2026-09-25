@@ -171,6 +171,11 @@ export const SUB_PROCESSORS: SubProcessor[] = [
     data: 'Student/invoice references, amounts, virtual account details',
   },
   {
+    name: 'Paystack',
+    purpose: 'Bank transfer collection & virtual accounts',
+    data: 'Student/invoice references, amounts, virtual account details',
+  },
+  {
     name: 'Sendchamp',
     purpose: 'SMS delivery',
     data: 'Parent phone numbers and message contents',

@@ -35,6 +35,7 @@ export type MessageType =
   | 'reminder_advance' | 'reminder_due' | 'reminder_overdue'
   | 'manual'
   | 'invite'
+  | 'phone_verify'
 
 interface SendContext {
   // RLS-scoped or service-role Supabase client, provided by the caller.

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-// Shared "download this data as CSV" button. Hits /reports/export?type=… with
+// Shared "download this data as CSV" button. Hits /money/reports/export?type=… with
 // whatever scope params the caller passes, then saves the streamed file using
 // the filename the route sets. The route also logs the download for the audit
 // history, so we refresh server components after a successful save to keep the
@@ -39,7 +39,7 @@ export default function ExportCsvButton({
       for (const [k, v] of Object.entries(params)) {
         if (v) search.set(k, v)
       }
-      const res = await fetch(`/reports/export?${search.toString()}`)
+      const res = await fetch(`/money/reports/export?${search.toString()}`)
       if (!res.ok) {
         const body = await res.json().catch(() => null)
         throw new Error(body?.error || `Export failed (${res.status})`)
@@ -66,22 +66,14 @@ export default function ExportCsvButton({
     }
   }
 
-  const base =
-    'inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium py-2 px-3.5 disabled:opacity-50 transition-colors'
-  const tone =
-    variant === 'primary'
-      ? 'bg-navy text-white hover:bg-navy/90'
-      : 'border border-gray-200 text-navy bg-white hover:bg-gray-50'
+  const tone = variant === 'primary' ? 'm-btn-primary' : 'm-btn-outline'
 
   return (
     <span className={`flex flex-col ${block ? 'items-stretch w-full' : 'inline-flex items-end'}`}>
-      <button onClick={download} disabled={downloading} className={`${base} ${tone} ${className}`}>
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-        </svg>
+      <button onClick={download} disabled={downloading} className={`m-btn ${tone} ${block ? 'w-full' : ''} ${className}`}>
         {downloading ? 'Preparing…' : label}
       </button>
-      {error && <span className="text-xs text-red-500 mt-1">{error}</span>}
+      {error && <span className="text-xs text-[var(--color-signal-text)] mt-1">{error}</span>}
     </span>
   )
 }

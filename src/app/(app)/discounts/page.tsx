@@ -1,9 +1,13 @@
 import { redirect } from 'next/navigation'
-import { getPendingDiscountRequests, getActiveRecurringDiscounts } from '@/lib/queries/discountRequests'
-import DiscountRequestsList from '@/components/discounts/DiscountRequestsList'
-import ActiveRecurringDiscountsList from '@/components/discounts/ActiveRecurringDiscountsList'
+import { getPendingDiscountRequests, getActiveRecurringDiscounts, getRecentDecidedDiscountRequests } from '@/lib/queries/discountRequests'
+import DiscountQueue from '@/components/discounts/DiscountQueue'
 import DiscountsRealtimeRefresh from '@/components/discounts/DiscountsRealtimeRefresh'
+import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
+import AccessDenied from '@/components/layout/AccessDenied'
 import { getAuthContext, can } from '@/lib/auth/permissions'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = { title: 'Discounts' }
 
 export default async function DiscountsPage() {
   const ctx = await getAuthContext()
@@ -11,40 +15,34 @@ export default async function DiscountsPage() {
   // Reachable with either permission: approve-discounts needs this page to do
   // its job (there's no separate approval route), so it can't be gated behind
   // see-discounts alone.
-  if (!can(ctx, 'see-discounts') && !can(ctx, 'approve-discounts')) redirect('/dashboard')
+  if (!can(ctx, 'see-discounts') && !can(ctx, 'approve-discounts')) {
+    return (
+      <>
+        <WorkspaceHeader workspaceKey="discounts" title="Discounts" />
+        <AccessDenied ctx={ctx} label="see or approve discounts" />
+      </>
+    )
+  }
 
-  // Whether the approve/reject controls render — enforced again server-side in
-  // discounts/actions.ts.
+  // Whether the approve/reject/revoke controls render — enforced again
+  // server-side in discounts/actions.ts.
   const canApprove = can(ctx, 'approve-discounts')
 
-  const [requests, recurring] = await Promise.all([
+  const [requests, recurring, decided] = await Promise.all([
     getPendingDiscountRequests(),
     getActiveRecurringDiscounts(),
+    getRecentDecidedDiscountRequests(),
   ])
 
   return (
-    <main className="px-6 py-6">
-      <div className="max-w-[1440px] mx-auto space-y-8">
-        {ctx.schoolId && <DiscountsRealtimeRefresh schoolId={ctx.schoolId} />}
-        <div>
-          <header className="mb-6">
-            <h1 className="text-3xl font-bold text-navy">Discount requests</h1>
-            <p className="text-sm text-gray-500 mt-1">Approve or reject staff-child, scholarship, bursary and hardship discount requests</p>
-          </header>
+    <>
+      {ctx.schoolId && <DiscountsRealtimeRefresh schoolId={ctx.schoolId} />}
 
-          <DiscountRequestsList requests={requests} canApprove={canApprove} />
-        </div>
-
-        <div>
-          <header className="mb-4">
-            <h2 className="text-xl font-bold text-navy">Active recurring discounts</h2>
-            <p className="text-sm text-gray-500 mt-1">Carry forward automatically to every future invoice — revoke one if it should stop (e.g. a staff member leaves)</p>
-          </header>
-
-          <ActiveRecurringDiscountsList discounts={recurring} canApprove={canApprove} />
-        </div>
-      </div>
-    </main>
+      {/* DiscountQueue renders its own WorkspaceHeader — its Queue/Recurring
+          toggle is client state, not a route, so it's passed through as
+          WorkspaceHeader's `tabs` prop rather than navConfig modes, keeping
+          the same merged title-rule-tabs treatment every other page gets. */}
+      <DiscountQueue requests={requests} recurring={recurring} decided={decided} canApprove={canApprove} />
+    </>
   )
 }
-

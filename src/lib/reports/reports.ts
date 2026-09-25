@@ -2,10 +2,11 @@ import { createClient } from '@/lib/supabase/server'
 import { getAuthContext } from '@/lib/auth/permissions'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { actionLabel } from '@/lib/audit/auditLogLabels'
+import { FINANCIAL_REPORT_TYPES } from '@/lib/auth/permissionCatalog'
 import { toCSV, type CsvValue } from './csv'
 
 // ---------------------------------------------------------------------------
-// Report builders for the /reports page. Each report runs its own queries
+// Report builders for the /money/reports page. Each report runs its own queries
 // against the caller's school and returns a ready CSV. Reports pull DETAIL rows
 // (per student / per payment) — unlike the analytics page, which only ever
 // works with small per-cycle aggregates — because a downloadable file is a
@@ -509,19 +510,26 @@ export interface DownloadRow {
   createdAt: string
 }
 
-export async function getReportDownloads(limit = 25): Promise<DownloadRow[]> {
-  const supabase = await createClient()
-  const schoolId = await resolveSchoolId(supabase)
-  if (!schoolId) return []
+type DownloadAccess = { showReports: boolean; showFinancials: boolean; showAuditLog: boolean }
 
-  const { data } = await supabase
-    .from('report_downloads')
-    .select('id, report_type, scope_label, row_count, filename, user_id, created_at')
-    .eq('school_id', schoolId)
-    .order('created_at', { ascending: false })
-    .limit(limit)
+// Same gating the generate-a-new-report list on this page already applies
+// (ReportsLayout's visibleReports memo) — a viewer who reaches /money/reports via
+// see-audit-log alone (no see-reports, no see-financial-totals) should only
+// see history for report types they could actually generate themselves, not
+// the school's full download history including financial report types.
+function allowedDownloadTypes(access: DownloadAccess): string[] {
+  const allowedTypes: string[] = []
+  if (access.showReports) {
+    allowedTypes.push('students')
+    if (access.showFinancials) allowedTypes.push(...FINANCIAL_REPORT_TYPES)
+  }
+  if (access.showAuditLog) allowedTypes.push('audit-log')
+  return allowedTypes
+}
 
-  const rows = data || []
+// Joins the user name in JS to avoid brittle implicit-relationship names on
+// the untyped client.
+async function mapDownloadRows(supabase: Awaited<ReturnType<typeof createClient>>, rows: any[]): Promise<DownloadRow[]> {
   const userIds = Array.from(new Set(rows.map((r: any) => r.user_id).filter(Boolean)))
   const nameById = new Map<string, string>()
   if (userIds.length) {
@@ -538,4 +546,63 @@ export async function getReportDownloads(limit = 25): Promise<DownloadRow[]> {
     userName: r.user_id ? (nameById.get(r.user_id) || 'Unknown user') : 'System',
     createdAt: r.created_at,
   }))
+}
+
+export async function getReportDownloads(
+  limit = 25,
+  // Defaults to full access so any other caller keeps today's behaviour.
+  access: DownloadAccess = { showReports: true, showFinancials: true, showAuditLog: true },
+): Promise<DownloadRow[]> {
+  const supabase = await createClient()
+  const schoolId = await resolveSchoolId(supabase)
+  if (!schoolId) return []
+
+  const allowedTypes = allowedDownloadTypes(access)
+  if (allowedTypes.length === 0) return []
+
+  const { data } = await supabase
+    .from('report_downloads')
+    .select('id, report_type, scope_label, row_count, filename, user_id, created_at')
+    .eq('school_id', schoolId)
+    .in('report_type', allowedTypes)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  return mapDownloadRows(supabase, data || [])
+}
+
+export interface ReportDownloadHistoryResult {
+  rows: DownloadRow[]
+  total: number
+}
+
+// Paginated, optionally filtered-to-one-type view of the same download log —
+// powers the History tab, which can grow without bound as a school keeps
+// exporting term after term.
+export async function getReportDownloadHistory(
+  { page = 1, perPage = 25, reportType }: { page?: number; perPage?: number; reportType?: string },
+  access: DownloadAccess = { showReports: true, showFinancials: true, showAuditLog: true },
+): Promise<ReportDownloadHistoryResult> {
+  const supabase = await createClient()
+  const schoolId = await resolveSchoolId(supabase)
+  if (!schoolId) return { rows: [], total: 0 }
+
+  const allowedTypes = allowedDownloadTypes(access)
+  if (allowedTypes.length === 0) return { rows: [], total: 0 }
+
+  const types = reportType && reportType !== 'all' && allowedTypes.includes(reportType) ? [reportType] : allowedTypes
+
+  const start = (page - 1) * perPage
+  const end = start + perPage - 1
+
+  const { data, count } = await supabase
+    .from('report_downloads')
+    .select('id, report_type, scope_label, row_count, filename, user_id, created_at', { count: 'exact' })
+    .eq('school_id', schoolId)
+    .in('report_type', types)
+    .order('created_at', { ascending: false })
+    .range(start, end)
+
+  const rows = await mapDownloadRows(supabase, data || [])
+  return { rows, total: count ?? 0 }
 }

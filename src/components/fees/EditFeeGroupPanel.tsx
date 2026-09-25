@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { editFeeGroup, getFeeGroupDetails } from '@/app/(app)/fees/structure/actions'
-import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
+import { type BillingFrequency, BILLING_FREQUENCY_OPTIONS } from '@/lib/fees/billingFrequency'
 
 interface ClassRow { id: string, name: string, displayOrder: number }
 
@@ -14,7 +15,7 @@ interface ExistingItem {
   amount: number
   optInCount: number
   isDiscountable?: boolean
-  isRecurring?: boolean
+  billingFrequency?: BillingFrequency
 }
 
 interface Props {
@@ -27,8 +28,72 @@ interface Props {
   onSaved: () => void
 }
 
-function formatNaira(amount: number): string {
-  return '₦' + amount.toLocaleString('en-NG')
+// Paper-ground palette, matching FeeFormPanel (the Add-fee drawer) and the App
+// Shell canvas — the edit drawer is the same drawer, so it reads from the same
+// tokens.
+const INK = '#201e1d'
+const PAPER = '#f3f2f2'
+const META = '#605d5d'
+const HINT = '#605d5d'
+const RULE_SOFT = '#d7d3d3'
+const OCHRE = '#8a4805'
+
+// 14px square selection mark — ink border, filled with an inset white ring when
+// on (the App Shell .mk). Inline-styled to dodge the WASM Tailwind safelist.
+function Mark({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 14,
+        height: 14,
+        flexShrink: 0,
+        marginTop: 2,
+        border: `2px solid ${INK}`,
+        background: on ? INK : 'transparent',
+        boxShadow: on ? 'inset 0 0 0 2px #fff' : 'none',
+        display: 'block',
+      }}
+    />
+  )
+}
+
+// Field label: ink, 0.1em tracking — matches the Add-fee drawer's field labels.
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p style={{ fontSize: 11, letterSpacing: '0.1em', color: INK, fontWeight: 600, textTransform: 'uppercase', margin: '0 0 6px' }}>
+      {children}
+    </p>
+  )
+}
+
+// A bordered radio/checkbox row inside a 2px-ink box (the App Shell .opt).
+function OptRow({
+  on, onClick, title, hint, last = false,
+}: { on: boolean, onClick: () => void, title: string, hint?: string, last?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        gap: 10,
+        alignItems: 'flex-start',
+        width: '100%',
+        textAlign: 'left',
+        padding: '11px 12px',
+        borderBottom: last ? 'none' : `1px solid ${RULE_SOFT}`,
+        background: on ? '#eae7e7' : 'transparent',
+        cursor: 'pointer',
+      }}
+    >
+      <Mark on={on} />
+      <span style={{ display: 'block' }}>
+        <span style={{ display: 'block', fontSize: 13, color: INK, fontWeight: 600 }}>{title}</span>
+        {hint && <span style={{ display: 'block', fontSize: 12, color: HINT, marginTop: 2 }}>{hint}</span>}
+      </span>
+    </button>
+  )
 }
 
 export default function EditFeeGroupPanel({
@@ -46,14 +111,11 @@ export default function EditFeeGroupPanel({
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set())
   const [perClassAmounts, setPerClassAmounts] = useState<Record<string, string>>({})
   const [isDiscountable, setIsDiscountable] = useState(true)
-  const [isRecurring, setIsRecurring] = useState(true)
+  const [billingFrequency, setBillingFrequency] = useState<BillingFrequency>('per_term')
 
-  // Confirmation
-  const [confirmDialog, setConfirmDialog] = useState<{
-    title: string
-    message: string
-    onConfirm: () => Promise<void>
-  } | null>(null)
+  // Confirmation — shown only when Save would remove classes that have
+  // student opt-ins on them (see handleSave). summary (below) has the counts.
+  const [confirmRemoveOptIns, setConfirmRemoveOptIns] = useState(false)
 
   // Load existing data
   useEffect(() => {
@@ -67,7 +129,7 @@ export default function EditFeeGroupPanel({
       const items = result.items as ExistingItem[]
       setExisting(items)
       if (items.length > 0) setIsDiscountable(items[0].isDiscountable !== false)
-      if (items.length > 0) setIsRecurring(items[0].isRecurring !== false)
+      if (items.length > 0) setBillingFrequency(items[0].billingFrequency || 'per_term')
 
       if (isSchoolWide) {
         // Single row for school-wide
@@ -116,10 +178,15 @@ export default function EditFeeGroupPanel({
     return map
   }, [existing])
 
-  // Sort classes by display order for stable UI
-  const sortedClasses = useMemo(() => {
-    return [...classes].sort((a, b) => a.displayOrder - b.displayOrder)
-  }, [classes])
+  // Classes arrive already ordered by section then class (getFeeStructure sorts
+  // them). Re-sorting by the bare per-section display_order here would interleave
+  // sections again, so preserve the order as given.
+  const sortedClasses = classes
+
+  // Per-class pricing is only live when the group spans classes, per-class mode
+  // is chosen, and something is ticked — mirrors the Add-fee drawer, where the
+  // single Amount field hides once each class is priced separately.
+  const perClassActive = !isSchoolWide && pricingMode === 'per-class' && selectedClassIds.size > 0
 
   function toggleClass(classId: string) {
     const next = new Set(selectedClassIds)
@@ -137,6 +204,17 @@ export default function EditFeeGroupPanel({
 
   function setPerClassAmount(classId: string, value: string) {
     setPerClassAmounts({ ...perClassAmounts, [classId]: value })
+  }
+
+  function switchPricing(mode: 'uniform' | 'per-class') {
+    if (mode === 'per-class') {
+      // Seed a starting amount for every ticked class that has none, so the
+      // per-class fields aren't blank the moment they appear.
+      const seeded: Record<string, string> = { ...perClassAmounts }
+      Array.from(selectedClassIds).forEach(cid => { if (!seeded[cid] && uniformAmount) seeded[cid] = uniformAmount })
+      setPerClassAmounts(seeded)
+    }
+    setPricingMode(mode)
   }
 
   // Compute summary of changes
@@ -169,7 +247,7 @@ export default function EditFeeGroupPanel({
 
   function validate(): string | null {
     if (!name.trim()) return 'Name is required'
-    
+
     if (isSchoolWide) {
       const amt = parseInt(uniformAmount)
       if (isNaN(amt) || amt <= 0) return 'Amount must be greater than 0'
@@ -177,7 +255,7 @@ export default function EditFeeGroupPanel({
     }
 
     if (selectedClassIds.size === 0) {
-      return 'At least one class must be selected. To remove this fee entirely, use Delete all instead.'
+      return 'At least one class must be selected. To remove this fee entirely, use Delete instead.'
     }
 
     if (pricingMode === 'uniform') {
@@ -211,7 +289,7 @@ export default function EditFeeGroupPanel({
         uniformAmount: parseInt(uniformAmount),
         selectedClassIds: [],
         isDiscountable,
-        isRecurring: isOptional ? isRecurring : undefined,
+        billingFrequency,
       })
     } else {
       const perClass: Record<string, number> = {}
@@ -232,14 +310,14 @@ export default function EditFeeGroupPanel({
         perClassAmounts: pricingMode === 'per-class' ? perClass : undefined,
         selectedClassIds: Array.from(selectedClassIds),
         isDiscountable,
-        isRecurring: isOptional ? isRecurring : undefined,
+        billingFrequency,
       })
     }
 
     if (result.error) {
       setError(result.error)
       setSaving(false)
-      setConfirmDialog(null)
+      setConfirmRemoveOptIns(false)
       return
     }
     onSaved()
@@ -255,11 +333,7 @@ export default function EditFeeGroupPanel({
 
     // If removing classes with opt-ins, confirm
     if (summary.classesWithOptIns > 0) {
-      setConfirmDialog({
-        title: 'Remove classes with opt-ins?',
-        message: `${summary.classesWithOptIns} ${summary.classesWithOptIns === 1 ? 'student opt-in' : 'student opt-ins'} will be removed. This cannot be undone.`,
-        onConfirm: doSave,
-      })
+      setConfirmRemoveOptIns(true)
       return
     }
 
@@ -270,7 +344,7 @@ export default function EditFeeGroupPanel({
   const hasChanges = useMemo(() => {
     if (name.trim() !== currentName) return true
     if (existing.length > 0 && isDiscountable !== (existing[0].isDiscountable !== false)) return true
-    if (isOptional && existing.length > 0 && isRecurring !== (existing[0].isRecurring !== false)) return true
+    if (existing.length > 0 && billingFrequency !== (existing[0].billingFrequency || 'per_term')) return true
     if (isSchoolWide) {
       const newAmt = parseInt(uniformAmount)
       return !isNaN(newAmt) && newAmt !== existing[0]?.amount
@@ -291,204 +365,195 @@ export default function EditFeeGroupPanel({
       }
     }
     return false
-  }, [name, currentName, uniformAmount, pricingMode, selectedClassIds, perClassAmounts, existing, isSchoolWide, summary, isDiscountable, isRecurring, isOptional])
+  }, [name, currentName, uniformAmount, pricingMode, selectedClassIds, perClassAmounts, existing, isSchoolWide, summary, isDiscountable, billingFrequency, isOptional])
+
+  const boxStyle: React.CSSProperties = { border: `2px solid ${INK}`, background: '#fff' }
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-gray-200 flex flex-col h-fit sticky top-6 max-h-[calc(100vh-3rem)]">
+      <div className="fixed inset-0 z-50 flex m-anim-fade">
+        <div
+          className="flex-1 bg-[color-mix(in_srgb,var(--color-ink)_45%,transparent)]"
+          onClick={onClose}
+        />
 
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-          <div>
-            <h3 className="text-base font-semibold text-navy">Edit fee item</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {isOptional ? 'Optional' : 'Required'} <span className="text-gray-400 font-bold">·</span> {isSchoolWide ? 'School-wide' : 'Per-class'}
-            </p>
+        {/* Same shell as the Add-fee drawer (FeeFormPanel) / AddStudentModal:
+            420px, single p-[22px] scroll — header, fields and footer all scroll
+            together, no sticky split. */}
+        <aside
+          style={{ width: '420px', maxWidth: '100%' }}
+          className="h-full overflow-y-auto bg-[var(--color-paper)] border-l-2 border-[var(--color-ink)] p-[22px] m-anim-slide"
+        >
+          {/* Header row: title + CLOSE, then the subtitle spans below it. */}
+          <div className="flex items-baseline justify-between gap-3 mb-1">
+            <h2 className="text-[22px] font-extrabold tracking-[-0.01em]" style={{ color: INK }}>
+              Edit a fee
+            </h2>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--color-signal-text)] hover:underline"
+            >
+              Close
+            </button>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+          <p className="text-[13px] leading-relaxed mb-5" style={{ color: META }}>
+            {isSchoolWide
+              ? 'Change its name, amount, or how often it bills.'
+              : 'Change its name, amounts, which classes it lands on, or how often it bills.'}
+          </p>
 
-        {loading ? (
-          <div className="p-8 text-center">
-            <p className="text-gray-500 text-sm">Loading...</p>
-          </div>
-        ) : (
-          <>
-            <div className="p-5 space-y-4 overflow-y-auto">
+          {loading ? (
+            <div style={{ borderTop: `2px solid ${INK}`, paddingTop: 16 }}>
+              <div className="m-loading mb-3" />
+              <p className="text-[13px]" style={{ color: META }}>Loading this fee...</p>
+            </div>
+          ) : (
+            /* The 2px ink rule opens the field stack (matches the Add drawer). */
+            <div style={{ borderTop: `2px solid ${INK}`, paddingTop: 16 }}>
 
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Item name *</label>
+              {/* FEE NAME */}
+              <div style={{ marginBottom: 18 }}>
+                <SectionLabel>Fee name</SectionLabel>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                  autoFocus
+                  style={{ ...boxStyle, padding: '8px 11px', fontSize: 13, width: '100%', color: INK }}
+                />
+                <p className="text-[12px] mt-1.5" style={{ color: HINT }}>
+                  Parents see this exact wording as a line on their invoice.
+                </p>
+              </div>
+
+              {/* AMOUNT PER STUDENT — hidden when pricing each class separately */}
+              {!perClassActive && (
+                <div style={{ marginBottom: 18 }}>
+                  <SectionLabel>Amount per student</SectionLabel>
+                  <div style={{ display: 'flex', ...boxStyle }}>
+                    <span style={{ background: INK, color: PAPER, fontSize: 14, fontWeight: 700, padding: '10px 12px', display: 'flex', alignItems: 'center' }}>₦</span>
+                    <input
+                      type="number"
+                      value={uniformAmount}
+                      onChange={(e) => setUniformAmount(e.target.value)}
+                      placeholder="100,000"
+                      className="m-num"
+                      style={{ border: 0, padding: '8px 11px', fontSize: 13, width: '100%', background: '#fff', color: INK }}
+                    />
+                  </div>
+                  <p className="text-[12px] mt-1.5" style={{ color: HINT }}>
+                    {isSchoolWide
+                      ? `Applies to all ${classes.length} active ${classes.length === 1 ? 'class' : 'classes'}.`
+                      : 'Applied to every selected class below.'}
+                  </p>
+                </div>
+              )}
+
+              {/* WHEN — the 3-way frequency */}
+              <div style={{ marginBottom: 18 }}>
+                <SectionLabel>When</SectionLabel>
+                <div style={boxStyle}>
+                  {BILLING_FREQUENCY_OPTIONS.map((opt, i) => (
+                    <OptRow
+                      key={opt.value}
+                      on={billingFrequency === opt.value}
+                      onClick={() => setBillingFrequency(opt.value)}
+                      title={opt.label}
+                      hint={opt.hint}
+                      last={i === BILLING_FREQUENCY_OPTIONS.length - 1}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Eligible for discounts */}
+              <div style={{ ...boxStyle, marginBottom: 18 }}>
+                <OptRow
+                  on={isDiscountable}
+                  onClick={() => setIsDiscountable(v => !v)}
+                  title="Eligible for discounts"
+                  hint="Sibling and staff discounts can reduce this fee. Turn off for exams or uniforms."
+                  last
                 />
               </div>
 
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isDiscountable}
-                  onChange={(e) => setIsDiscountable(e.target.checked)}
-                  className="mt-0.5 text-mint"
-                />
-                <div>
-                  <span className="text-sm text-navy">Eligible for discounts</span>
-                  <p className="text-xs text-gray-500">Sibling/staff discounts reduce this item's share of the invoice.</p>
-                </div>
-              </label>
-
-              {isOptional && (
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isRecurring}
-                    onChange={(e) => setIsRecurring(e.target.checked)}
-                    className="mt-0.5 text-mint"
-                  />
-                  <div>
-                    <span className="text-sm text-navy">Recurring</span>
-                    <p className="text-xs text-gray-500">Stays on a student&apos;s invoice every term after they opt in. Turn off for a one-time charge (e.g. uniform) that shouldn&apos;t carry into future terms.</p>
-                  </div>
-                </label>
-              )}
-
-              {isSchoolWide ? (
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Amount (₦) *</label>
-                  <input
-                    type="number"
-                    value={uniformAmount}
-                    onChange={(e) => setUniformAmount(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Applies to all {classes.length} active classes</p>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1.5">Pricing</label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setPricingMode('uniform')}
-                        className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
-                          pricingMode === 'uniform'
-                            ? 'bg-mint-light text-navy border-mint'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        Same amount
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPricingMode('per-class')}
-                        className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
-                          pricingMode === 'per-class'
-                            ? 'bg-mint-light text-navy border-mint'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        Per-class amount
-                      </button>
+              {/* WHICH CLASSES — per-class groups only (a school-wide fee has no
+                  class list; it grows on its own as students are added). */}
+              {!isSchoolWide && (
+                <div style={{ marginBottom: 18 }}>
+                  <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+                    <p style={{ fontSize: 11, letterSpacing: '0.1em', color: INK, fontWeight: 600, textTransform: 'uppercase', margin: 0 }}>
+                      Applied to <span className="m-num" style={{ color: META }}>({selectedClassIds.size} of {sortedClasses.length})</span>
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <button type="button" onClick={() => setSelectedClassIds(new Set(sortedClasses.map(c => c.id)))} className="text-[11px] font-semibold" style={{ color: INK }}>All</button>
+                      <button type="button" onClick={() => setSelectedClassIds(new Set())} className="text-[11px] font-semibold" style={{ color: META }}>Clear</button>
                     </div>
                   </div>
 
-                  {pricingMode === 'uniform' && (
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Amount (₦) *</label>
-                      <input
-                        type="number"
-                        value={uniformAmount}
-                        onChange={(e) => setUniformAmount(e.target.value)}
-                        placeholder="e.g. 100000"
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Applied to all selected classes below</p>
-                    </div>
-                  )}
-
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-xs text-gray-500">
-                        Applied to ({selectedClassIds.size} of {sortedClasses.length})
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedClassIds(new Set(sortedClasses.map(c => c.id)))}
-                          className="text-xs text-mint font-medium hover:underline"
+                  <div style={{ borderTop: `1px solid ${RULE_SOFT}` }}>
+                    {sortedClasses.map(cls => {
+                      const selected = selectedClassIds.has(cls.id)
+                      const optIns = optInsByClass[cls.id] || 0
+                      return (
+                        <div
+                          key={cls.id}
+                          onClick={() => toggleClass(cls.id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${RULE_SOFT}`, cursor: 'pointer', opacity: selected ? 1 : 0.4 }}
                         >
-                          All
-                        </button>
-                        <span className="text-gray-300">·</span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedClassIds(new Set())}
-                          className="text-xs text-gray-600 font-medium hover:underline"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="border border-gray-200 rounded-lg max-h-72 overflow-y-auto divide-y divide-gray-50">
-                      {sortedClasses.map(cls => {
-                        const isSelected = selectedClassIds.has(cls.id)
-                        const optIns = optInsByClass[cls.id] || 0
-                        return (
-                          <div
-                            key={cls.id}
-                            className={`flex items-center gap-2 px-3 py-2 ${isSelected ? '' : 'opacity-50'}`}
-                          >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                            <Mark on={selected} />
+                            <span style={{ minWidth: 0 }}>
+                              <span style={{ display: 'block', fontSize: 13, color: INK }}>{cls.name}</span>
+                              {optIns > 0 && <span style={{ display: 'block', fontSize: 12, color: OCHRE }}>{optIns} opted in</span>}
+                            </span>
+                          </span>
+                          {selected && perClassActive && (
                             <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => toggleClass(cls.id)}
-                              className="text-mint flex-shrink-0"
+                              type="number"
+                              value={perClassAmounts[cls.id] || ''}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setPerClassAmount(cls.id, e.target.value)}
+                              placeholder="0"
+                              className="m-num"
+                              style={{ width: 96, border: `2px solid ${INK}`, padding: '4px 8px', fontSize: 13, textAlign: 'right', background: '#fff', color: INK }}
                             />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-navy truncate">{cls.name}</p>
-                              {optIns > 0 && (
-                                <p className="text-xs text-amber-600">{optIns} opted in</p>
-                              )}
-                            </div>
-                            {isSelected && pricingMode === 'per-class' && (
-                              <input
-                                type="number"
-                                value={perClassAmounts[cls.id] || ''}
-                                onChange={(e) => setPerClassAmount(cls.id, e.target.value)}
-                                placeholder="0"
-                                className="w-24 px-2 py-1 border border-gray-200 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-mint/40"
-                              />
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
-                </>
+
+                  {/* Price-per-class toggle — only meaningful across 2+ classes */}
+                  {selectedClassIds.size > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => switchPricing(pricingMode === 'per-class' ? 'uniform' : 'per-class')}
+                      className="text-[12px] font-semibold"
+                      style={{ color: INK, marginTop: 10, textDecoration: 'underline' }}
+                    >
+                      {pricingMode === 'per-class' ? 'Use one amount for all' : 'Price each class differently'}
+                    </button>
+                  )}
+                </div>
               )}
 
-              {/* Summary preview */}
+              {/* Changes to apply — the edit-only ledger, as a left-rule note */}
               {(summary.classesAdded > 0 || summary.classesRemoved > 0 || summary.renamed) && (
-                <div className="p-3 bg-mint-light/40 border border-mint/20 rounded-lg space-y-1">
-                  <p className="text-xs font-medium text-navy">Changes to apply:</p>
+                <div style={{ paddingLeft: 12, borderLeft: `2px solid ${INK}`, marginBottom: 18 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: INK, margin: '0 0 4px' }}>Changes to apply</p>
                   {summary.renamed && (
-                    <p className="text-xs text-gray-700">• Rename to &quot;{name.trim()}&quot;</p>
+                    <p className="text-[12px]" style={{ color: META, margin: 0 }}>Rename to &quot;{name.trim()}&quot;</p>
                   )}
                   {summary.classesAdded > 0 && (
-                    <p className="text-xs text-gray-700">• Add to {summary.classesAdded} new {summary.classesAdded === 1 ? 'class' : 'classes'}</p>
+                    <p className="text-[12px]" style={{ color: META, margin: 0 }}>Add to {summary.classesAdded} new {summary.classesAdded === 1 ? 'class' : 'classes'}</p>
                   )}
                   {summary.classesRemoved > 0 && (
-                    <p className="text-xs text-gray-700">
-                      • Remove from {summary.classesRemoved} {summary.classesRemoved === 1 ? 'class' : 'classes'}
+                    <p className="text-[12px]" style={{ color: META, margin: 0 }}>
+                      Remove from {summary.classesRemoved} {summary.classesRemoved === 1 ? 'class' : 'classes'}
                       {summary.classesWithOptIns > 0 && (
-                        <span className="text-amber-700"> ({summary.classesWithOptIns} opt-ins affected)</span>
+                        <span style={{ color: OCHRE }}> ({summary.classesWithOptIns} opt-ins affected)</span>
                       )}
                     </p>
                   )}
@@ -496,40 +561,40 @@ export default function EditFeeGroupPanel({
               )}
 
               {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                  {error}
+                <div style={{ paddingLeft: 12, borderLeft: `2px solid var(--color-signal)`, marginBottom: 18 }}>
+                  <p className="text-[13px]" style={{ color: 'var(--color-signal-text)' }}>{error}</p>
                 </div>
               )}
-            </div>
 
-            <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2 flex-shrink-0">
-              <button
-                onClick={onClose}
-                disabled={saving}
-                className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || !hasChanges}
-                className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : 'Save'}
-              </button>
+              {/* Footer — scrolls with the content, like the Add drawer */}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={handleSave} disabled={saving || !hasChanges} className="m-btn m-btn-primary" style={{ flex: 1 }}>
+                  {saving ? 'Saving...' : 'Save changes'}
+                </button>
+                <button onClick={onClose} disabled={saving} className="m-btn m-btn-outline">
+                  Cancel
+                </button>
+              </div>
             </div>
-          </>
-        )}
+          )}
+        </aside>
       </div>
 
-      {confirmDialog && (
-        <ConfirmDialog
-          title={confirmDialog.title}
-          message={confirmDialog.message}
-          destructive
-          confirmLabel="Yes, save"
-          onConfirm={confirmDialog.onConfirm}
-          onCancel={() => setConfirmDialog(null)}
+      {confirmRemoveOptIns && (
+        <DestructiveConfirmModal
+          eyebrow="This cannot be undone"
+          title={`Remove ${name.trim() || currentName} from ${summary.classesRemoved} ${summary.classesRemoved === 1 ? 'class' : 'classes'}?`}
+          description="Those classes stop being charged this fee from now on. Any student opt-ins already recorded for them are deleted, not just hidden."
+          rows={[
+            { label: 'Classes losing this fee', value: summary.classesRemoved },
+            { label: 'Student opt-ins deleted', value: summary.classesWithOptIns, valueClassName: 'text-sm font-semibold m-num text-[var(--color-signal-text)]', emphasize: true },
+          ]}
+          note="Invoices already generated for those students are not changed by this — only fees set up from here on."
+          error={error}
+          actions={[
+            { label: 'Cancel', onClick: () => setConfirmRemoveOptIns(false), variant: 'outline', disabled: saving },
+            { label: saving ? 'Saving...' : 'Remove and save', onClick: doSave, variant: 'danger', disabled: saving },
+          ]}
         />
       )}
     </>

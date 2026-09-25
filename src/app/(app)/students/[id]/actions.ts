@@ -4,14 +4,17 @@ import { revalidatePath } from 'next/cache'
 import { requirePermission, getAuthContext, can } from '@/lib/auth/permissions'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 import { provisionStudentDVA, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
+import { isProviderDownError, providerDownMessage } from '@/lib/payments/providerErrors'
 import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
 import { MessageChannel } from '@/lib/messaging/types'
 import { composeReminderSMS, composeOverdueSMS } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
+import { revokeActiveDiscount, type RevokeDiscountResult } from '@/lib/discounts/revoke'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { applyOptInAdditionToLiveInvoice } from '@/lib/invoicing/addOptInLine'
+import { propagateAdjustmentForward, retractPropagatedAdjustment } from '@/lib/fees/propagateAdjustment'
 
 // Shared by both "bring a cancelled current-term invoice back to life" paths:
 // updateStudentStatus when the target is 'active' (reactivating a withdrawn
@@ -328,9 +331,9 @@ export async function updateStudentDetails(
   revalidatePath('/students')
   if (classChanged) {
     revalidatePath('/fees/cycles')
-    revalidatePath('/invoices')
+    revalidatePath('/money/invoices')
     if (currentInvoice) {
-      revalidatePath(`/invoices/${currentInvoice.id}`)
+      revalidatePath(`/money/invoices/${currentInvoice.id}`)
       revalidatePath(`/fees/cycles/${currentInvoice.billing_cycle_id}`)
     }
   }
@@ -405,6 +408,99 @@ export async function updateFamilyNotes(familyId: string, studentId: string, not
   revalidatePath(`/students/${studentId}`)
 
   return { success: true }
+}
+
+// Read-only preview for the withdrawal confirmation dialog: the money impact
+// (open invoice, lifetime paid, siblings whose discount will recalculate)
+// has to be shown BEFORE the admin decides, not after — see
+// StudentSettingsTab's WithdrawConfirmModal. Nothing here is written; the
+// actual status change and any invoice cancellation still go through
+// updateStudentStatus/cancelInvoice exactly as before, just both driven from
+// the same dialog instead of a follow-up one.
+export async function getWithdrawalPreview(studentId: string): Promise<
+  | { error: string }
+  | {
+      success: true
+      activeCycleName: string | null
+      // Only the current active-cycle invoice, if still open — the same
+      // (student_id, billing_cycle_id) uniqueness that lets updateStudentStatus
+      // assume at most one live invoice per student per active cycle.
+      openInvoice: { id: string; invoiceNumber: string | null; outstandingAmount: number; cancellable: boolean } | null
+      // Lifetime cash received across every invoice ever (mirrors
+      // getStudentDetail's summary.totalPaid in students.ts) — deliberately
+      // NOT the open invoice's own paid_amount, since that invoice must stay
+      // untouched (paid_amount = 0) to be a candidate for cancellation at all.
+      totalPaid: number
+      siblingCount: number
+    }
+> {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId } = ctx
+
+  const { data: student } = await supabase
+    .from('students')
+    .select('family_id')
+    .eq('id', studentId)
+    .eq('school_id', schoolId)
+    .single()
+  if (!student) return { error: 'Student not found' }
+
+  const [{ data: activeCycle }, { data: payments }, { data: siblings }] = await Promise.all([
+    supabase
+      .from('billing_cycles')
+      .select('id, name')
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .maybeSingle(),
+    supabase
+      .from('payments')
+      .select('amount')
+      .eq('student_id', studentId)
+      .eq('school_id', schoolId)
+      .eq('match_status', 'matched'),
+    student.family_id
+      ? supabase
+          .from('students')
+          .select('id')
+          .eq('school_id', schoolId)
+          .eq('family_id', student.family_id)
+          .eq('status', 'active')
+          .neq('id', studentId)
+      : Promise.resolve({ data: [] as { id: string }[] }),
+  ])
+
+  let openInvoice: { id: string; invoiceNumber: string | null; outstandingAmount: number; cancellable: boolean } | null = null
+  if (activeCycle) {
+    const { data: inv } = await supabase
+      .from('invoices')
+      .select('id, invoice_number, total_amount, paid_amount, credit_applied')
+      .eq('student_id', studentId)
+      .eq('billing_cycle_id', activeCycle.id)
+      .eq('school_id', schoolId)
+      .in('status', ['pending', 'partial', 'overdue'])
+      .maybeSingle()
+    if (inv) {
+      openInvoice = {
+        id: inv.id,
+        invoiceNumber: inv.invoice_number,
+        outstandingAmount: Number(inv.total_amount) - Number(inv.paid_amount || 0),
+        // Mirrors cancelInvoice's own guard — only an untouched invoice
+        // (nothing paid, no credit applied) is safe to offer as cancellable.
+        cancellable: Number(inv.paid_amount || 0) <= 0 && Number(inv.credit_applied || 0) <= 0,
+      }
+    }
+  }
+
+  const totalPaid = (payments || []).reduce((sum, p) => sum + Number(p.amount), 0)
+
+  return {
+    success: true,
+    activeCycleName: activeCycle?.name ?? null,
+    openInvoice,
+    totalPaid,
+    siblingCount: (siblings || []).length,
+  }
 }
 
 export async function updateStudentStatus(
@@ -517,7 +613,7 @@ export async function updateStudentStatus(
   revalidatePath(`/students/${studentId}`)
   revalidatePath('/students')
   revalidatePath('/fees/cycles')
-  if (regeneratedInvoiceNumber) revalidatePath('/invoices')
+  if (regeneratedInvoiceNumber) revalidatePath('/money/invoices')
 
   return { success: true, openInvoices, invoicesNeedingReview, regeneratedInvoiceNumber }
 }
@@ -533,7 +629,11 @@ export async function regenerateCancelledInvoice(studentId: string): Promise<
   | { error: string }
   | { success: true; regeneratedInvoiceNumber: string | null }
 > {
-  const ctx = await getStudentFeeContext()
+  // Generating an invoice is an invoicing action, not a student-record edit —
+  // matches the only caller (StudentFeesTab.tsx), which already gates this on
+  // manage-invoices. A manage-students-only user must not be able to reach
+  // this by calling the action directly.
+  const ctx = await getStudentFeeContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
 
@@ -566,7 +666,7 @@ export async function regenerateCancelledInvoice(studentId: string): Promise<
   })
 
   revalidatePath(`/students/${studentId}`)
-  revalidatePath('/invoices')
+  revalidatePath('/money/invoices')
   revalidatePath('/fees/cycles')
 
   return { success: true, regeneratedInvoiceNumber: result.regeneratedInvoiceNumber }
@@ -719,6 +819,14 @@ export async function toggleStudentOptIn(studentId: string, feeItemId: string): 
         return { success: true, deferredToNextTerm: true, overage, feeItemName: cycleResult.feeItemName }
       }
     }
+
+    // A true removal (not the deferred-paid-invoice case above, which
+    // re-inserts rather than removing) — retract the same opt-in from any
+    // future term it was auto-filled into, so a future term doesn't keep
+    // billing for a fee the family opted out of here.
+    await retractPropagatedAdjustment(
+      supabase, schoolId, studentId, cycleResult.cycle.id, cycleResult.feeItemName, 'opt_in'
+    )
   } else {
     // Remove any conflicting exemption first
     await supabase
@@ -745,6 +853,13 @@ export async function toggleStudentOptIn(studentId: string, feeItemId: string): 
     // existing is touched). Opting out deliberately does NOT get a mirror
     // call here: a deduction only ever affects the next invoice generation.
     await applyOptInAdditionToLiveInvoice(supabase, schoolId, userId, studentId, feeItemId)
+
+    // Fill the same opt-in forward into any future term that doesn't already
+    // have its own adjustment on this fee, so a pre-created future term
+    // doesn't silently under-bill the family for it.
+    await propagateAdjustmentForward(
+      supabase, schoolId, studentId, cycleResult.cycle.id, cycleResult.feeItemName, 'opt_in', userId
+    )
   }
 
   const newState = existing ? 'opted_out' : 'opted_in'
@@ -883,6 +998,12 @@ export async function setStudentExemption(studentId: string, feeItemId: string, 
         created_by: userId,
       })
     if (error) return { error: error.message }
+
+    // Fill the same exemption forward into any future term that doesn't
+    // already have its own adjustment on this fee.
+    await propagateAdjustmentForward(
+      supabase, schoolId, studentId, cycleResult.cycle.id, cycleResult.feeItemName, 'exempt', userId
+    )
   }
 
   await logAuditEvent(supabase, {
@@ -917,6 +1038,11 @@ export async function removeStudentExemption(studentId: string, feeItemId: strin
 
   if (error) return { error: error.message }
 
+  // Retract the same exemption from any future term it was auto-filled into.
+  await retractPropagatedAdjustment(
+    supabase, schoolId, studentId, cycleResult.cycle.id, cycleResult.feeItemName, 'exempt'
+  )
+
   await logAuditEvent(supabase, {
     schoolId,
     actorId: userId,
@@ -933,15 +1059,13 @@ export async function removeStudentExemption(studentId: string, feeItemId: strin
 
 // ============ DISCOUNTS ============
 
-type RevokeDiscountResult =
-  | { error: string }
-  | { success: true; fullyRemoved: boolean }
-
 // Revoking from the student page (as opposed to /discounts, which only ever
 // stops future carry-forward) can also lift the discount off THIS invoice —
 // but only while there's nothing yet to unwind: not sent to the parent, and
 // no payment received against it. Past that point we never touch the
-// invoice's history, we just stop it recurring into future ones.
+// invoice's history, we just stop it recurring into future ones. Business
+// logic lives in revokeActiveDiscount, shared with the Discounts Queue's
+// DECIDED history so both entry points behave and record identically.
 export async function revokeDiscount(discountId: string): Promise<RevokeDiscountResult> {
   // Revoking a discount changes what a family owes — same bar as approving one
   // on the /discounts page. Gated on approve-discounts (owner/admin bypass).
@@ -949,121 +1073,12 @@ export async function revokeDiscount(discountId: string): Promise<RevokeDiscount
   if (!ctx) return { error: 'Only staff with discount-approval permission can revoke discounts.' }
   const { supabase, schoolId, userId } = ctx
 
-  const { data: discount } = await supabase
-    .from('discounts')
-    .select('id, invoice_id, student_id, category, is_recurring, status')
-    .eq('id', discountId)
-    .eq('school_id', schoolId)
-    .single()
-  if (!discount) return { error: 'Discount not found' }
-  if (discount.status !== 'approved' && discount.status !== 'applied') {
-    return { error: 'This discount is not currently active' }
-  }
-  if (discount.category === 'sibling_discount') {
-    return { error: 'Sibling discounts are auto-applied and cannot be revoked directly.' }
-  }
+  const result = await revokeActiveDiscount(supabase, schoolId, userId, discountId)
+  if ('error' in result) return result
 
-  const { data: invoice } = await supabase
-    .from('invoices')
-    .select('id, billing_cycle_id, paid_amount, credit_applied, sent_at, status')
-    .eq('id', discount.invoice_id)
-    .eq('school_id', schoolId)
-    .single()
-  if (!invoice) return { error: 'Invoice not found' }
-
-  const canFullyRemove = !invoice.sent_at && Number(invoice.paid_amount || 0) === 0
-
-  if (!canFullyRemove && !discount.is_recurring) {
-    return { error: 'This invoice has already been sent or paid against, so this one-off discount can no longer be removed.' }
-  }
-
-  const now = new Date().toISOString()
-
-  if (!canFullyRemove) {
-    // Sent/paid — only stop it carrying forward. This invoice's numbers
-    // (already sent/paid against) are left untouched.
-    const { error } = await supabase
-      .from('discounts')
-      .update({ is_recurring: false, updated_at: now })
-      .eq('id', discountId)
-    if (error) return { error: error.message }
-
-    await logAuditEvent(supabase, {
-      schoolId,
-      actorId: userId,
-      action: 'discount.recurring_revoked',
-      targetType: 'discount',
-      targetId: discountId,
-      summary: `Stopped a ${discount.category || ''} discount from carrying forward for student ${discount.student_id}`,
-      metadata: { invoiceId: invoice.id, studentId: discount.student_id, category: discount.category, fullyRemoved: false },
-    })
-
-    revalidatePath(`/students/${discount.student_id}`)
-    return { success: true, fullyRemoved: false }
-  }
-
-  // Nothing sent or paid yet — fully lift it off this invoice and recompute.
-  const { error: rejectError } = await supabase
-    .from('discounts')
-    .update({
-      status: 'rejected',
-      rejected_by: userId,
-      rejected_at: now,
-      rejection_reason: 'Revoked from student page before the invoice was sent',
-    })
-    .eq('id', discountId)
-  if (rejectError) return { error: rejectError.message }
-
-  const previouslyApplied = Number(invoice.credit_applied || 0)
-  if (previouslyApplied > 0) {
-    await applyCreditBalanceDelta(supabase, schoolId, discount.student_id, previouslyApplied)
-  }
-
-  const paid = Number(invoice.paid_amount || 0)
-  const computed = await computeInvoiceForStudent(
-    supabase, schoolId, discount.student_id, invoice.billing_cycle_id, undefined, paid, invoice.id
-  )
-  if ('error' in computed) return { error: computed.error }
-
-  let newStatus: 'pending' | 'partial' | 'paid' = 'pending'
-  if (paid >= computed.total) newStatus = 'paid'
-  else if (paid > 0) newStatus = 'partial'
-
-  const { error: updateError } = await supabase
-    .from('invoices')
-    .update({
-      line_items: computed.lineItems,
-      subtotal: computed.subtotal,
-      discount_amount: computed.discountAmount,
-      discount_reason: computed.discountReason || null,
-      previous_balance: computed.previousBalance,
-      previous_balance_from_invoice_id: computed.previousInvoiceId,
-      credit_applied: computed.creditApplied,
-      total_amount: computed.total,
-      status: newStatus,
-      updated_at: now,
-    })
-    .eq('id', invoice.id)
-  if (updateError) return { error: updateError.message }
-
-  await recordAppliedDiscounts(supabase, schoolId, discount.student_id, invoice.id, computed.appliedDiscounts)
-  if (computed.creditApplied > 0) {
-    await applyCreditBalanceDelta(supabase, schoolId, discount.student_id, -computed.creditApplied)
-  }
-
-  await logAuditEvent(supabase, {
-    schoolId,
-    actorId: userId,
-    action: 'discount.recurring_revoked',
-    targetType: 'discount',
-    targetId: discountId,
-    summary: `Revoked a ${discount.category || ''} discount and removed it from invoice ${invoice.id}`,
-    metadata: { invoiceId: invoice.id, studentId: discount.student_id, category: discount.category, fullyRemoved: true },
-  })
-
-  revalidatePath(`/students/${discount.student_id}`)
-  revalidatePath(`/invoices/${invoice.id}`)
-  return { success: true, fullyRemoved: true }
+  revalidatePath(`/students/${result.studentId}`)
+  if (result.fullyRemoved) revalidatePath(`/money/invoices/${result.invoiceId}`)
+  return result
 }
 
 // ============ PAYMENT ACCOUNT (DVA) ============
@@ -1117,6 +1132,7 @@ export async function createStudentDVA(studentId: string): Promise<CreateDVAResu
     revalidatePath(`/students/${studentId}`)
     return { success: true, accountNumber: dva.accountNumber, bankName: dva.bankName }
   } catch (err: any) {
+    if (isProviderDownError(err)) return { error: providerDownMessage(provider.name) }
     return { error: err?.message || 'Could not create payment account' }
   }
 }
@@ -1151,7 +1167,7 @@ export async function sendManualReminder(
   const { data: student } = await supabase
     .from('students')
     .select(`
-      id, first_name, last_name, provider_dva_account_number,
+      id, first_name, last_name, provider_dva_account_number, provider_dva_bank_name,
       families(primary_parent_phone)
     `)
     .eq('id', studentId)
@@ -1201,6 +1217,7 @@ export async function sendManualReminder(
     balance: Number(invoice.outstanding_amount),
     dueDate,
     accountNumber: student.provider_dva_account_number,
+    bankName: student.provider_dva_bank_name || undefined,
   }
   const smsText = (isOverdue ? composeOverdueSMS : composeReminderSMS)({
     ...messageParams,

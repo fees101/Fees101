@@ -79,6 +79,9 @@ export async function applyOptInAdditionToLiveInvoice(
     .eq('id', studentId)
     .single()
 
+  const subtotal = newLineItems
+    .filter((li) => li.kind !== 'previous_balance' && li.kind !== 'credit_applied')
+    .reduce((s, li) => s + li.amount, 0)
   const discountableSubtotal = newLineItems
     .filter((li) => li.kind !== 'previous_balance' && li.kind !== 'credit_applied' && li.discountable !== false)
     .reduce((s, li) => s + li.amount, 0)
@@ -88,6 +91,7 @@ export async function applyOptInAdditionToLiveInvoice(
     supabase,
     schoolId,
     { id: studentId, family_id: student?.family_id ?? null },
+    subtotal,
     discountableSubtotal,
     discountSettings,
     invoice.id

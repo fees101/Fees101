@@ -13,8 +13,8 @@
 // Frequency/thresholds are school-configurable (schools.settings.reminders,
 // see src/lib/queries/reminders.ts) — these are per-school, not global.
 
-import { composeReminderSMS, composeOverdueSMS } from './composeInvoice'
-import { sendMessageWithFallback, MessageType } from './sendMessage'
+import { composeReminderSMS, composeOverdueSMS, composeReminderEmail, composeOverdueEmail } from './composeInvoice'
+import { sendMultiChannel, MessageType, ChannelContent } from './sendMessage'
 import { mergeReminderSettings } from '@/lib/queries/reminders'
 import { getSchoolSmsName } from './schoolSmsName'
 
@@ -50,8 +50,8 @@ export async function sendDueRemindersForSchool(schoolId: string, supabase: any)
     .select(`
       id, outstanding_amount,
       billing_cycles!inner(name, due_date, status),
-      students!inner(id, first_name, last_name, provider_dva_account_number,
-        families(primary_parent_phone))
+      students!inner(id, first_name, last_name, provider_dva_account_number, provider_dva_bank_name,
+        families(primary_parent_phone, primary_parent_email))
     `)
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
@@ -82,12 +82,15 @@ export async function sendDueRemindersForSchool(schoolId: string, supabase: any)
   if (invoices.length === 0) return result
 
   // One query for every prior reminder already logged for these invoices —
-  // avoids an N+1 lookup per invoice.
+  // avoids an N+1 lookup per invoice. Only 'sent' rows count: a synchronously
+  // failed attempt must not permanently block a retry (advance/due), nor
+  // consume an overdueMaxReminders slot or reset the overdue interval clock.
   const invoiceIds = invoices.map((inv: any) => inv.id)
   const { data: priorReminders } = await supabase
     .from('message_logs')
     .select('related_invoice_id, message_type, created_at')
     .eq('school_id', schoolId)
+    .eq('status', 'sent')
     .in('message_type', ['reminder_advance', 'reminder_due', 'reminder_overdue'])
     .in('related_invoice_id', invoiceIds)
 
@@ -113,6 +116,7 @@ export async function sendDueRemindersForSchool(schoolId: string, supabase: any)
     const student: any = invoice.students
     const family: any = student?.families
     const phone: string | undefined = family?.primary_parent_phone
+    const emailAddr: string | undefined = family?.primary_parent_email
     const accountNumber: string | undefined = student?.provider_dva_account_number
     const dueDate: string = (invoice.billing_cycles as any).due_date
     const termName: string = (invoice.billing_cycles as any).name || ''
@@ -151,17 +155,30 @@ export async function sendDueRemindersForSchool(schoolId: string, supabase: any)
       balance: Number(invoice.outstanding_amount),
       dueDate,
       accountNumber,
+      bankName: student.provider_dva_bank_name || undefined,
     }
     const smsText = (isOverdue ? composeOverdueSMS : composeReminderSMS)({
       ...messageParams,
       schoolName: getSchoolSmsName(school),
     })
 
+    // SMS can't be turned off — it's the one channel guaranteed to reach a
+    // parent without an app or an email address. Email only goes out when
+    // the school has it on and the family actually has an address on file.
+    const content: ChannelContent = {}
+    if (settings.channels.sms) content.sms = smsText
+    if (settings.channels.email && emailAddr) {
+      content.email = (isOverdue ? composeOverdueEmail : composeReminderEmail)({
+        ...messageParams,
+        schoolName: school?.name || 'Your school',
+      })
+    }
+
     try {
-      const sendResult = await sendMessageWithFallback(
+      const sendResult = await sendMultiChannel(
         { supabase, schoolId, messageType, studentId: student.id, invoiceId: invoice.id },
-        { phone },
-        { sms: smsText }
+        { phone, email: emailAddr },
+        content
       )
       if (sendResult.ok) {
         if (messageType === 'reminder_advance') result.sent.advance++

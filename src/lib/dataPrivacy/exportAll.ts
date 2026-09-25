@@ -31,7 +31,34 @@ const EXPORT_TABLES: { table: string; file: string }[] = [
   { table: 'message_logs', file: 'messages-sent' },
   { table: 'users', file: 'staff-accounts' },
   { table: 'roles', file: 'roles' },
+  { table: 'audit_log', file: 'audit-log' },
 ]
+
+// Supabase/PostgREST caps an unranged select at 1000 rows, so a school past
+// that on any one table (invoices, payments, audit_log) would silently lose
+// everything after the first page. Page through in full instead.
+const PAGE_SIZE = 1000
+
+async function fetchAllRows(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  table: string,
+  schoolId: string,
+): Promise<Record<string, any>[]> {
+  const rows: Record<string, any>[] = []
+  let from = 0
+  for (;;) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .eq('school_id', schoolId)
+      .range(from, from + PAGE_SIZE - 1)
+    if (error || !data || data.length === 0) break
+    rows.push(...data)
+    if (data.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+  return rows
+}
 
 // Columns we never export even if present — access tokens / secrets that could
 // live on a row. Defensive: most of these won't exist on these tables, but a
@@ -79,12 +106,13 @@ export async function buildFullExport(schoolId: string, today: string): Promise<
   const encoder = new TextEncoder()
   const entries: ZipEntry[] = []
 
-  // Fetch every table in parallel, each scoped to this school.
+  // Fetch every table in parallel, each fully paged so no table's export
+  // silently truncates at PostgREST's default 1000-row cap.
   const results = await Promise.all(
-    EXPORT_TABLES.map(async ({ table, file }) => {
-      const { data, error } = await supabase.from(table).select('*').eq('school_id', schoolId)
-      return { file, rows: error ? [] : (data ?? []) }
-    }),
+    EXPORT_TABLES.map(async ({ table, file }) => ({
+      file,
+      rows: await fetchAllRows(supabase, table, schoolId),
+    })),
   )
 
   for (const { file, rows } of results) {

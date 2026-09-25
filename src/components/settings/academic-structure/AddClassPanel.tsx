@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { addClass, addSection } from '@/app/(app)/settings/academic-structure/actions'
+import { addClass, addSection } from '@/app/(app)/school/academic-structure/actions'
 import ManageSectionsModal from './ManageSectionsModal'
 
 interface Section {
@@ -96,37 +96,35 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-gray-200 flex flex-col h-fit sticky top-6">
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-          <h3 className="text-base font-semibold text-navy">Add class</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+      <div className="border-2 border-[var(--color-ink)] flex flex-col m-anim-slab">
+        <div className="p-5 border-b-2 border-[var(--color-ink)] flex items-center justify-between flex-shrink-0">
+          <h3 className="text-base font-extrabold tracking-[-0.01em] text-[var(--color-ink)]">Add class</h3>
+          <button onClick={onClose} aria-label="Close" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-ink)]">
+            Close
           </button>
         </div>
 
         <div className="p-5 space-y-4">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Class name *</label>
+          <label className="block">
+            <span className="m-label">Class name <span className="text-[var(--color-signal-text)]">*</span></span>
             <input
               type="text"
               value={form.name}
               onChange={(e) => setForm({...form, name: e.target.value})}
               placeholder="e.g. Grade 1"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-input"
               autoFocus
             />
-          </div>
+          </label>
 
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs text-gray-500">Section *</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="m-label !mb-0">Section <span className="text-[var(--color-signal-text)]">*</span></span>
               {sections.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setShowManageSections(true)}
-                  className="text-xs text-gray-500 hover:text-navy hover:underline"
+                  className="text-xs text-[var(--color-neutral-700)] hover:text-[var(--color-ink)] hover:underline"
                 >
                   Manage sections
                 </button>
@@ -136,43 +134,45 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
               <select
                 value={form.sectionId}
                 onChange={(e) => setForm({...form, sectionId: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                className="m-select"
               >
                 {sections.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
             ) : (
-              <p className="text-sm text-gray-400 italic py-2">No sections yet. Add one below.</p>
+              <p className="text-sm text-[var(--color-neutral-500)] italic py-2">No sections yet. Add one below.</p>
             )}
 
             {showAddSection ? (
-              <div className="mt-2 p-3 bg-mint-light/30 rounded-lg border border-mint/20">
-                <label className="block text-xs text-gray-500 mb-1">New section name</label>
-                <input
-                  type="text"
-                  value={newSectionName}
-                  onChange={(e) => setNewSectionName(e.target.value)}
-                  placeholder="e.g. Primary, Secondary, Nursery"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-                  autoFocus
-                />
+              <div className="mt-2 p-3 border-2 border-[var(--color-neutral-300)]">
+                <label className="block">
+                  <span className="m-label">New section name</span>
+                  <input
+                    type="text"
+                    value={newSectionName}
+                    onChange={(e) => setNewSectionName(e.target.value)}
+                    placeholder="e.g. Primary, Secondary, Nursery"
+                    className="m-input"
+                    autoFocus
+                  />
+                </label>
                 {sectionError && (
-                  <p className="text-xs text-red-600 mt-1">{sectionError}</p>
+                  <p className="text-xs text-[var(--color-signal-text)] mt-1">{sectionError}</p>
                 )}
-                <div className="flex items-center gap-2 mt-2">
+                <div className="flex items-center gap-3 mt-2">
                   <button
                     type="button"
                     onClick={handleAddSection}
                     disabled={addingSectionLoading || !newSectionName.trim()}
-                    className="px-3 py-1 bg-mint text-navy text-xs font-semibold rounded hover:bg-mint/90 disabled:opacity-50"
+                    className="m-btn m-btn-primary m-btn-sm"
                   >
                     {addingSectionLoading ? 'Adding...' : 'Add section'}
                   </button>
                   <button
                     type="button"
                     onClick={() => { setShowAddSection(false); setNewSectionName(''); setSectionError(null) }}
-                    className="px-3 py-1 text-gray-600 text-xs font-medium hover:bg-gray-100 rounded"
+                    className="m-btn m-btn-outline m-btn-sm"
                   >
                     Cancel
                   </button>
@@ -182,54 +182,54 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
               <button
                 type="button"
                 onClick={() => setShowAddSection(true)}
-                className="mt-2 text-xs text-mint font-medium hover:underline"
+                className="mt-2 text-xs font-semibold text-[var(--color-ink)] hover:underline"
               >
                 + Add new section
               </button>
             )}
           </div>
 
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Display order</label>
+          <label className="block">
+            <span className="m-label">Display order</span>
             <input
               type="number"
               value={form.displayOrder}
               onChange={(e) => setForm({...form, displayOrder: parseInt(e.target.value) || 0})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-input"
             />
-            <p className="text-xs text-gray-500 mt-1">Lower numbers appear first in lists</p>
-          </div>
+            <p className="text-xs text-[var(--color-neutral-700)] mt-1">Lower numbers appear first in lists</p>
+          </label>
 
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Promotes to</label>
+          <label className="block">
+            <span className="m-label">Promotes to</span>
             <select
               value={form.nextClassId}
               onChange={(e) => setForm({...form, nextClassId: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-select"
             >
               <option value="">— Exits school (graduates) —</option>
               {allClasses.map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-            <p className="text-xs text-gray-500 mt-1">Where students in this class move to at year-end rollover. Leave as &quot;Exits school&quot; if this is a graduating class.</p>
-          </div>
+            <p className="text-xs text-[var(--color-neutral-700)] mt-1">Where students in this class move to at year-end rollover. Leave as &quot;Exits school&quot; if this is a graduating class.</p>
+          </label>
 
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <div className="p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">
               {error}
             </div>
           )}
         </div>
 
-        <div className="p-5 border-t border-gray-100 flex items-center justify-end gap-2 flex-shrink-0">
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+        <div className="p-5 border-t-2 border-[var(--color-ink)] flex items-center justify-end gap-2 flex-shrink-0">
+          <button onClick={onClose} disabled={loading} className="m-btn m-btn-outline">
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={loading || sections.length === 0}
-            className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+            className="m-btn m-btn-primary"
           >
             {loading ? 'Adding...' : 'Add class'}
           </button>

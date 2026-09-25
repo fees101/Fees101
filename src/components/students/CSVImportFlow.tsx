@@ -2,10 +2,10 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { parseAndValidateCSV, startCsvImportJob } from '@/app/(app)/students/import/actions'
 import { startBulkDVAJob } from '@/app/(app)/students/[id]/actions'
 import { useActiveJobs, useTrackedJob, useOnJobOpenRequested, type TrackedJob } from '@/lib/jobs/ActiveJobsProvider'
+import { LedgerStep, type StepStatus } from './LedgerStep'
 
 interface ParsedRow {
   rowNumber: number
@@ -38,6 +38,10 @@ export default function CSVImportFlow() {
   const [step, setStep] = useState<Step>(existingImportJob || existingDvaJob ? 'importing' : 'upload')
   const [rows, setRows] = useState<ParsedRow[]>([])
   const [summary, setSummary] = useState({ total: 0, valid: 0, invalid: 0 })
+  // File name + column-recognition counts drive the "File read" and "Columns"
+  // step lines. Set on a successful parse, cleared on start-over.
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [colMeta, setColMeta] = useState<{ columns: number; recognised: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [importResult, setImportResult] = useState<{ imported: number, failed: number, breakdown: Record<string, number>, accountsCreated: number, dvaCancelled?: boolean } | null>(null)
@@ -105,6 +109,8 @@ export default function CSVImportFlow() {
 
       setRows(result.rows)
       setSummary(result.summary!)
+      setFileName(file.name)
+      setColMeta({ columns: result.columns ?? 0, recognised: result.recognisedColumns ?? 0 })
       setStep('review')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to read file')
@@ -220,184 +226,228 @@ export default function CSVImportFlow() {
     setStep('upload')
     setRows([])
     setSummary({ total: 0, valid: 0, invalid: 0 })
+    setFileName(null)
+    setColMeta(null)
     setError(null)
     setImportResult(null)
   }
 
+  // ── Step state derivation ─────────────────────────────────────────────────
+  // The surface shows all four steps at once, each carrying its own status word
+  // and a progress rule, so a bursar always sees how far the run got and what
+  // it will write. States map onto the real flow: a file parses (steps 1-3
+  // resolve together, since columns match the template exactly and rows are
+  // validated in the same pass), then the final step writes on confirm.
+  const hasParse = rows.length > 0
+  const importing = step === 'importing'
+  const done = step === 'success'
+  const reached = hasParse || importing || done
+
+  const problemRows = rows.filter(r => r.errors.length > 0)
+  const dupCount = rows.filter(r => r.errors.some(e => e.includes('Duplicate admission number') || e.includes('already exists'))).length
+  const classCount = rows.filter(r => r.errors.some(e => e.includes("doesn't exist at this school"))).length
+  const missingCount = rows.filter(r => r.errors.some(e => e.includes('is required'))).length
+  const contactCount = rows.filter(r => r.errors.some(e => e.includes('not a valid') || e.includes('is not valid') || e.includes('YYYY-MM-DD'))).length
+
+  const s1: StepStatus = reached ? 'done' : loading ? 'running' : 'notrun'
+  const s2: StepStatus = reached ? 'done' : 'notrun'
+  const s3: StepStatus = importing || done ? 'done' : hasParse ? (summary.invalid > 0 ? 'attention' : 'done') : 'notrun'
+  const s4: StepStatus = done ? 'done' : importing ? 'running' : 'notrun'
+
+  const problemBits: string[] = []
+  if (dupCount) problemBits.push(`${dupCount} duplicate admission ${dupCount === 1 ? 'number' : 'numbers'}`)
+  if (classCount) problemBits.push(`${classCount} ${classCount === 1 ? 'row with an unknown class' : 'rows with an unknown class'}`)
+  if (missingCount) problemBits.push(`${missingCount} missing a required field`)
+  if (contactCount) problemBits.push(`${contactCount} invalid contact ${contactCount === 1 ? 'detail' : 'details'}`)
+
+  const p1 = s1 === 'done' ? 1 : 0
+  const p2 = s2 === 'done' ? 1 : 0
+  const p3 = hasParse ? (summary.total > 0 ? summary.valid / summary.total : 1) : (importing || done ? 1 : 0)
+  const p4 = done ? 1 : importing && displayProgress && displayProgress.total > 0 ? displayProgress.done / displayProgress.total : 0
+
   return (
-    <>
-      {/* Breadcrumb */}
-      <nav className="mb-4 flex items-center gap-2 text-sm text-gray-500">
-        <Link href="/students" className="hover:text-navy">Students</Link>
-        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <span className="text-navy font-medium">Import</span>
-      </nav>
-
-      <h1 className="text-3xl font-bold text-navy mb-2">Import Students</h1>
-      <p className="text-gray-500 text-sm mb-8">Upload a CSV file to add multiple students at once</p>
-
-      {/* Step indicator */}
-      <div className="flex items-center justify-center gap-2 mb-8 max-w-2xl mx-auto">
-        <StepIndicator number={1} label="Download template" status={step === 'upload' ? 'active' : 'complete'} />
-        <div className={`flex-1 h-px ${step !== 'upload' ? 'bg-mint' : 'bg-gray-200'}`} />
-        <StepIndicator number={2} label="Upload file" status={step === 'upload' ? 'pending' : step === 'review' ? 'active' : 'complete'} />
-        <div className={`flex-1 h-px ${step === 'success' ? 'bg-mint' : 'bg-gray-200'}`} />
-        <StepIndicator number={3} label="Review & confirm" status={step === 'success' ? 'complete' : (step === 'review' || step === 'importing') ? 'active' : 'pending'} />
+    <div style={{ maxWidth: 1100 }}>
+      <div style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 18 }}>
+        <h2 className="text-2xl font-extrabold tracking-[-0.015em] text-[var(--color-ink)]" style={{ margin: 0 }}>
+          Import students from a spreadsheet
+        </h2>
+        <p className="text-[13px] text-[var(--color-neutral-800)]" style={{ maxWidth: '74ch', marginTop: 8 }}>
+          Four steps, all visible at once, so you always know how far the import got and what it will create.
+          Nothing is written until the last step.
+        </p>
       </div>
 
-      {/* Content based on step */}
-      {step === 'upload' && (
-        <UploadStep 
-          onFileSelect={handleFile}
-          dragging={dragging}
-          setDragging={setDragging}
-          error={error}
-          loading={loading}
-        />
-      )}
-
-      {step === 'review' && (
-        <ReviewStep
-          rows={rows}
-          summary={summary}
-          onConfirm={handleConfirmImport}
-          onCancel={handleStartOver}
-          loading={loading}
-          error={error}
-        />
-      )}
-
-      {step === 'importing' && displayProgress && (
-        <ImportingStep
-          progress={displayProgress}
-          onCancel={activeJob ? () => cancelJob(activeJob.jobId) : undefined}
-          cancelling={!!activeJob?.cancelling}
-        />
-      )}
-
-        {step === 'success' && importResult && (
-        <SuccessStep
-            imported={importResult.imported}
-            failed={importResult.failed}
-            breakdown={importResult.breakdown}
-            accountsCreated={importResult.accountsCreated}
-            dvaCancelled={importResult.dvaCancelled}
-            onViewStudents={() => router.push('/students')}
-            onImportMore={handleStartOver}
-        />
-        )}
-    </>
-  )
-}
-
-function StepIndicator({ number, label, status }: { number: number, label: string, status: 'pending' | 'active' | 'complete' }) {
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className={`
-        w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold
-        ${status === 'complete' ? 'bg-mint text-navy' : ''}
-        ${status === 'active' ? 'bg-navy text-white' : ''}
-        ${status === 'pending' ? 'bg-gray-100 text-gray-400' : ''}
-      `}>
-        {status === 'complete' ? (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        ) : (
-          number
-        )}
-      </div>
-      <span className={`text-xs ${status === 'pending' ? 'text-gray-400' : 'text-navy'}`}>{label}</span>
-    </div>
-  )
-}
-
-function ImportingStep({ progress, onCancel, cancelling }: {
-  progress: { label: string, done: number, total: number }
-  onCancel?: () => void
-  cancelling: boolean
-}) {
-  const pct = progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0
-  const isAccounts = progress.label.toLowerCase().includes('account')
-
-  return (
-    <div className="max-w-lg mx-auto text-center py-12">
-      {/* A "breathing" fees/education icon — scales gently in and out so it
-          reads as actively working, plus three coins that drop in sequence. */}
-      <div className="relative w-24 h-24 mx-auto mb-6">
-        <div
-          className="w-24 h-24 rounded-3xl bg-mint-light flex items-center justify-center"
-          style={{ animation: 'fees-breathe 1.6s ease-in-out infinite' }}
+      <div style={{ marginTop: 8 }}>
+        {/* 01 — File read */}
+        <LedgerStep
+          n="01"
+          title="File read"
+          status={s1}
+          statusLabel={s1 === 'done' ? 'DONE' : s1 === 'running' ? 'READING' : 'NOT RUN'}
+          desc={
+            reached
+              ? (fileName && colMeta
+                  ? `${fileName} · ${summary.total} ${summary.total === 1 ? 'row' : 'rows'}, ${colMeta.columns} columns detected.`
+                  : 'File read and validated.')
+              : 'Choose a CSV file to begin. It is read in your browser and checked before anything is saved.'
+          }
+          progress={p1}
+          showBar={s1 !== 'notrun'}
         >
-          {isAccounts ? (
-            // stacking coins (₦) for "creating accounts"
-            <svg className="w-11 h-11 text-mint" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-              <ellipse cx="12" cy="6" rx="7" ry="3" />
-              <path strokeLinecap="round" d="M5 6v4c0 1.66 3.13 3 7 3s7-1.34 7-3V6" style={{ animation: 'fees-coin 1.6s ease-in-out infinite' }} />
-              <path strokeLinecap="round" d="M5 10v4c0 1.66 3.13 3 7 3s7-1.34 7-3v-4" style={{ animation: 'fees-coin 1.6s ease-in-out infinite', animationDelay: '0.2s' }} />
-              <path strokeLinecap="round" d="M5 14v4c0 1.66 3.13 3 7 3s7-1.34 7-3v-4" style={{ animation: 'fees-coin 1.6s ease-in-out infinite', animationDelay: '0.4s' }} />
-            </svg>
-          ) : (
-            // graduation cap for "importing students"
-            <svg className="w-11 h-11 text-mint" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4L2 9l10 5 10-5-10-5z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 11v4c0 1.5 2.7 3 6 3s6-1.5 6-3v-4" />
-              <path strokeLinecap="round" d="M22 9v5" />
-            </svg>
+          {step === 'upload' && (
+            <UploadArea
+              onFileSelect={handleFile}
+              dragging={dragging}
+              setDragging={setDragging}
+              error={error}
+              loading={loading}
+            />
           )}
-        </div>
-      </div>
+        </LedgerStep>
 
-      {/* Shimmering label — the sweep of light across the text signals activity */}
-      <h2
-        className="text-2xl font-bold mb-1 inline-block text-transparent bg-clip-text bg-[length:200%_auto]"
-        style={{
-          backgroundImage: 'linear-gradient(90deg, #0a1f44 0%, #0a1f44 35%, #6ee7b7 50%, #0a1f44 65%, #0a1f44 100%)',
-          animation: 'fees-shimmer-text 2.5s linear infinite',
-        }}
-      >
-        {progress.label}…
-      </h2>
-      <p className="text-gray-500 text-sm mb-6">This runs in the background — you can leave this page and we'll keep going. We'll let you know when it's done.</p>
+        {/* 02 — Columns mapped */}
+        <LedgerStep
+          n="02"
+          title="Columns mapped"
+          status={s2}
+          statusLabel={s2 === 'done' ? 'DONE' : 'NOT RUN'}
+          desc={
+            reached
+              ? (colMeta
+                  ? (colMeta.recognised >= colMeta.columns
+                      ? `All ${colMeta.columns} columns recognised from the template.`
+                      : `${colMeta.recognised} of ${colMeta.columns} columns recognised; the rest are ignored.`)
+                  : 'Columns matched to the template.')
+              : 'Columns are matched to the template automatically once a file is read.'
+          }
+          progress={p2}
+          showBar={s2 !== 'notrun'}
+        />
 
-      {/* Determinate progress bar with a light sweep across the fill */}
-      <div className="relative w-full h-3 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full bg-mint rounded-full transition-all duration-300 relative overflow-hidden" style={{ width: `${Math.max(pct, 4)}%` }}>
-          <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/60 to-transparent" style={{ animation: 'fees-bar-shimmer 1.2s infinite' }} />
-        </div>
-      </div>
-      <p className="text-sm font-semibold text-navy mt-3">{progress.done} of {progress.total} · {pct}%</p>
-
-      {onCancel && (
-        <button
-          onClick={onCancel}
-          disabled={cancelling}
-          className="mt-4 text-xs text-red-600 hover:underline disabled:opacity-50 disabled:no-underline"
+        {/* 03 — Rows checked */}
+        <LedgerStep
+          n="03"
+          title="Rows checked"
+          status={s3}
+          statusLabel={
+            s3 === 'attention'
+              ? `${summary.invalid} ${summary.invalid === 1 ? 'PROBLEM' : 'PROBLEMS'}`
+              : s3 === 'done' ? 'DONE' : 'NOT RUN'
+          }
+          desc={
+            hasParse
+              ? `${summary.valid} ready.${problemBits.length ? ` ${problemBits.join(', ')} — each listed with the row number so you can fix the file.` : ''}`
+              : (importing || done
+                  ? 'Rows validated before import.'
+                  : 'Ready and problem rows are counted once a file is read.')
+          }
+          progress={p3}
+          showBar={hasParse || importing || done}
         >
-          {cancelling ? 'Cancelling...' : 'Cancel'}
-        </button>
-      )}
+          {hasParse && problemRows.length > 0 && (
+            <div className="overflow-x-auto" style={{ marginTop: 4, maxHeight: 360, overflowY: 'auto', border: '1px solid var(--color-neutral-300)' }}>
+              <table className="m-table">
+                <thead className="sticky top-0" style={{ background: 'var(--color-paper)' }}>
+                  <tr>
+                    <th style={{ width: 56 }}>Row</th>
+                    <th>Student</th>
+                    <th>What to fix</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {problemRows.map(row => (
+                    <tr key={row.rowNumber}>
+                      <td className="m-num text-[var(--color-neutral-700)]">{row.rowNumber}</td>
+                      <td className="text-[var(--color-ink)]">{[row.firstName, row.lastName].filter(Boolean).join(' ') || '—'}</td>
+                      <td>
+                        {row.errors.map((err, i) => (
+                          <p key={i} className="text-xs text-[var(--color-ochre-text)]" style={{ margin: 0 }}>{err}</p>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </LedgerStep>
 
-      {/* Two-phase stepper so they know where they are */}
-      <div className="flex items-center justify-center gap-2 mt-6 text-xs">
-        <span className={!isAccounts ? 'text-navy font-semibold' : 'text-gray-400'}>1 · Import students</span>
-        <span className="text-gray-300">→</span>
-        <span className={isAccounts ? 'text-navy font-semibold' : 'text-gray-400'}>2 · Create payment accounts</span>
+        {/* 04 — Create students */}
+        <LedgerStep
+          n="04"
+          title="Create students"
+          status={s4}
+          statusLabel={s4 === 'done' ? 'DONE' : s4 === 'running' ? 'RUNNING' : 'NOT RUN'}
+          desc={
+            done
+              ? undefined
+              : importing
+                ? (displayProgress ? `${displayProgress.label} — ${displayProgress.done} of ${displayProgress.total}.` : 'Working...')
+                : (hasParse
+                    ? `Writes ${summary.valid} ${summary.valid === 1 ? 'student' : 'students'}. No invoices are generated — that stays a separate, deliberate step.`
+                    : 'The final step writes the students. No invoices are generated — that stays a separate, deliberate step.')
+          }
+          progress={p4}
+          showBar={importing || done}
+        >
+          {step === 'review' && (
+            <div style={{ marginTop: 4 }}>
+              {error && (
+                <div className="mb-4 p-3 text-sm text-[var(--color-signal-text)]" style={{ background: 'var(--color-signal-100)', borderLeft: '3px solid var(--color-signal)' }}>
+                  {error}
+                </div>
+              )}
+              <div className="flex items-center gap-3 flex-wrap">
+                <button onClick={handleConfirmImport} disabled={loading || summary.valid === 0} className="m-btn m-btn-primary">
+                  {summary.invalid > 0 ? `Skip flagged rows and create ${summary.valid}` : `Create ${summary.valid} ${summary.valid === 1 ? 'student' : 'students'}`}
+                </button>
+                <button onClick={handleStartOver} disabled={loading} className="m-btn m-btn-outline">
+                  Start over
+                </button>
+              </div>
+            </div>
+          )}
+
+          {importing && displayProgress && (
+            <div style={{ marginTop: 4 }}>
+              <p className="text-sm font-semibold text-[var(--color-ink)] m-num" style={{ margin: 0 }}>
+                {displayProgress.done} of {displayProgress.total} · {displayProgress.total > 0 ? Math.round((displayProgress.done / displayProgress.total) * 100) : 0}%
+              </p>
+              <p className="text-xs text-[var(--color-neutral-700)]" style={{ marginTop: 4, maxWidth: '74ch' }}>
+                This runs in the background — you can leave this page and we will keep going.
+              </p>
+              {activeJob && (
+                <button
+                  onClick={() => cancelJob(activeJob.jobId)}
+                  disabled={!!activeJob.cancelling}
+                  className="mt-3 text-xs font-semibold text-[var(--color-signal-text)] hover:underline disabled:opacity-50 disabled:no-underline"
+                >
+                  {activeJob.cancelling ? 'Cancelling...' : 'Cancel'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {done && importResult && (
+            <SuccessBody
+              imported={importResult.imported}
+              failed={importResult.failed}
+              breakdown={importResult.breakdown}
+              accountsCreated={importResult.accountsCreated}
+              dvaCancelled={importResult.dvaCancelled}
+              onViewStudents={() => router.push('/students')}
+              onImportMore={handleStartOver}
+            />
+          )}
+        </LedgerStep>
       </div>
-
-      <style>{`
-        @keyframes fees-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
-        @keyframes fees-coin { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
-        @keyframes fees-bar-shimmer { 100% { transform: translateX(100%); } }
-        @keyframes fees-shimmer-text { to { background-position: 200% center; } }
-      `}</style>
     </div>
   )
 }
 
-function UploadStep({ onFileSelect, dragging, setDragging, error, loading }: {
+// The step-1 body when no file has been read yet: a drop zone, a template
+// download, and the column requirements — flush on paper, no cards.
+function UploadArea({ onFileSelect, dragging, setDragging, error, loading }: {
   onFileSelect: (file: File) => void
   dragging: boolean
   setDragging: (b: boolean) => void
@@ -405,278 +455,51 @@ function UploadStep({ onFileSelect, dragging, setDragging, error, loading }: {
   loading: boolean
 }) {
   return (
-    <div className="space-y-6">
-    {/* Template + how it works + warning cards */}
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-    
-    {/* Card 1: Template download */}
-    <div className="bg-white p-6 rounded-xl border border-gray-200">
-        <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-lg bg-mint-light flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-        </div>
-        <div className="flex-1">
-            <h3 className="text-navy font-semibold">Need a template?</h3>
-            <p className="text-sm text-gray-500 mt-1 mb-4">Download our CSV template with example data</p>
-            <a 
-            href="/students-template.csv" 
-            download
-            className="inline-flex items-center gap-2 px-4 py-2 bg-mint-light text-mint text-sm font-semibold rounded-lg hover:bg-mint-light/70"
-            >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Download template
-            </a>
-        </div>
-        </div>
-    </div>
-
-    {/* Card 2: How it works */}
-    <div className="bg-white p-6 rounded-xl border border-gray-200">
-        <div className="flex items-start gap-3 mb-3">
-        <div className="w-10 h-10 rounded-lg bg-mint-light flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-        </div>
-        <h3 className="text-navy font-semibold">How it works</h3>
-        </div>
-        <ol className="text-sm text-gray-700 space-y-1.5">
-        <li><span className="text-gray-400 mr-2">1</span>Download the template</li>
-        <li><span className="text-gray-400 mr-2">2</span>Fill in your student data</li>
-        <li><span className="text-gray-400 mr-2">3</span>Upload the file</li>
-        <li><span className="text-gray-400 mr-2">4</span>Review and confirm imports</li>
-        </ol>
-    </div>
-
-    {/* Card 3: Excel warning */}
-    <div className="bg-white p-6 rounded-xl border border-gray-200">
-        <div className="flex items-start gap-3 mb-3">
-        <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-        </div>
-        <h3 className="text-navy font-semibold">A note on Excel</h3>
-        </div>
-        <p className="text-sm text-gray-700 mb-2">
-        Excel can corrupt phone numbers and dates when opening CSVs.
-        </p>
-        <p className="text-sm text-gray-700">
-        We recommend using <strong>Google Sheets</strong> or a plain text editor instead. See our guide for tips →
-        </p>
-    </div>
-
-    </div>
-      {/* Drop zone */}
-      
-      <div 
-        className={`
-          bg-white p-12 rounded-xl border-2 border-dashed text-center transition-colors
-          ${dragging ? 'border-mint bg-mint-light' : 'border-gray-300'}
-        `}
+    <div>
+      <div
+        className="text-center"
+        style={{
+          padding: 40,
+          border: `2px dashed ${dragging ? 'var(--color-ink)' : 'var(--color-neutral-400)'}`,
+          background: dragging ? 'var(--color-surface)' : 'transparent',
+          transition: 'border-color var(--dur-tick) var(--ease-out), background var(--dur-tick) var(--ease-out)',
+        }}
         onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragging(false)
-          const file = e.dataTransfer.files[0]
-          if (file) onFileSelect(file)
-        }}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) onFileSelect(f) }}
       >
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-mint-light flex items-center justify-center">
-          <svg className="w-8 h-8 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-          </svg>
-        </div>
-        <p className="text-lg font-semibold text-navy mb-1">Drop your CSV file here</p>
-        <p className="text-sm text-gray-500 mb-1">or click to browse</p>
-        <p className="text-xs text-gray-400 mb-4">Accepts .csv files up to 5MB</p>
-        <label className="inline-flex items-center gap-2 px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 cursor-pointer">
-          {loading ? 'Reading file...' : (
-            <>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-              Choose file
-            </>
-          )}
+        <p className="text-base font-semibold text-[var(--color-ink)]" style={{ margin: 0 }}>Drop your CSV file here</p>
+        <p className="text-sm text-[var(--color-neutral-700)]" style={{ margin: '2px 0 0' }}>or choose it from your computer. Accepts .csv up to 5MB.</p>
+        <label className="m-btn m-btn-primary inline-flex cursor-pointer" style={{ marginTop: 16 }}>
+          {loading ? 'Reading file...' : 'Choose file'}
           <input
             type="file"
             accept=".csv"
             className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) onFileSelect(file)
-            }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileSelect(f) }}
             disabled={loading}
           />
         </label>
         {error && (
-          <p className="mt-4 text-sm text-red-700 bg-red-50 px-4 py-2 rounded-lg inline-block">{error}</p>
+          <p className="mt-4 text-sm text-[var(--color-signal-text)] inline-block" style={{ background: 'var(--color-signal-100)', padding: '8px 16px' }}>{error}</p>
         )}
       </div>
 
-      {/* What you need */}
-      <div className="bg-white p-6 rounded-xl border border-gray-200">
-        <h3 className="text-navy font-semibold mb-3">What you need</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs text-gray-500 font-medium uppercase mb-2">Required</p>
-            <ul className="text-sm text-gray-700 space-y-1.5">
-              <li>✓ Student first name</li>
-              <li>✓ Student last name</li>
-              <li>✓ Admission number</li>
-              <li>✓ Class (must match an existing class)</li>
-              <li>✓ Parent name</li>
-              <li>✓ Parent phone (Nigerian format)</li>
-            </ul>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500 font-medium uppercase mb-2">Optional</p>
-            <ul className="text-sm text-gray-700 space-y-1.5">
-              <li>· Parent email</li>
-              <li>· Date of admission</li>
-              <li>· Secondary parent contact</li>
-              <li>· Notes</li>
-            </ul>
-          </div>
-        </div>
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2" style={{ marginTop: 16 }}>
+        <a href="/students-template.csv" download className="text-[13px] font-semibold text-[var(--color-ink)] underline underline-offset-4 decoration-[var(--color-neutral-400)] hover:decoration-[var(--color-ink)]">
+          Download the CSV template
+        </a>
+        <span className="text-[13px] text-[var(--color-neutral-700)]">
+          Required: first &amp; last name, admission number, class, parent name, parent phone. Optional: parent email, admission date, second parent, notes.
+        </span>
       </div>
     </div>
   )
 }
 
-function ReviewStep({ rows, summary, onConfirm, onCancel, loading, error }: {
-  rows: ParsedRow[]
-  summary: { total: number, valid: number, invalid: number }
-  onConfirm: () => void
-  onCancel: () => void
-  loading: boolean
-  error: string | null
-}) {
-  return (
-    <div>
-      <h2 className="text-2xl font-bold text-navy mb-1">Review your import</h2>
-      <p className="text-gray-500 text-sm mb-6">
-        We found {summary.total} {summary.total === 1 ? 'student' : 'students'} in your file.
-        {summary.invalid > 0 && ` ${summary.invalid} need attention.`}
-      </p>
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-mint-light flex items-center justify-center">
-            <svg className="w-5 h-5 text-mint" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-navy">{summary.valid}</p>
-            <p className="text-xs text-gray-500">Ready to import</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
-            <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M5 19h14a2 2 0 002-2v-12a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-navy">{summary.invalid}</p>
-            <p className="text-xs text-gray-500">Need attention</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-navy">{rows.reduce((count, row) => count + row.errors.length, 0)}</p>
-            <p className="text-xs text-gray-500">Errors</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Rows table */}
-      <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
-        <div className="overflow-x-auto max-h-[500px]">
-          <table className="w-full">
-            <thead className="bg-gray-50 sticky top-0">
-              <tr className="border-b border-gray-200">
-                <th className="text-left text-xs text-gray-500 uppercase font-medium px-3 py-2.5 w-12">Row</th>
-                <th className="text-left text-xs text-gray-500 uppercase font-medium px-3 py-2.5">Student name</th>
-                <th className="text-left text-xs text-gray-500 uppercase font-medium px-3 py-2.5">Class</th>
-                <th className="text-left text-xs text-gray-500 uppercase font-medium px-3 py-2.5">Parent name</th>
-                <th className="text-left text-xs text-gray-500 uppercase font-medium px-3 py-2.5">Phone</th>
-                <th className="text-left text-xs text-gray-500 uppercase font-medium px-3 py-2.5">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {rows.map((row) => (
-                <tr key={row.rowNumber} className={row.errors.length > 0 ? 'bg-amber-50' : ''}>
-                  <td className="px-3 py-2 text-sm text-gray-500">{row.rowNumber}</td>
-                  <td className="px-3 py-2 text-sm text-navy">{row.firstName} {row.lastName}</td>
-                  <td className="px-3 py-2 text-sm text-gray-700">{row.className || '—'}</td>
-                  <td className="px-3 py-2 text-sm text-gray-700">{row.parentName || '—'}</td>
-                  <td className="px-3 py-2 text-sm text-gray-700">{row.parentPhone || '—'}</td>
-                  <td className="px-3 py-2">
-                    {row.errors.length === 0 ? (
-                      <svg className="w-5 h-5 text-mint" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      <div className="flex items-start gap-2">
-                        <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <div>
-                          {row.errors.map((err, idx) => (
-                            <p key={idx} className="text-xs text-amber-700">{err}</p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-700">{error}</p>
-        </div>
-      )}
-
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onConfirm}
-          disabled={loading || summary.valid === 0}
-          className="px-6 py-2.5 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? 'Importing...' : summary.invalid > 0 ? `Skip flagged rows and import ${summary.valid}` : `Import ${summary.valid} students`}
-        </button>
-        <button
-          onClick={onCancel}
-          disabled={loading}
-          className="px-6 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function SuccessStep({ imported, failed, breakdown, accountsCreated, dvaCancelled, onViewStudents, onImportMore }: {
+// The step-4 body once the run has finished: totals, the per-class breakdown,
+// and where to go next.
+function SuccessBody({ imported, failed, breakdown, accountsCreated, dvaCancelled, onViewStudents, onImportMore }: {
   imported: number
   failed: number
   breakdown: Record<string, number>
@@ -685,82 +508,39 @@ function SuccessStep({ imported, failed, breakdown, accountsCreated, dvaCancelle
   onViewStudents: () => void
   onImportMore: () => void
 }) {
-  // Sort classes by count desc, then alphabetically
   const sortedClasses = Object.entries(breakdown).sort((a, b) => {
     if (b[1] !== a[1]) return b[1] - a[1]
     return a[0].localeCompare(b[0])
   })
 
   return (
-    <div className="max-w-xl mx-auto text-center py-8">
-      <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-mint flex items-center justify-center">
-        <svg className="w-10 h-10 text-navy" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-        </svg>
-      </div>
-
-      <h2 className="text-3xl font-bold text-navy mb-2">Import successful</h2>
-      <p className="text-gray-500 mb-4">
-        {imported} {imported === 1 ? 'student' : 'students'} added
+    <div>
+      <p className="text-[13px] text-[var(--color-ink)]" style={{ margin: 0 }}>
+        <span style={{ color: 'var(--color-ink)', fontWeight: 700 }}>{imported} {imported === 1 ? 'student' : 'students'} added</span>
         {failed > 0 && `, ${failed} ${failed === 1 ? 'row' : 'rows'} failed`}
+        {accountsCreated > 0 && ` · ${accountsCreated} payment ${accountsCreated === 1 ? 'account' : 'accounts'} created`}.
       </p>
-      {accountsCreated > 0 && (
-        <p className="inline-flex items-center gap-1.5 text-sm text-navy bg-mint-light border border-mint/40 rounded-full px-3 py-1 mb-8">
-          <svg className="w-4 h-4 text-mint" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-          {accountsCreated} payment {accountsCreated === 1 ? 'account' : 'accounts'} created automatically
-        </p>
-      )}
 
       {sortedClasses.length > 0 && (
-        <div className="bg-white p-6 rounded-xl border border-gray-200 mb-8 text-left">
-          <h3 className="text-navy font-semibold mb-4">Import summary</h3>
-          <div className="space-y-1 max-h-80 overflow-y-auto">
-            {sortedClasses.map(([className, count]) => (
-              <div key={className} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-mint-light flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                    </svg>
-                  </div>
-                  <span className="text-sm font-medium text-navy">{className}</span>
-                </div>
-                <span className="text-sm text-gray-700">
-                  {count} {count === 1 ? 'student' : 'students'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {failed > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-sm text-amber-800">
-          {failed} {failed === 1 ? 'row' : 'rows'} could not be imported. Check your data and try again.
+        <div style={{ marginTop: 12, maxWidth: 460, border: '1px solid var(--color-neutral-300)', maxHeight: 320, overflowY: 'auto' }}>
+          {sortedClasses.map(([className, count], i) => (
+            <div key={className} className="flex items-center justify-between" style={{ padding: '10px 12px', borderTop: i === 0 ? 'none' : '1px solid var(--color-neutral-300)' }}>
+              <span className="text-sm text-[var(--color-ink)]">{className}</span>
+              <span className="text-sm text-[var(--color-neutral-700)] m-num">{count} {count === 1 ? 'student' : 'students'}</span>
+            </div>
+          ))}
         </div>
       )}
 
       {dvaCancelled && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-sm text-amber-800">
-          Payment account creation was cancelled — {accountsCreated} account{accountsCreated === 1 ? '' : 's'} created before stopping. You can create the rest from Students or Settings → Payments.
-        </div>
+        <p className="text-[13px] text-[var(--color-ochre-text)]" style={{ marginTop: 12, maxWidth: '74ch' }}>
+          Payment account creation was cancelled — {accountsCreated} account{accountsCreated === 1 ? '' : 's'} created before stopping. You can create the rest from Students or School settings, Payments.
+        </p>
       )}
 
-      <div className="flex items-center justify-center gap-3">
-        <button
-          onClick={onViewStudents}
-          className="px-6 py-2.5 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
-        >
-          View all students
-        </button>
-        <button
-          onClick={onImportMore}
-          className="px-6 py-2.5 border border-gray-200 text-navy text-sm font-medium rounded-lg hover:bg-gray-50"
-        >
-          Import more
-        </button>
+      <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 16 }}>
+        <button onClick={onViewStudents} className="m-btn m-btn-primary">View all students</button>
+        <button onClick={onImportMore} className="m-btn m-btn-outline">Import more</button>
       </div>
     </div>
   )

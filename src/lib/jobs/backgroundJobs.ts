@@ -102,6 +102,32 @@ export async function findRunningJob(schoolId: string, jobType: JobType, payload
   return job
 }
 
+// How many invoices are still going out right now — used by sign-out
+// (src/app/logout/route.ts) and the 8-hour idle timeout (src/middleware.ts)
+// to tell someone "N invoices were still sending" instead of leaving it
+// unclear whether ending the session just cancelled a send to hundreds of
+// parents. It never does: 'bulk_send' is the only job type that emails/SMSes
+// parents, and it keeps advancing after this purely-informational read,
+// via the worker route's service-role client while a tab is open and the
+// GitHub Actions sweep (.github/workflows/job-sweep.yml) once it isn't.
+//
+// Takes whatever supabase client the caller already has (a session-scoped
+// client in the route handler / middleware, RLS-limited to the caller's own
+// school) rather than a schoolId, so this never needs the service-role client
+// itself — same "any" client parameter convention as sendInvoiceCore etc.
+export async function countInFlightInvoiceSends(supabase: any): Promise<number> {
+  const { data } = await supabase
+    .from('background_jobs')
+    .select('total, processed')
+    .eq('job_type', 'bulk_send')
+    .eq('status', 'running')
+
+  return ((data ?? []) as { total: number; processed: number }[]).reduce(
+    (sum, job) => sum + Math.max(0, (job.total ?? 0) - (job.processed ?? 0)),
+    0
+  )
+}
+
 export async function updateJobProgress(jobId: string, patch: {
   cursor?: Record<string, unknown>
   processed?: number

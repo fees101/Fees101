@@ -1,9 +1,20 @@
 import { redirect } from 'next/navigation'
 import { getRolloverStatus } from '@/app/(app)/fees/cycles/actions'
-import { getPromotionPreviewAction, getClassesForOverrideAction, getDraftSessionsAction } from './actions'
+import type { Metadata } from 'next'
+import {
+  getPromotionPreviewAction,
+  getClassesForOverrideAction,
+  getDraftSessionsAction,
+  getYearEndFeeCopyPreviewAction,
+  getYearEndReadinessAction,
+} from './actions'
 import YearEndRolloverWizard from '@/components/fees/YearEndRolloverWizard'
 import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
+import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
+import AccessDenied from '@/components/layout/AccessDenied'
 import { getAuthContext, can } from '@/lib/auth/permissions'
+
+export const metadata: Metadata = { title: 'Year end' }
 
 // Server Actions invoked from this page (startYearEndRollover /
 // resumeYearEndRollover -> continueYearEndRollover) still run their whole
@@ -18,23 +29,39 @@ export const maxDuration = 60
 export default async function YearEndPage() {
   const ctx = await getAuthContext()
   if (!ctx) redirect('/login')
-  if (!can(ctx, 'run-year-end')) redirect('/fees')
+  if (!can(ctx, 'run-year-end')) {
+    return (
+      <>
+        <WorkspaceHeader workspaceKey="fees" title="Year end" />
+        <AccessDenied ctx={ctx} permissionKey="run-year-end" />
+      </>
+    )
+  }
+  // Money figures (balances carried) are gated the same way every other Fees
+  // surface gates them — a person who can run the rollover but can't see
+  // financial totals gets the counts, not the naira.
+  const showFinancials = can(ctx, 'see-financial-totals')
 
-  const [statusResult, previewResult, classesResult, draftSessionsResult] = await Promise.all([
-    getRolloverStatus(),
-    getPromotionPreviewAction(),
-    getClassesForOverrideAction(),
-    getDraftSessionsAction(),
-  ])
+  const [statusResult, previewResult, classesResult, draftSessionsResult, feeCopyResult, readinessResult] =
+    await Promise.all([
+      getRolloverStatus(),
+      getPromotionPreviewAction(),
+      getClassesForOverrideAction(),
+      getDraftSessionsAction(),
+      getYearEndFeeCopyPreviewAction(),
+      getYearEndReadinessAction(),
+    ])
 
   const activeRun = ('run' in statusResult ? statusResult.run : null) || null
   const groups = 'groups' in previewResult ? previewResult.groups : []
   const classes = 'classes' in classesResult ? classesResult.classes : []
   const previewError = 'error' in previewResult ? previewResult.error : null
   const draftSessions = 'sessions' in draftSessionsResult ? draftSessionsResult.sessions : []
+  const feeCopyPreview = 'preview' in feeCopyResult ? feeCopyResult.preview : null
+  const readiness = 'readiness' in readinessResult ? readinessResult.readiness : null
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <>
       {ctx.schoolId && (
         <RealtimeRefresh
           subscriptions={[
@@ -47,20 +74,21 @@ export default async function YearEndPage() {
           ]}
         />
       )}
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold text-navy">Year-end rollover</h1>
-        <p className="text-gray-500 mt-2 text-sm">
-          Close the current term, promote students into their next class, and open a new academic year.
-        </p>
-      </header>
 
-      <YearEndRolloverWizard
-        activeRun={activeRun}
-        groups={groups}
-        classes={classes}
-        previewError={previewError}
-        draftSessions={draftSessions}
-      />
-    </div>
+      <WorkspaceHeader workspaceKey="fees" title="Year end" />
+
+      <div className="px-4 sm:px-7 py-7">
+        <YearEndRolloverWizard
+          activeRun={activeRun}
+          groups={groups}
+          classes={classes}
+          previewError={previewError}
+          draftSessions={draftSessions}
+          feeCopyPreview={feeCopyPreview}
+          readiness={readiness}
+          showFinancials={showFinancials}
+        />
+      </div>
+    </>
   )
 }

@@ -18,8 +18,15 @@ export async function GET(req: NextRequest) {
     if (!error) {
       return NextResponse.redirect(`${origin}${next}`)
     }
+    // Code present but the exchange failed — an expired or already-used
+    // link. Forward to `next` anyway rather than bouncing to /login:
+    // /set-password's own !hasSession branch already renders the "this
+    // invite/link has expired" state, and for an invite link `next` carries
+    // a `uid` query param (see team/users/actions.ts's addStaff/
+    // resendInvite) that lets that screen offer "notify whoever invited you."
+    return NextResponse.redirect(`${origin}${next}`)
   }
 
-  // No code or exchange failed — send them to login with a hint.
+  // No code at all — a bare/garbage hit, not a real auth link.
   return NextResponse.redirect(`${origin}/login?error=link_invalid`)
 }

@@ -81,5 +81,13 @@ export async function reconcileSchool(schoolId: string, supabase: any): Promise<
     }
   }
 
+  // Stamp the sweep time so the Payments ledger can show "last run" for both
+  // this manual path and the cron. Only reached when a provider existed and a
+  // real sweep ran; a no-provider early return above leaves the marker alone.
+  await supabase
+    .from('schools')
+    .update({ last_reconciled_at: new Date().toISOString() })
+    .eq('id', schoolId)
+
   return result
 }

@@ -222,7 +222,7 @@ async function advanceBulkDVA(supabase: any, job: BackgroundJob, started: number
       metadata: { count: processed, failures: failed },
     })
 
-    revalidatePath('/settings/payments')
+    revalidatePath('/school/payments')
     revalidatePath('/students')
 
     await completeJob(job.id)
@@ -263,7 +263,7 @@ async function advanceBulkSend(supabase: any, job: BackgroundJob, started: numbe
       metadata: { count: processed, failures: failed },
     })
 
-    revalidatePath('/invoices')
+    revalidatePath('/money/invoices')
 
     await completeJob(job.id)
   }
@@ -306,7 +306,7 @@ async function advanceCloseTerm(supabase: any, job: BackgroundJob, started: numb
 
     revalidatePath('/fees/cycles')
     revalidatePath('/fees')
-    revalidatePath('/invoices')
+    revalidatePath('/money/invoices')
 
     await completeJob(job.id)
   }

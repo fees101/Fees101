@@ -39,16 +39,24 @@ export async function addStudent(input: AddStudentInput) {
 
   if (!section) return { error: 'No section found' }
 
-  // Check if admission number is unique within school
+  // Check if admission number is unique within school. On a clash, return the
+  // conflicting student so the form can name the record and link straight to it
+  // (the caller opens it in a new tab, keeping the half-filled form intact).
   const { data: existing } = await supabase
     .from('students')
-    .select('id')
+    .select('id, first_name, last_name')
     .eq('school_id', schoolId)
     .eq('admission_number', input.admissionNumber)
     .maybeSingle()
 
   if (existing) {
-    return { error: `Admission number ${input.admissionNumber} already exists` }
+    return {
+      error: `Admission number ${input.admissionNumber} is already used`,
+      conflict: {
+        id: existing.id as string,
+        name: `${existing.first_name ?? ''} ${existing.last_name ?? ''}`.trim() || 'that student',
+      },
+    }
   }
 
   // Check if a family with the same primary parent phone exists (link instead

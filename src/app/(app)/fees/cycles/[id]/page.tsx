@@ -1,8 +1,12 @@
 import { notFound, redirect } from 'next/navigation'
-import Link from 'next/link'
+import type { Metadata } from 'next'
 import CycleDetailLayout from '@/components/fees/CycleDetailLayout'
-import { getCycleDetailById, CycleInvoiceFilter, CYCLE_INVOICES_PAGE_SIZE_OPTIONS } from '@/lib/queries/fees'
+import { getCycleDetailById, getAllCycles, getSessions, CycleInvoiceFilter, CYCLE_INVOICES_PAGE_SIZE_OPTIONS } from '@/lib/queries/fees'
+import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
+import AccessDenied from '@/components/layout/AccessDenied'
 import { getAuthContext, can } from '@/lib/auth/permissions'
+
+export const metadata: Metadata = { title: 'Term overview' }
 
 // Server Actions invoked from this page (generateInvoicesForCycle's initial
 // synchronous portion, closeTermAndCarryForward, the staleness-check preload
@@ -21,7 +25,14 @@ interface PageProps {
 export default async function CycleDetailPage({ params, searchParams }: PageProps) {
   const ctx = await getAuthContext()
   if (!ctx) redirect('/login')
-  if (!can(ctx, 'see-fee-structure')) redirect('/fees')
+  if (!can(ctx, 'see-fee-structure')) {
+    return (
+      <>
+        <WorkspaceHeader workspaceKey="fees" title="Term overview" back={{ href: '/fees/cycles', label: 'Cycles' }} />
+        <AccessDenied ctx={ctx} permissionKey="see-fee-structure" />
+      </>
+    )
+  }
   const showFinancials = can(ctx, 'see-financial-totals')
 
   const { id } = await params
@@ -33,29 +44,38 @@ export default async function CycleDetailPage({ params, searchParams }: PageProp
   const perPageRaw = parseInt((Array.isArray(sp.perPage) ? sp.perPage[0] : sp.perPage) || '50', 10)
   const perPage = CYCLE_INVOICES_PAGE_SIZE_OPTIONS.includes(perPageRaw) ? perPageRaw : 50
 
-  const data = await getCycleDetailById(id, { filter, search, page, perPage })
+  // The detail invoice data is the heavy fetch; cycles + sessions are the light
+  // lists the hub needs to activate a draft (past-session guard) and to edit the
+  // term's details in place. All read-only, run together.
+  const [data, cycles, sessions] = await Promise.all([
+    getCycleDetailById(id, { filter, search, page, perPage }),
+    getAllCycles(),
+    getSessions(),
+  ])
 
   if (!data) notFound()
 
   return (
-    <main className="px-6 py-6">
-      <div className="max-w-[1440px] mx-auto">
+    <>
+      <WorkspaceHeader
+        workspaceKey="fees"
+        title={data.cycle?.name || 'Term'}
+        back={{ href: '/fees/cycles', label: 'Cycles' }}
+      />
 
-        <nav className="mb-4 flex items-center gap-2 text-sm text-gray-500">
-          <Link href="/fees" className="hover:text-navy">Fees</Link>
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-          <Link href="/fees/cycles" className="hover:text-navy">Billing cycles</Link>
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-          <span className="text-navy font-medium">{data.cycle?.name || 'Term'}</span>
-        </nav>
+      <div className="px-4 sm:px-7 py-7">
+        <div>
 
-        <CycleDetailLayout data={data} showFinancials={showFinancials} schoolId={ctx.schoolId ?? ''} />
+          <CycleDetailLayout
+            data={data}
+            cycles={cycles}
+            sessions={sessions}
+            showFinancials={showFinancials}
+            schoolId={ctx.schoolId ?? ''}
+          />
 
+        </div>
       </div>
-    </main>
+    </>
   )
 }

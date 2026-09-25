@@ -1,10 +1,77 @@
 'use client'
 
+// The Year end tab. Its LANDING screen replicates the App Shell "Year end"
+// canvas (mockup redesign/App Shell.dc.html, the fees:3 seqLedger render): the
+// pre-run ledger IS the first thing the user sees, computed from real current
+// data with sensible defaults (auto class-ladder promotion, next session
+// auto-named and auto-dated) so it renders with no input. Only after the
+// canvas's "Run year-end rollover" button is pressed do the input phases appear
+// (new-year detail adjustments, per-student promotion review, then the final
+// type-to-confirm run). This follows the redesign's canvas-first rule: the
+// canvas is what the landing must be, and any flow we invent comes after its
+// entry button.
+//
+// Flush-left, 2px ink section rules, 1px hairline rows, no tinted boxes. Colour
+// carries meaning and nothing else does: ink for a neutral fact, ochre for
+// money/balances awaiting a human, dim for a zero, signal red only on the
+// irreversible action. The underlying rollover logic (startYearEndRollover ->
+// continueYearEndRollover) is unchanged — this is the surface over it.
+
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { startYearEndRollover, resumeYearEndRollover, cancelYearEndRollover, getRolloverStatus } from '@/app/(app)/fees/cycles/actions'
+import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 import { PromotionPreviewGroup, PromotionDecision } from '@/lib/yearEnd/promotion'
-import { DraftSession } from '@/app/(app)/fees/year-end/actions'
+import { DraftSession, YearEndFeeCopyPreview, YearEndReadiness } from '@/app/(app)/fees/year-end/actions'
+
+const INK = 'var(--color-ink)'
+const BODY = 'var(--color-neutral-800)'
+const DIM = 'var(--color-neutral-500)'
+const RULE_SOFT = '#d7d3d3'
+const OCHRE = 'var(--color-ochre-text)'
+const SIGNAL_TEXT = 'var(--color-signal-text)'
+
+function naira(amount: number): string {
+  return '₦' + Math.round(amount).toLocaleString('en-NG')
+}
+
+// "2026/2027" -> "2027/2028"; "2026/27" -> "2027/28". Returns '' when the
+// current session name isn't a recognisable year pair, so the surface falls
+// back to a manual name rather than inventing one.
+function deriveNextSessionName(prev: string): string {
+  const m = (prev || '').match(/(\d{4})\D+(\d{2,4})/)
+  if (!m) return ''
+  const a = parseInt(m[1], 10) + 1
+  const b = a + 1
+  return m[2].length === 2 ? `${a}/${String(b).slice(-2)}` : `${a}/${b}`
+}
+
+// Sensible Nigerian-calendar defaults for the new session/term, derived from
+// the next session's start year. These pre-fill the after-the-button form so a
+// straight-through run matches exactly what the landing ledger promised; the
+// admin can still adjust every field.
+function defaultDatesFor(nextName: string): {
+  sessionStart: string; sessionEnd: string; termStart: string; termEnd: string; termDue: string
+} {
+  const m = (nextName || '').match(/(\d{4})/)
+  if (!m) return { sessionStart: '', sessionEnd: '', termStart: '', termEnd: '', termDue: '' }
+  const y = parseInt(m[1], 10)
+  return {
+    sessionStart: `${y}-09-01`,
+    sessionEnd: `${y + 1}-07-31`,
+    termStart: `${y}-09-01`,
+    termEnd: `${y}-12-15`,
+    termDue: `${y}-09-30`,
+  }
+}
+
+function csvCell(v: string | number): string {
+  return '"' + String(v ?? '').replace(/"/g, '""') + '"'
+}
+
+function actionLabel(action: 'promote' | 'repeat' | 'graduate'): string {
+  return action === 'promote' ? 'Promote' : action === 'repeat' ? 'Repeat class' : 'Graduate / exit'
+}
 
 interface ClassOption {
   id: string
@@ -27,11 +94,14 @@ interface Props {
   classes: ClassOption[]
   previewError: string | null
   draftSessions: DraftSession[]
+  feeCopyPreview: YearEndFeeCopyPreview | null
+  readiness: YearEndReadiness | null
+  showFinancials: boolean
 }
 
 type RowDecision = { action: 'promote' | 'repeat' | 'graduate'; targetClassId: string }
 
-type WizardStep = 'details' | 'promotions' | 'confirm'
+type WizardStep = 'landing' | 'details' | 'readiness' | 'promotions' | 'balances' | 'confirm'
 
 type RolloverResult = {
   toCycleId: string | null
@@ -43,13 +113,94 @@ type RolloverResult = {
   staleDraftWarnings: { sessionId: string; sessionName: string }[]
 }
 
-const STEP_LABELS: { key: WizardStep; label: string }[] = [
+const FLOW_STEPS: { key: WizardStep; label: string }[] = [
   { key: 'details', label: 'New year details' },
-  { key: 'promotions', label: 'Promotion review' },
-  { key: 'confirm', label: 'Confirm' },
+  { key: 'readiness', label: 'Readiness checks' },
+  { key: 'promotions', label: 'Promotion tree' },
+  { key: 'balances', label: 'Balances' },
+  { key: 'confirm', label: 'Commit' },
 ]
 
-export default function YearEndRolloverWizard({ activeRun, groups, classes, previewError, draftSessions }: Props) {
+// The flow stepper. Exact states from the redesign brief:
+//   ACTIVE    -> filled ink block, title in white, number hidden.
+//   COMPLETED -> paper block, title in ink, number in ledger green.
+//   UPCOMING  -> paper block, number and title in dim grey.
+// Blocks sit in one bordered strip separated by 2px ink rules. No radius, no
+// shadow. Horizontally scrollable at narrow widths so it never breaks the page.
+function StepStrip({ current }: { current: WizardStep }) {
+  const currentIdx = FLOW_STEPS.findIndex(s => s.key === current)
+  return (
+    <div style={{ overflowX: 'auto', marginTop: 4 }}>
+      <div style={{ display: 'flex', border: `2px solid ${INK}`, minWidth: 640 }}>
+        {FLOW_STEPS.map((s, i) => {
+          const active = i === currentIdx
+          const completed = i < currentIdx
+          const num = String(i + 1).padStart(2, '0')
+          return (
+            <div
+              key={s.key}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                background: active ? INK : 'transparent',
+                borderLeft: i > 0 ? `2px solid ${INK}` : 'none',
+                padding: '10px 14px',
+                display: 'flex',
+                gap: 8,
+                alignItems: 'baseline',
+              }}
+            >
+              {!active && (
+                <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: completed ? INK : DIM }}>
+                  {num}
+                </span>
+              )}
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: active ? 700 : 600,
+                  whiteSpace: 'nowrap',
+                  color: active ? '#ffffff' : completed ? INK : DIM,
+                }}
+              >
+                {s.label}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+interface LedgerRowProps {
+  what: string
+  val: string
+  ink: string
+  sub?: string
+}
+
+function LedgerRow({ what, val, ink, sub }: LedgerRowProps) {
+  return (
+    <div style={{ padding: '11px 0', borderTop: `1px solid ${RULE_SOFT}` }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 16, alignItems: 'baseline' }}>
+        <span style={{ fontSize: 14, color: ink }}>{what}</span>
+        <span style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: ink }}>{val}</span>
+      </div>
+      {sub && <p style={{ fontSize: 13, color: BODY, margin: '4px 0 0', maxWidth: '64ch' }}>{sub}</p>}
+    </div>
+  )
+}
+
+function LeftRuleNote({ children, tone = OCHRE }: { children: React.ReactNode; tone?: string }) {
+  return (
+    <p style={{ fontSize: 14, color: tone, margin: '12px 0 0', paddingLeft: 12, borderLeft: `2px solid ${tone}`, maxWidth: '72ch', lineHeight: 1.5 }}>
+      {children}
+    </p>
+  )
+}
+
+export default function YearEndRolloverWizard({ activeRun, groups, classes, previewError, draftSessions, feeCopyPreview, readiness, showFinancials }: Props) {
   const router = useRouter()
 
   const [resuming, setResuming] = useState(false)
@@ -79,7 +230,7 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
         // summary (regeneratedCount, warnings, etc.) only ever comes back
         // from the mutating call itself and is never persisted, so a
         // completion nobody clicked "Resume" for can't render that screen —
-        // refresh to the normal "start a new rollover" view instead.
+        // refresh to the normal landing view instead.
         router.refresh()
         return
       }
@@ -93,7 +244,13 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
     }
   }, [polledRun, router])
 
-  const [step, setStep] = useState<WizardStep>('details')
+  const [step, setStep] = useState<WizardStep>('landing')
+
+  // Promotion tree (step 03) is a master-detail: the class ladder is always
+  // visible, but only ONE class's student list opens at a time so the page
+  // never becomes a scroll through every student in the school. null = all
+  // collapsed (the clean-year confirm-at-a-glance state).
+  const [expandedClassId, setExpandedClassId] = useState<string | null>(null)
 
   // 'new' creates a fresh session+term (default when nothing's been prepared ahead of time);
   // 'adopt' rolls into a session that was already drafted (e.g. via Academic Structure → Sessions).
@@ -104,13 +261,18 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
   const adoptedSession = useMemo(() => draftSessions.find(s => s.id === adoptSessionId), [draftSessions, adoptSessionId])
   const adoptingExistingTerm = sessionSource === 'adopt' && !!adoptCycleId
 
-  const [name, setName] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [dueDate, setDueDate] = useState('')
-  const [newSessionName, setNewSessionName] = useState('')
-  const [newSessionStart, setNewSessionStart] = useState('')
-  const [newSessionEnd, setNewSessionEnd] = useState('')
+  // Pre-fill the new-session/term inputs from the auto-derived next session so
+  // the landing ledger renders with no input AND a straight-through run creates
+  // exactly what the landing promised.
+  const initialNext = deriveNextSessionName(feeCopyPreview?.fromSessionName || '')
+  const initialDates = defaultDatesFor(initialNext)
+  const [name, setName] = useState(initialNext ? `First Term ${initialNext}` : '')
+  const [startDate, setStartDate] = useState(initialDates.termStart)
+  const [endDate, setEndDate] = useState(initialDates.termEnd)
+  const [dueDate, setDueDate] = useState(initialDates.termDue)
+  const [newSessionName, setNewSessionName] = useState(initialNext)
+  const [newSessionStart, setNewSessionStart] = useState(initialDates.sessionStart)
+  const [newSessionEnd, setNewSessionEnd] = useState(initialDates.sessionEnd)
   const [detailsError, setDetailsError] = useState<string | null>(null)
 
   const [decisions, setDecisions] = useState<Record<string, RowDecision>>(() => {
@@ -132,7 +294,8 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
   const [result, setResult] = useState<RolloverResult | null>(null)
 
   // What the admin must type to confirm — the adopted session's name when
-  // rolling into a prepared session, otherwise the new session name they typed.
+  // rolling into a prepared session, otherwise the new session name (pre-filled
+  // from the auto-derived next session, editable in the details step).
   const expectedConfirmName = sessionSource === 'adopt' ? (adoptedSession?.name || '') : newSessionName
 
   const summary = useMemo(() => {
@@ -144,6 +307,230 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
     })
     return { promote, repeat, graduate, total: promote + repeat + graduate }
   }, [decisions])
+
+  // Outstanding owed on the term being rolled from, per student.
+  const outstandingByStudent = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const g of groups) for (const r of g.students) m[r.studentId] = r.outstandingAmount || 0
+    return m
+  }, [groups])
+
+  // Splits owed money by what happens to the student: a promoted or repeating
+  // student's balance rides forward onto the new session's first-term invoice
+  // (when it is generated); a graduating leaver's balance carries nowhere — it
+  // stays on their final, now-closed invoice.
+  const balancePreview = useMemo(() => {
+    let carryStudents = 0, carryAmount = 0, leaverStudents = 0, leaverAmount = 0
+    for (const [studentId, d] of Object.entries(decisions)) {
+      const owed = outstandingByStudent[studentId] || 0
+      if (owed <= 0) continue
+      if (d.action === 'graduate') { leaverStudents++; leaverAmount += owed }
+      else { carryStudents++; carryAmount += owed }
+    }
+    return { carryStudents, carryAmount, leaverStudents, leaverAmount }
+  }, [decisions, outstandingByStudent])
+
+  // The class(es) whose students are exiting under the current decisions. When
+  // there's a single exit class (the usual case: the top class), name it, the
+  // way the canvas row does ("SS 3 students graduated and archived").
+  const exitClassLabel = useMemo(() => {
+    const s = new Set<string>()
+    for (const g of groups) for (const r of g.students) {
+      if ((decisions[r.studentId]?.action) === 'graduate') s.add(g.className)
+    }
+    const names = Array.from(s)
+    return names.length === 1 ? `${names[0]} students graduated and archived` : 'Students graduated and archived'
+  }, [groups, decisions])
+
+  // Per-class ladder for the promotion-tree step: where each class sends its
+  // students under the current decisions, and how many go each way. A class is
+  // an exit point when every one of its students is graduating.
+  const ladder = useMemo(() => {
+    return groups.map(g => {
+      let promote = 0, repeat = 0, graduate = 0, overrides = 0
+      const targets = new Set<string>()
+      for (const r of g.students) {
+        const d = decisions[r.studentId]
+        const action = d?.action || 'promote'
+        if (action === 'promote') { promote++; if (d?.targetClassId) targets.add(classes.find(c => c.id === d.targetClassId)?.name || '') }
+        else if (action === 'repeat') repeat++
+        else graduate++
+        // "Overridden" = the admin moved this student off the ladder's own
+        // suggestion (a different action, or a promote pointed at a different
+        // class). Counted so nothing changed by hand slips through silently.
+        const changed = d
+          ? d.action !== r.suggestedAction ||
+            (d.action === 'promote' && (d.targetClassId || '') !== (r.suggestedTargetClassId || ''))
+          : false
+        if (changed) overrides++
+      }
+      const targetNames = Array.from(targets).filter(Boolean)
+      const toLabel = promote === 0
+        ? 'Graduate / exit'
+        : targetNames.length === 1
+          ? targetNames[0]
+          : targetNames.length > 1
+            ? `${targetNames.length} classes`
+            : 'next class'
+      return { classId: g.classId, className: g.className, count: g.students.length, promote, repeat, graduate, overrides, toLabel, isExit: promote === 0 }
+    })
+  }, [groups, decisions, classes])
+
+  const overriddenTotal = useMemo(() => ladder.reduce((n, l) => n + l.overrides, 0), [ladder])
+
+  // Readiness checks for step 02. Each maps onto something we can actually
+  // compute — server facts (readiness prop: current-session terms, pending
+  // discounts, provider) plus client facts (the promotion ladder and carried
+  // balances). tone drives colour and whether it blocks: 'hard' disables
+  // Continue; 'warn'/'info'/'pass' never block.
+  const checks = useMemo(() => {
+    type Check = {
+      key: string
+      title: string
+      desc: string
+      tone: 'pass' | 'info' | 'warn' | 'hard'
+      status: string
+      action?: { label: string; href: string }
+    }
+    const out: Check[] = []
+
+    // Term to roll from — always satisfied here (the surface is gated by
+    // previewError before this), shown so the user sees the source explicitly.
+    out.push({
+      key: 'source',
+      title: 'Term to roll from',
+      desc: readiness
+        ? `Rolling from ${readiness.fromTermName}${readiness.currentSessionName ? ` in ${readiness.currentSessionName}` : ''}. The rollover closes this term itself.`
+        : 'An active term is set as the source for the rollover.',
+      tone: 'pass',
+      status: 'Ready',
+    })
+
+    // Promotion ladder health. If nothing promotes while more than one class
+    // exists, the class ladder is unset and running now would graduate the
+    // whole school — the one hard block in this flow.
+    const ladderPromote = groups.reduce((n, g) => n + g.students.filter(r => r.suggestedAction === 'promote').length, 0)
+    const classCount = groups.length
+    if (ladderPromote === 0 && classCount > 1) {
+      out.push({
+        key: 'ladder',
+        title: 'Class promotion ladder',
+        desc: 'No class has a next class set, so every student would graduate. Set each class’s next class in Academic structure before running year end.',
+        tone: 'hard',
+        status: 'Must fix',
+        action: { label: 'Set up ladder', href: '/school/academic-structure' },
+      })
+    } else {
+      const exitClasses = groups.filter(g => g.students.every(r => r.suggestedAction === 'graduate')).length
+      out.push({
+        key: 'ladder',
+        title: 'Class promotion ladder',
+        desc: `${classCount - exitClasses} class${classCount - exitClasses === 1 ? '' : 'es'} promote${classCount - exitClasses === 1 ? 's' : ''} up the ladder; ${exitClasses} exit${exitClasses === 1 ? 's' : ''} (students graduate). Review and override per student in the next step.`,
+        tone: exitClasses > 0 ? 'info' : 'pass',
+        status: 'Reviewed next',
+      })
+    }
+
+    // Leftover draft term in the current session (soft: allowed).
+    if (readiness) {
+      const draftTerms = readiness.terms.filter(t => t.status === 'draft')
+      if (draftTerms.length > 0) {
+        out.push({
+          key: 'draft-term',
+          title: 'Unfinished term in this session',
+          desc: `${draftTerms.map(t => t.name).join(', ')} ${draftTerms.length === 1 ? 'is' : 'are'} still a draft. That is allowed — the rollover runs from the active term and leaves drafts as they are.`,
+          tone: 'warn',
+          status: 'Allowed',
+        })
+      } else {
+        out.push({
+          key: 'draft-term',
+          title: 'Unfinished term in this session',
+          desc: 'No term is left drafting in this session.',
+          tone: 'pass',
+          status: 'Clear',
+        })
+      }
+
+      // Every term has an end date.
+      const undated = readiness.terms.filter(t => !t.endDate)
+      if (undated.length > 0) {
+        out.push({
+          key: 'dates',
+          title: 'Term dates',
+          desc: `${undated.map(t => t.name).join(', ')} ${undated.length === 1 ? 'has' : 'have'} no end date set. The rollover still runs, but term dates should be complete for accurate records.`,
+          tone: 'warn',
+          status: 'Incomplete',
+        })
+      } else {
+        out.push({
+          key: 'dates',
+          title: 'Term dates',
+          desc: 'Every term in this session has start and end dates.',
+          tone: 'pass',
+          status: 'Complete',
+        })
+      }
+
+      // Pending discount decisions (needs-a-human, soft).
+      if (readiness.pendingDiscountCount > 0) {
+        out.push({
+          key: 'discounts',
+          title: 'Discount requests awaiting a decision',
+          desc: `${readiness.pendingDiscountCount} request${readiness.pendingDiscountCount === 1 ? '' : 's'} still pending. Approving or declining them first keeps the balances carried forward accurate.`,
+          tone: 'warn',
+          status: 'Decide first',
+          action: { label: 'Decide first', href: '/discounts' },
+        })
+      } else {
+        out.push({
+          key: 'discounts',
+          title: 'Discount requests awaiting a decision',
+          desc: 'No discount requests are waiting for a decision.',
+          tone: 'pass',
+          status: 'Clear',
+        })
+      }
+    }
+
+    // Unpaid balances carry forward (info, computed client-side).
+    if (balancePreview.carryStudents > 0) {
+      out.push({
+        key: 'balances',
+        title: 'Unpaid balances',
+        desc: showFinancials
+          ? `${balancePreview.carryStudents} continuing student${balancePreview.carryStudents === 1 ? '' : 's'} owe ${naira(balancePreview.carryAmount)}. This carries into the new term — reviewed on the Balances step.`
+          : `${balancePreview.carryStudents} continuing student${balancePreview.carryStudents === 1 ? '' : 's'} still owe on this term. Balances carry into the new term — reviewed on the Balances step.`,
+        tone: 'info',
+        status: 'Carries forward',
+      })
+    } else {
+      out.push({
+        key: 'balances',
+        title: 'Unpaid balances',
+        desc: 'No continuing student has an outstanding balance to carry forward.',
+        tone: 'pass',
+        status: 'Clear',
+      })
+    }
+
+    // Payment provider (info).
+    if (readiness) {
+      out.push({
+        key: 'provider',
+        title: 'Payment provider',
+        desc: readiness.provider.connected
+          ? `${readiness.provider.name}${readiness.provider.mode ? ` · ${readiness.provider.mode}` : ''} is connected. Online collection continues after the rollover.`
+          : 'No payment provider is connected. Year end still runs; parents just cannot pay online until one is set up.',
+        tone: 'info',
+        status: readiness.provider.connected ? 'Connected' : 'Not set',
+      })
+    }
+
+    return out
+  }, [readiness, groups, balancePreview, showFinancials])
+
+  const hardBlockers = useMemo(() => checks.filter(c => c.tone === 'hard'), [checks])
 
   function setDecision(studentId: string, patch: Partial<RowDecision>) {
     setDecisions(prev => ({ ...prev, [studentId]: { ...prev[studentId], ...patch } }))
@@ -267,6 +654,7 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
 
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
 
   async function handleCancel() {
     if (!polledRun) return
@@ -278,170 +666,214 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
       setCancelling(false)
       return
     }
+    setDiscardConfirmOpen(false)
     router.refresh()
   }
 
+  // "Export this list first" — a real, client-only download of exactly what the
+  // ledger summarises: every student, the action set for them, and (for whoever
+  // can see money) the outstanding balance and whether it carries forward or is
+  // stranded on a leaver's final invoice. This is the list to pursue arrears
+  // against before students are archived.
+  function handleExportList() {
+    const header = ['Admission number', 'Student', 'Current class', 'Action', 'Target class']
+    if (showFinancials) header.push('Outstanding (NGN)')
+    header.push('Balance disposition')
+
+    const lines = [header.map(csvCell).join(',')]
+    for (const g of groups) {
+      for (const r of g.students) {
+        const d = decisions[r.studentId]
+        const action = d?.action || 'promote'
+        const targetName = action === 'promote'
+          ? (classes.find(c => c.id === d?.targetClassId)?.name || '')
+          : action === 'repeat' ? r.currentClassName : ''
+        const owed = outstandingByStudent[r.studentId] || 0
+        const disposition = owed <= 0
+          ? 'No balance'
+          : action === 'graduate'
+            ? 'Stranded on final invoice (leaver, carried nowhere)'
+            : 'Carries to new term'
+        const cells: (string | number)[] = [r.admissionNumber, r.studentName, g.className, actionLabel(action), targetName]
+        if (showFinancials) cells.push(Math.round(owed))
+        cells.push(disposition)
+        lines.push(cells.map(csvCell).join(','))
+      }
+    }
+
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const stamp = (feeCopyPreview?.fromSessionName || 'year-end').replace(/[^\w]+/g, '-')
+    a.download = `year-end-preview-${stamp}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  // Session/first-term labels, resolved from whichever path is chosen. These
+  // drive both the landing ledger and the final confirm ledger.
+  const firstTermName = sessionSource === 'adopt'
+    ? (adoptCycleId ? (adoptedSession?.terms.find(t => t.id === adoptCycleId)?.name || 'the prepared term') : (name || 'the new first term'))
+    : (name || 'the new first term')
+  const newSessionLabel = sessionSource === 'adopt'
+    ? (adoptedSession?.name || 'the prepared session')
+    : (newSessionName || initialNext || 'the new session')
+  const prevSessionLabel = feeCopyPreview?.fromSessionName || 'this year'
+
+  // Fees-copied ledger row: nothing is copied when adopting a term that already
+  // has its own fees; otherwise createTerm copies the roll-forward set.
+  const feesRow: LedgerRowProps = adoptingExistingTerm
+    ? { what: 'Fee structure', val: 'Uses prepared term', ink: DIM }
+    : feeCopyPreview && feeCopyPreview.feeItemCount > 0
+      ? {
+          what: 'Fee structure copied forward, prices unchanged',
+          val: `${feeCopyPreview.feeItemCount} fee${feeCopyPreview.feeItemCount === 1 ? '' : 's'}${feeCopyPreview.classCount > 0 ? ` × ${feeCopyPreview.classCount} class${feeCopyPreview.classCount === 1 ? '' : 'es'}` : ''}`,
+          ink: INK,
+        }
+      : { what: 'Fee structure copied forward', val: 'None to copy', ink: DIM }
+
+  // ── After the run: a flush-left result surface, no modal ──────────────────
   if (result) {
     const hasWarnings = result.exitInvoiceWarnings.length > 0 || result.regenerateErrors.length > 0 || result.unmatchedAdjustments.length > 0 || result.staleDraftWarnings.length > 0
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <span className="w-9 h-9 rounded-lg bg-mint-light flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </span>
-          <div>
-            <h3 className="text-base font-semibold text-navy">Rollover complete</h3>
-            <p className="text-sm text-gray-500 mt-1">
-              Students promoted and the new term is active. Invoices have <strong>not</strong> been generated yet —
-              confirm fee items for the new term, then generate invoices from the term page when ready to send to parents.
+      <div style={{ maxWidth: 880 }}>
+        <div style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 18 }}>
+          <h2 style={{ fontSize: 25, fontWeight: 800, margin: '0 0 6px', color: INK }}>Rollover complete</h2>
+          <p style={{ fontSize: 15, lineHeight: 1.5, color: BODY, margin: '0 0 8px', maxWidth: '72ch' }}>
+            Students have been promoted and the new term is active. Invoices have <strong>not</strong> been generated yet —
+            confirm the new term&apos;s fee items, then generate invoices from the term page when you are ready to send them to parents.
+          </p>
+          {result.regeneratedCount > 0 && (
+            <p style={{ fontSize: 14, color: BODY, margin: '0 0 4px', maxWidth: '72ch' }}>
+              {result.regeneratedCount} previously previewed invoice{result.regeneratedCount === 1 ? '' : 's'} updated to reflect promoted students&apos; new classes.
             </p>
-            {result.regeneratedCount > 0 && (
-              <p className="text-sm text-gray-500 mt-1">
-                {result.regeneratedCount} previously previewed invoice{result.regeneratedCount === 1 ? '' : 's'} updated to reflect promoted students' new classes.
-              </p>
-            )}
-            {result.staleDraftsClosed > 0 && (
-              <p className="text-sm text-gray-500 mt-1">
-                {result.staleDraftsClosed} old, unused draft session{result.staleDraftsClosed === 1 ? '' : 's'} left over from before this rollover {result.staleDraftsClosed === 1 ? 'was' : 'were'} closed so they can't be mistakenly activated later.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {result.staleDraftWarnings.length > 0 && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-            <p className="font-medium">
-              {result.staleDraftWarnings.length} old draft session{result.staleDraftWarnings.length === 1 ? '' : 's'} from before this rollover already {result.staleDraftWarnings.length === 1 ? 'has' : 'have'} invoices on it and were left alone rather than closed automatically — review and close manually from Academic Structure if no longer needed: {result.staleDraftWarnings.map(w => w.sessionName).join(', ')}.
+          )}
+          {result.staleDraftsClosed > 0 && (
+            <p style={{ fontSize: 14, color: BODY, margin: '0 0 4px', maxWidth: '72ch' }}>
+              {result.staleDraftsClosed} old, unused draft session{result.staleDraftsClosed === 1 ? '' : 's'} left over from before this rollover {result.staleDraftsClosed === 1 ? 'was' : 'were'} closed so {result.staleDraftsClosed === 1 ? 'it can' : 'they can'}&apos;t be mistakenly activated later.
             </p>
+          )}
+
+          {result.staleDraftWarnings.length > 0 && (
+            <LeftRuleNote>
+              {result.staleDraftWarnings.length} old draft session{result.staleDraftWarnings.length === 1 ? '' : 's'} from before this rollover already {result.staleDraftWarnings.length === 1 ? 'has' : 'have'} invoices and {result.staleDraftWarnings.length === 1 ? 'was' : 'were'} left alone rather than closed automatically. Review and close manually from Academic structure if no longer needed: {result.staleDraftWarnings.map(w => w.sessionName).join(', ')}.
+            </LeftRuleNote>
+          )}
+          {result.exitInvoiceWarnings.length > 0 && (
+            <LeftRuleNote>
+              {result.exitInvoiceWarnings.length} exiting student{result.exitInvoiceWarnings.length === 1 ? '' : 's'} had a preview invoice with payment or credit already applied. {result.exitInvoiceWarnings.length === 1 ? 'It was' : 'They were'} left as-is for manual review rather than cancelled automatically.
+            </LeftRuleNote>
+          )}
+          {result.regenerateErrors.length > 0 && (
+            <LeftRuleNote>
+              {result.regenerateErrors.length} invoice{result.regenerateErrors.length === 1 ? '' : 's'} couldn&apos;t be auto-updated and may need a manual look.
+            </LeftRuleNote>
+          )}
+          {result.unmatchedAdjustments.length > 0 && (
+            <LeftRuleNote>
+              {result.unmatchedAdjustments.length} fee opt-in/exemption{result.unmatchedAdjustments.length === 1 ? '' : 's'} couldn&apos;t be matched to a fee item in the new term and {result.unmatchedAdjustments.length === 1 ? 'was' : 'were'} not carried forward.
+            </LeftRuleNote>
+          )}
+          {!hasWarnings && (
+            <p style={{ fontSize: 14, color: BODY, margin: '8px 0 0', maxWidth: '72ch' }}>Everything carried forward cleanly. No issues found.</p>
+          )}
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 22, alignItems: 'center' }}>
+            <button
+              onClick={() => router.push(result.toCycleId ? `/fees/cycles/${result.toCycleId}` : '/fees/cycles')}
+              className="m-btn m-btn-primary"
+            >
+              Review new term and generate invoices
+            </button>
+            <button onClick={() => router.push('/fees/cycles')} className="m-btn m-btn-outline">
+              Go to Cycles
+            </button>
           </div>
-        )}
-
-        {result.exitInvoiceWarnings.length > 0 && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-            <p className="font-medium">{result.exitInvoiceWarnings.length} exiting student{result.exitInvoiceWarnings.length === 1 ? '' : 's'} had a preview invoice with payment or credit already applied — left as-is for manual review rather than cancelled automatically.</p>
-          </div>
-        )}
-
-        {result.regenerateErrors.length > 0 && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-            <p className="font-medium">{result.regenerateErrors.length} invoice{result.regenerateErrors.length === 1 ? '' : 's'} couldn't be auto-updated and may need a manual look.</p>
-          </div>
-        )}
-
-        {result.unmatchedAdjustments.length > 0 && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-            <p className="font-medium">{result.unmatchedAdjustments.length} fee opt-in/exemption{result.unmatchedAdjustments.length === 1 ? '' : 's'} couldn't be matched to a fee item in the new term and were not carried forward.</p>
-          </div>
-        )}
-
-        {!hasWarnings && (
-          <p className="text-sm text-gray-500">No issues found — everything carried forward cleanly.</p>
-        )}
-
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={() => router.push('/fees/cycles')}
-            className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
-          >
-            Go to cycles
-          </button>
-          <button
-            onClick={() => router.push(result.toCycleId ? `/fees/cycles/${result.toCycleId}` : '/fees/cycles')}
-            className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
-          >
-            Review new term & generate invoices
-          </button>
         </div>
       </div>
     )
   }
 
+  // ── A run already in progress or failed mid-run ───────────────────────────
   if (polledRun) {
     const needsNewTerm = polledRun.step === 'started'
     const canDiscard = polledRun.status === 'failed' && polledRun.step === 'started' && !polledRun.to_cycle_id
     return (
-      <div className="bg-white rounded-xl border border-amber-200 p-5">
-        <div className="flex items-start gap-3">
-          <span className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-          </span>
-          <div>
-            <h3 className="text-base font-semibold text-navy">
-              {polledRun.status === 'failed' ? 'Rollover failed mid-run' : 'Rollover already in progress'}
-            </h3>
-            <p className="text-sm text-gray-500 mt-1">
-              Last completed step: <span className="font-medium text-navy">{polledRun.step}</span>
-              {polledRun.error_detail && (
-                <> — <span className="text-red-600">{polledRun.error_detail}</span></>
-              )}
+      <div style={{ maxWidth: 880 }}>
+        <div style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 18 }}>
+          <h2 style={{ fontSize: 25, fontWeight: 800, margin: '0 0 6px', color: INK }}>
+            {polledRun.status === 'failed' ? 'Rollover failed mid-run' : 'Rollover in progress'}
+          </h2>
+          <p style={{ fontSize: 15, lineHeight: 1.5, color: BODY, margin: '0 0 8px', maxWidth: '72ch' }}>
+            Last completed step: <span style={{ color: INK, fontWeight: 600 }}>{polledRun.step}</span>. Resuming picks up
+            exactly where it left off — no student already promoted is promoted again.
+          </p>
+          {polledRun.error_detail && (
+            <LeftRuleNote tone={SIGNAL_TEXT}>{polledRun.error_detail}</LeftRuleNote>
+          )}
+          {polledRun.status === 'in_progress' && (
+            <p style={{ fontSize: 13, color: DIM, margin: '8px 0 0', maxWidth: '72ch' }}>
+              Checked automatically every few seconds. A stalled run also resumes on its own, so you do not need to keep this page open or click Resume.
             </p>
-            <p className="text-sm text-gray-500 mt-1">
-              Resuming will pick up exactly where it left off — no student already promoted will be promoted again.
-            </p>
-            {polledRun.status === 'in_progress' && (
-              <p className="text-xs text-gray-400 mt-2">
-                Checking automatically every few seconds — a stalled run also resumes on its own, so you don't need to keep this page open or click Resume.
+          )}
+
+          {needsNewTerm && (
+            <div style={{ borderTop: '2px solid var(--color-ink)', marginTop: 28, paddingTop: 18, maxWidth: 480 }}>
+              <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px', color: INK }}>New term details</h3>
+              <p style={{ fontSize: 14, color: BODY, margin: '0 0 16px', maxWidth: '70ch' }}>
+                The new term was not created yet. Re-enter its details to continue.
               </p>
+              <div className="space-y-4">
+                <SessionSourceFields
+                  draftSessions={draftSessions}
+                  sessionSource={sessionSource} setSessionSource={setSessionSource}
+                  adoptSessionId={adoptSessionId} setAdoptSessionId={setAdoptSessionId}
+                  adoptCycleId={adoptCycleId} setAdoptCycleId={setAdoptCycleId}
+                  adoptedSession={adoptedSession}
+                  name={name} setName={setName}
+                  startDate={startDate} setStartDate={setStartDate}
+                  endDate={endDate} setEndDate={setEndDate}
+                  dueDate={dueDate} setDueDate={setDueDate}
+                  newSessionName={newSessionName} setNewSessionName={setNewSessionName}
+                  newSessionStart={newSessionStart} setNewSessionStart={setNewSessionStart}
+                  newSessionEnd={newSessionEnd} setNewSessionEnd={setNewSessionEnd}
+                />
+                {detailsError && <p style={{ fontSize: 14, color: SIGNAL_TEXT, margin: 0 }}>{detailsError}</p>}
+              </div>
+            </div>
+          )}
+
+          {resumeError && <LeftRuleNote tone={SIGNAL_TEXT}>{resumeError}</LeftRuleNote>}
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 22, alignItems: 'center' }}>
+            <button onClick={handleResume} disabled={resuming || cancelling} className="m-btn m-btn-primary">
+              {resuming ? 'Resuming…' : 'Resume rollover'}
+            </button>
+            {canDiscard && (
+              <button onClick={() => { setCancelError(null); setDiscardConfirmOpen(true) }} disabled={cancelling || resuming} className="m-btn m-btn-ghost">
+                Discard and start over
+              </button>
             )}
           </div>
-        </div>
 
-        {needsNewTerm && (
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg space-y-3">
-            <p className="text-sm text-navy font-medium">
-              The new term wasn't created yet — re-enter its details to continue.
-            </p>
-            <SessionSourceFields
-              draftSessions={draftSessions}
-              sessionSource={sessionSource} setSessionSource={setSessionSource}
-              adoptSessionId={adoptSessionId} setAdoptSessionId={setAdoptSessionId}
-              adoptCycleId={adoptCycleId} setAdoptCycleId={setAdoptCycleId}
-              adoptedSession={adoptedSession}
-              name={name} setName={setName}
-              startDate={startDate} setStartDate={setStartDate}
-              endDate={endDate} setEndDate={setEndDate}
-              dueDate={dueDate} setDueDate={setDueDate}
-              newSessionName={newSessionName} setNewSessionName={setNewSessionName}
-              newSessionStart={newSessionStart} setNewSessionStart={setNewSessionStart}
-              newSessionEnd={newSessionEnd} setNewSessionEnd={setNewSessionEnd}
+          {discardConfirmOpen && (
+            <DestructiveConfirmModal
+              title="Discard this rollover attempt?"
+              description="This run failed before creating the new term or touching any student, so nothing to discard except the failed attempt itself — your current term, students, and fees are untouched."
+              rows={[
+                { label: 'Last completed step', value: polledRun.step, emphasize: true },
+              ]}
+              note="You can start the rollover again from scratch afterward."
+              error={cancelError}
+              actions={[
+                { label: 'Keep it', onClick: () => setDiscardConfirmOpen(false), variant: 'outline', disabled: cancelling },
+                { label: cancelling ? 'Discarding…' : 'Discard', onClick: handleCancel, variant: 'danger', disabled: cancelling },
+              ]}
             />
-            {detailsError && <p className="text-sm text-red-600">{detailsError}</p>}
-          </div>
-        )}
-
-        {resumeError && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            {resumeError}
-          </div>
-        )}
-
-        {cancelError && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            {cancelError}
-          </div>
-        )}
-
-        <div className="mt-4 flex justify-end gap-2">
-          {canDiscard && (
-            <button
-              onClick={handleCancel}
-              disabled={cancelling || resuming}
-              className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
-            >
-              {cancelling ? 'Discarding...' : 'Discard & start over'}
-            </button>
           )}
-          <button
-            onClick={handleResume}
-            disabled={resuming || cancelling}
-            className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
-          >
-            {resuming ? 'Resuming...' : 'Resume rollover'}
-          </button>
         </div>
       </div>
     )
@@ -449,31 +881,98 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
 
   if (previewError) {
     return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-        {previewError}
+      <div style={{ maxWidth: 880 }}>
+        <div style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 18 }}>
+          <h2 style={{ fontSize: 25, fontWeight: 800, margin: '0 0 6px', color: INK }}>Year end is not available yet</h2>
+          <LeftRuleNote>{previewError}</LeftRuleNote>
+        </div>
       </div>
     )
   }
 
-  return (
-    <div className="bg-white rounded-xl border border-gray-200">
-      <div className="flex items-center gap-2 p-5 border-b border-gray-100">
-        {STEP_LABELS.map((s, i) => (
-          <div key={s.key} className="flex items-center gap-2">
-            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
-              step === s.key ? 'bg-mint text-navy' : STEP_LABELS.findIndex(x => x.key === step) > i ? 'bg-mint/30 text-navy' : 'bg-gray-100 text-gray-400'
-            }`}>
-              {i + 1}
-            </span>
-            <span className={`text-sm ${step === s.key ? 'text-navy font-medium' : 'text-gray-400'}`}>{s.label}</span>
-            {i < STEP_LABELS.length - 1 && <span className="w-8 h-px bg-gray-200 mx-1" />}
+  // ── LANDING: the App Shell canvas replica (the pre-run ledger IS the first
+  //    screen), computed from real data with auto defaults, no input needed ──
+  if (step === 'landing') {
+    return (
+      <div style={{ maxWidth: 880 }}>
+        <div style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 18 }}>
+          <h2 style={{ fontSize: 25, fontWeight: 800, margin: '0 0 6px', color: INK }}>
+            Year end &mdash; roll {prevSessionLabel} into {newSessionLabel}
+          </h2>
+          <p style={{ fontSize: 15, lineHeight: 1.5, color: BODY, margin: '0 0 8px', maxWidth: '72ch' }}>
+            The largest irreversible operation in the product. It promotes every class, graduates the leavers, carries
+            outstanding balances, and opens a new academic session with its first term.
+          </p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: OCHRE, margin: '0 0 8px', maxWidth: '72ch' }}>
+            Run this once, on the final term of the year while it is still active. The rollover closes that term itself, so do not close it beforehand. Everything below happens together and cannot be undone.
+          </p>
+        </div>
+
+        <div style={{ borderTop: '2px solid var(--color-ink)', marginTop: 28, paddingTop: 18 }}>
+          <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px', color: INK }}>What the rollover will do</h3>
+          <p style={{ fontSize: 14, color: BODY, margin: '0 0 14px', maxWidth: '70ch' }}>
+            Nothing has happened yet. This is what the button below will do, itemised, before you press it.
+          </p>
+
+          <LedgerRow
+            what="Students promoted to the next class"
+            val={summary.promote.toLocaleString('en-NG')}
+            ink={summary.promote > 0 ? INK : DIM}
+          />
+          <LedgerRow
+            what={exitClassLabel}
+            val={summary.graduate.toLocaleString('en-NG')}
+            ink={summary.graduate > 0 ? INK : DIM}
+          />
+          <LedgerRow
+            what="Students repeating — held back manually"
+            val={summary.repeat.toLocaleString('en-NG')}
+            ink={summary.repeat > 0 ? INK : DIM}
+          />
+          <LedgerRow
+            what={`Balances carried into ${firstTermName}`}
+            val={showFinancials ? naira(balancePreview.carryAmount) : `${balancePreview.carryStudents.toLocaleString('en-NG')} students`}
+            ink={(showFinancials ? balancePreview.carryAmount : balancePreview.carryStudents) > 0 ? OCHRE : DIM}
+          />
+          <LedgerRow
+            what="New session created with its first term"
+            val={newSessionLabel}
+            ink={INK}
+          />
+          <LedgerRow what={feesRow.what} val={feesRow.val} ink={feesRow.ink} />
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 22, alignItems: 'center' }}>
+            <button onClick={() => setStep('details')} className="m-btn m-btn-danger">Run year-end rollover</button>
+            <button onClick={handleExportList} className="m-btn m-btn-outline">Export this list first</button>
+            <span style={{ fontSize: 13, color: OCHRE, fontWeight: 600 }}>Cannot be undone</span>
           </div>
-        ))}
+        </div>
+      </div>
+    )
+  }
+
+  // ── AFTER THE BUTTON: the 5-step input + commit flow ──────────────────────
+  return (
+    <div style={{ maxWidth: 880 }}>
+      {/* Compact header + the flow stepper */}
+      <div style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 18 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 4px', color: INK }}>
+          Year end &mdash; roll {prevSessionLabel} into {newSessionLabel}
+        </h2>
+        <p style={{ fontSize: 14, color: BODY, margin: '0 0 16px', maxWidth: '72ch' }}>
+          Work through each step. Nothing changes until you type the session name and run it on the final step.
+        </p>
+        <StepStrip current={step} />
       </div>
 
-      <div className="p-5">
-        {step === 'details' && (
-          <div className="space-y-4 max-w-md">
+      {/* 01 — New year details */}
+      {step === 'details' && (
+        <div style={{ borderTop: '2px solid var(--color-ink)', marginTop: 20, paddingTop: 18 }}>
+          <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px', color: INK }}>New year details</h3>
+          <p style={{ fontSize: 14, color: BODY, margin: '0 0 18px', maxWidth: '70ch' }}>
+            Confirm the session to promote into. Pre-filled from {prevSessionLabel} &mdash; change the session, term, or dates if your calendar differs, or adopt one you prepared ahead of time in Academic structure.
+          </p>
+          <div className="space-y-4" style={{ maxWidth: 480 }}>
             <SessionSourceFields
               draftSessions={draftSessions}
               sessionSource={sessionSource} setSessionSource={setSessionSource}
@@ -488,169 +987,374 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
               newSessionStart={newSessionStart} setNewSessionStart={setNewSessionStart}
               newSessionEnd={newSessionEnd} setNewSessionEnd={setNewSessionEnd}
             />
-            {detailsError && <p className="text-sm text-red-600">{detailsError}</p>}
+            {detailsError && <p style={{ fontSize: 14, color: SIGNAL_TEXT, margin: 0 }}>{detailsError}</p>}
           </div>
-        )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 24 }}>
+            <button
+              onClick={() => { if (validateDetails()) setStep('readiness') }}
+              className="m-btn m-btn-primary"
+            >
+              Continue to readiness checks
+            </button>
+            <button onClick={() => setStep('landing')} className="m-btn m-btn-outline">Back to summary</button>
+          </div>
+        </div>
+      )}
 
-        {step === 'promotions' && (
-          <div className="space-y-6">
-            {groups.length === 0 && (
-              <p className="text-sm text-gray-500">No active students found to promote.</p>
-            )}
-            {groups.map(group => (
-              <div key={group.classId}>
-                <h4 className="text-sm font-semibold text-navy mb-2">{group.className} <span className="text-gray-400 font-normal">({group.students.length})</span></h4>
-                <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Student</th>
-                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Action</th>
-                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Target class</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {group.students.map(row => {
-                        const decision = decisions[row.studentId]
-                        return (
-                          <tr key={row.studentId}>
-                            <td className="px-3 py-2 text-navy">
-                              {row.studentName} <span className="text-gray-400">({row.admissionNumber})</span>
-                              {row.suggestedAction === 'graduate' && (
-                                <span className="ml-2 inline-block px-1.5 py-0.5 text-xs bg-amber-50 text-amber-700 rounded">exit point</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2">
-                              <select
-                                value={decision.action}
-                                onChange={(e) => {
-                                  const newAction = e.target.value as RowDecision['action']
-                                  // Keep targetClassId honest for the row's own display/state,
-                                  // not just the outgoing payload (buildDecisionList strips it
-                                  // for non-'promote' anyway) — 'repeat' truly means "stays in
-                                  // currentClassId", not whatever class 'promote' last suggested.
-                                  let targetClassId = decision.targetClassId
-                                  if (newAction === 'promote') targetClassId = row.suggestedTargetClassId || ''
-                                  else if (newAction === 'repeat') targetClassId = row.currentClassId
-                                  setDecision(row.studentId, { action: newAction, targetClassId })
-                                }}
-                                className="px-2 py-1 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-                              >
-                                <option value="promote">Promote</option>
-                                <option value="repeat">Repeat class</option>
-                                <option value="graduate">Graduate / exit</option>
-                              </select>
-                            </td>
-                            <td className="px-3 py-2">
-                              {decision.action === 'promote' ? (
-                                <select
-                                  value={decision.targetClassId}
-                                  onChange={(e) => setDecision(row.studentId, { targetClassId: e.target.value })}
-                                  className="px-2 py-1 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-                                >
-                                  <option value="">— Select class —</option>
-                                  {classes.map(c => (
-                                    <option key={c.id} value={c.id}>{c.name}</option>
-                                  ))}
-                                </select>
-                              ) : decision.action === 'repeat' ? (
-                                <span className="text-gray-500">{row.currentClassName}</span>
-                              ) : (
-                                <span className="text-gray-400">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+      {/* 02 — Readiness checks */}
+      {step === 'readiness' && (
+        <div style={{ borderTop: '2px solid var(--color-ink)', marginTop: 20, paddingTop: 18 }}>
+          <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px', color: INK }}>Readiness checks</h3>
+          <p style={{ fontSize: 14, color: BODY, margin: '0 0 16px', maxWidth: '72ch' }}>
+            What the rollover found before you run it. Anything marked {' '}
+            <span style={{ color: OCHRE, fontWeight: 600 }}>needs a look</span> can still proceed; a {' '}
+            <span style={{ color: SIGNAL_TEXT, fontWeight: 600 }}>must fix</span> blocks the run until it is resolved.
+          </p>
+
+          <div style={{ overflowX: 'auto' }}>
+            <div style={{ minWidth: 620 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px,1.1fr) minmax(0,2.2fr) minmax(120px,auto)', gap: 16, padding: '0 0 8px', borderBottom: `2px solid ${INK}` }}>
+                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', color: DIM }}>CHECK</span>
+                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', color: DIM }}>WHAT IT MEANS</span>
+                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', color: DIM }}>STATUS</span>
               </div>
-            ))}
-          </div>
-        )}
-
-        {step === 'confirm' && (
-          <div className="space-y-4 max-w-md">
-            <div className="p-4 bg-gray-50 rounded-lg space-y-1 text-sm">
-              <p className="text-navy font-medium">Summary</p>
-              <p className="text-gray-600">{summary.promote} promoted, {summary.repeat} repeat, {summary.graduate} graduate / exit</p>
-              {sessionSource === 'adopt' ? (
-                <>
-                  <p className="text-gray-600">Session: {adoptedSession?.name} (prepared earlier)</p>
-                  <p className="text-gray-600">
-                    Term: {adoptingExistingTerm
-                      ? adoptedSession?.terms.find(t => t.id === adoptCycleId)?.name
-                      : `${name} (${startDate} – ${endDate}), due ${dueDate}`}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-gray-600">New session: {newSessionName} ({newSessionStart} – {newSessionEnd})</p>
-                  <p className="text-gray-600">New term: {name} ({startDate} – {endDate}), due {dueDate}</p>
-                </>
-              )}
+              {checks.map(c => {
+                const accent = c.tone === 'hard' ? SIGNAL_TEXT : c.tone === 'warn' ? OCHRE : null
+                const statusColor = c.tone === 'hard' ? SIGNAL_TEXT : c.tone === 'warn' ? OCHRE : c.tone === 'info' ? INK : BODY
+                return (
+                  <div
+                    key={c.key}
+                    style={{
+                      borderTop: `1px solid ${RULE_SOFT}`,
+                      borderLeft: accent ? `2px solid ${accent}` : 'none',
+                      paddingLeft: accent ? 12 : 0,
+                    }}
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px,1.1fr) minmax(0,2.2fr) minmax(120px,auto)', gap: 16, padding: '12px 0', alignItems: 'baseline' }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: INK }}>{c.title}</span>
+                      <span style={{ fontSize: 14, color: BODY, lineHeight: 1.5 }}>{c.desc}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: statusColor }}>{c.status}</span>
+                        {c.action && (
+                          <button onClick={() => router.push(c.action!.href)} className="m-btn m-btn-outline" style={{ fontSize: 12, padding: '4px 10px' }}>
+                            {c.action.label}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg space-y-2">
-              <p className="text-sm text-red-700 font-medium">This cannot be undone.</p>
-              <p className="text-sm text-red-700">
-                The current term will close and students will be promoted into their next class.
-                Invoices are <strong>not</strong> generated automatically — you'll confirm the new term's fees and generate them yourself afterwards.
-                Type the session name below to confirm.
-              </p>
-              <input
-                type="text"
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                placeholder={expectedConfirmName}
-                className="w-full px-3 py-2 border border-red-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+          </div>
+
+          {hardBlockers.length > 0 && (
+            <LeftRuleNote tone={SIGNAL_TEXT}>
+              Resolve {hardBlockers.length === 1 ? 'the blocker' : `${hardBlockers.length} blockers`} marked &ldquo;must fix&rdquo; above, then come back and continue.
+            </LeftRuleNote>
+          )}
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 24 }}>
+            <button
+              onClick={() => setStep('promotions')}
+              disabled={hardBlockers.length > 0}
+              className="m-btn m-btn-primary"
+            >
+              Continue to promotion tree
+            </button>
+            <button onClick={() => setStep('details')} className="m-btn m-btn-outline">Back</button>
+          </div>
+        </div>
+      )}
+
+      {/* 03 — Promotion tree */}
+      {step === 'promotions' && (
+        <div style={{ borderTop: '2px solid var(--color-ink)', marginTop: 20, paddingTop: 18 }}>
+          <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px', color: INK }}>Promotion tree</h3>
+          <p style={{ fontSize: 14, color: BODY, margin: '0 0 6px', maxWidth: '72ch' }}>
+            Each class moves to the next one up the ladder. A class with no next class is an exit point &mdash; its students
+            graduate and leave. Select a class to review or override its students; only one class opens at a time.
+          </p>
+          <p style={{ fontSize: 14, color: BODY, margin: '0 0 6px', maxWidth: '72ch', fontVariantNumeric: 'tabular-nums' }}>
+            {summary.promote} to promote &middot; {summary.repeat} repeating &middot; {summary.graduate} graduating
+          </p>
+          <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 18px', color: overriddenTotal > 0 ? OCHRE : DIM, fontVariantNumeric: 'tabular-nums' }}>
+            {overriddenTotal > 0
+              ? `${overriddenTotal} student${overriddenTotal === 1 ? '' : 's'} changed from the class default`
+              : 'No student changed from the class default'}
+          </p>
+
+          {groups.length === 0 && (
+            <p style={{ fontSize: 14, color: BODY }}>No active students found to promote.</p>
+          )}
+
+          {/* The ladder: one row per class, expandable to its student list. */}
+          {ladder.length > 0 && (
+            <div style={{ borderTop: `2px solid ${INK}` }}>
+              {ladder.map(l => {
+                const open = expandedClassId === l.classId
+                const group = groups.find(g => g.classId === l.classId)
+                return (
+                  <div
+                    key={l.classId}
+                    style={{
+                      borderBottom: `1px solid ${RULE_SOFT}`,
+                      borderLeft: `2px solid ${open ? INK : 'transparent'}`,
+                      paddingLeft: 12,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setExpandedClassId(open ? null : l.classId)}
+                      aria-expanded={open}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '12px 0',
+                        cursor: 'pointer',
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(0,1fr) auto',
+                        gap: 16,
+                        alignItems: 'center',
+                        color: 'inherit',
+                      }}
+                    >
+                      <span>
+                        <span style={{ fontSize: 14 }}>
+                          <span style={{ color: INK, fontWeight: 600 }}>{l.className}</span>
+                          <span style={{ color: DIM, fontVariantNumeric: 'tabular-nums' }}> ({l.count})</span>
+                          <span style={{ color: DIM }}> {'→'} </span>
+                          <span style={{ color: l.isExit ? OCHRE : INK, fontWeight: 600 }}>{l.toLabel}</span>
+                        </span>
+                        <span style={{ display: 'block', fontSize: 13, color: BODY, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
+                          {l.promote} promote &middot; {l.repeat} repeat &middot; {l.graduate} graduate
+                          {l.overrides > 0 && (
+                            <span style={{ color: OCHRE, fontWeight: 600 }}> &middot; {l.overrides} changed</span>
+                          )}
+                        </span>
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          fontSize: 20,
+                          lineHeight: 1,
+                          color: DIM,
+                          display: 'inline-block',
+                          transform: open ? 'rotate(90deg)' : 'none',
+                          transition: 'transform 120ms',
+                        }}
+                      >
+                        {'›'}
+                      </span>
+                    </button>
+
+                    {open && group && (
+                      <div style={{ paddingBottom: 16 }}>
+                        <div style={{ border: `1px solid ${RULE_SOFT}`, overflowX: 'auto' }}>
+                          <table className="m-table min-w-[560px]">
+                            <thead>
+                              <tr>
+                                <th className="text-left">Student</th>
+                                <th className="text-left">Action</th>
+                                <th className="text-left">Target class</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {group.students.map(row => {
+                                const decision = decisions[row.studentId]
+                                return (
+                                  <tr key={row.studentId}>
+                                    <td style={{ color: INK }}>
+                                      {row.studentName} <span style={{ color: DIM }}>({row.admissionNumber})</span>
+                                      {row.suggestedAction === 'graduate' && (
+                                        <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: OCHRE }}>exit point</span>
+                                      )}
+                                    </td>
+                                    <td>
+                                      <select
+                                        value={decision.action}
+                                        onChange={(e) => {
+                                          const newAction = e.target.value as RowDecision['action']
+                                          // Keep targetClassId honest for the row's own display/state,
+                                          // not just the outgoing payload (buildDecisionList strips it
+                                          // for non-'promote' anyway) — 'repeat' truly means "stays in
+                                          // currentClassId", not whatever class 'promote' last suggested.
+                                          let targetClassId = decision.targetClassId
+                                          if (newAction === 'promote') targetClassId = row.suggestedTargetClassId || ''
+                                          else if (newAction === 'repeat') targetClassId = row.currentClassId
+                                          setDecision(row.studentId, { action: newAction, targetClassId })
+                                        }}
+                                        className="m-select w-auto py-1"
+                                      >
+                                        <option value="promote">Promote</option>
+                                        <option value="repeat">Repeat class</option>
+                                        <option value="graduate">Graduate / exit</option>
+                                      </select>
+                                    </td>
+                                    <td>
+                                      {decision.action === 'promote' ? (
+                                        <select
+                                          value={decision.targetClassId}
+                                          onChange={(e) => setDecision(row.studentId, { targetClassId: e.target.value })}
+                                          className="m-select w-auto py-1"
+                                        >
+                                          <option value="">- Select class -</option>
+                                          {classes.map(c => (
+                                            <option key={c.id} value={c.id}>{c.name}</option>
+                                          ))}
+                                        </select>
+                                      ) : decision.action === 'repeat' ? (
+                                        <span style={{ color: BODY }}>{row.currentClassName}</span>
+                                      ) : (
+                                        <span style={{ color: DIM }}>&mdash;</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 24 }}>
+            <button onClick={() => setStep('balances')} className="m-btn m-btn-primary">Continue to balances</button>
+            <button onClick={() => setStep('readiness')} className="m-btn m-btn-outline">Back</button>
+          </div>
+        </div>
+      )}
+
+      {/* 04 — Balances */}
+      {step === 'balances' && (
+        <div style={{ borderTop: '2px solid var(--color-ink)', marginTop: 20, paddingTop: 18 }}>
+          <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px', color: INK }}>Balances</h3>
+          <p style={{ fontSize: 14, color: BODY, margin: '0 0 14px', maxWidth: '72ch' }}>
+            What happens to money still owed. A continuing student&apos;s balance rides forward onto their first invoice in the
+            new term. A leaver&apos;s balance does not &mdash; it stays on their final, now-closed invoice. Export the list and
+            pursue leaver arrears before the students are archived.
+          </p>
+
+          <div>
+            <LedgerRow
+              what={`Continuing students whose balance carries into ${firstTermName}`}
+              val={balancePreview.carryStudents.toLocaleString('en-NG')}
+              ink={balancePreview.carryStudents > 0 ? OCHRE : DIM}
+            />
+            {showFinancials && (
+              <LedgerRow
+                what={`Money carried into ${firstTermName}`}
+                val={naira(balancePreview.carryAmount)}
+                ink={balancePreview.carryAmount > 0 ? OCHRE : DIM}
+                sub="Applied to each student's first-term invoice when it is generated after the rollover."
               />
-            </div>
-            {submitError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                {submitError}
-              </div>
             )}
+            <LedgerRow
+              what="Graduating students who still owe — carried nowhere"
+              val={balancePreview.leaverStudents > 0
+                ? (showFinancials ? `${balancePreview.leaverStudents.toLocaleString('en-NG')} · ${naira(balancePreview.leaverAmount)}` : balancePreview.leaverStudents.toLocaleString('en-NG'))
+                : '0'}
+              ink={balancePreview.leaverStudents > 0 ? OCHRE : DIM}
+              sub={balancePreview.leaverStudents > 0
+                ? 'Their balance is not written off, but it will not appear on any new invoice once they are archived. Export and collect or clear it first.'
+                : 'No graduating student has an outstanding balance.'}
+            />
           </div>
-        )}
-      </div>
 
-      <div className="p-4 border-t border-gray-100 flex items-center justify-between">
-        <button
-          onClick={() => {
-            if (step === 'promotions') setStep('details')
-            else if (step === 'confirm') setStep('promotions')
-            else router.push('/fees/cycles')
-          }}
-          disabled={submitting}
-          className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
-        >
-          {step === 'details' ? 'Cancel' : 'Back'}
-        </button>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 20, alignItems: 'center' }}>
+            <button onClick={handleExportList} className="m-btn m-btn-outline">Export leaver and carry-forward list</button>
+            <span style={{ fontSize: 13, color: DIM }}>Every student, their action, and their balance disposition as a CSV.</span>
+          </div>
 
-        {step !== 'confirm' ? (
-          <button
-            onClick={() => {
-              if (step === 'details') {
-                if (validateDetails()) setStep('promotions')
-              } else {
-                setStep('confirm')
-              }
-            }}
-            className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90"
-          >
-            Continue
-          </button>
-        ) : (
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || confirmText.trim() !== expectedConfirmName.trim()}
-            className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50"
-          >
-            {submitting ? 'Rolling over...' : 'Start year-end rollover'}
-          </button>
-        )}
-      </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 24 }}>
+            <button onClick={() => setStep('confirm')} className="m-btn m-btn-primary">Continue to commit</button>
+            <button onClick={() => setStep('promotions')} className="m-btn m-btn-outline">Back</button>
+          </div>
+        </div>
+      )}
+
+      {/* 05 — Commit (irreversible) */}
+      {step === 'confirm' && (
+        <div style={{ borderTop: '2px solid var(--color-ink)', marginTop: 20, paddingTop: 18 }}>
+          <h3 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px', color: INK }}>Commit</h3>
+          <p style={{ fontSize: 14, color: BODY, margin: '0 0 14px', maxWidth: '70ch' }}>
+            The final summary of everything the run will do, in one transaction. Nothing has happened yet. Type the session name to run it.
+          </p>
+
+          <div>
+            <LedgerRow
+              what="Students promoted to the next class"
+              val={summary.promote.toLocaleString('en-NG')}
+              ink={summary.promote > 0 ? INK : DIM}
+            />
+            <LedgerRow
+              what="Students graduated and archived"
+              val={summary.graduate.toLocaleString('en-NG')}
+              ink={summary.graduate > 0 ? INK : DIM}
+            />
+            <LedgerRow
+              what="Students repeating — held back manually"
+              val={summary.repeat.toLocaleString('en-NG')}
+              ink={summary.repeat > 0 ? INK : DIM}
+            />
+            <LedgerRow
+              what={`Balances carried into ${firstTermName}`}
+              val={showFinancials ? naira(balancePreview.carryAmount) : `${balancePreview.carryStudents.toLocaleString('en-NG')} students`}
+              ink={(showFinancials ? balancePreview.carryAmount : balancePreview.carryStudents) > 0 ? OCHRE : DIM}
+            />
+            {balancePreview.leaverStudents > 0 && (
+              <LedgerRow
+                what="Graduating students who still owe — carried nowhere"
+                val={showFinancials
+                  ? `${balancePreview.leaverStudents.toLocaleString('en-NG')} · ${naira(balancePreview.leaverAmount)}`
+                  : balancePreview.leaverStudents.toLocaleString('en-NG')}
+                ink={OCHRE}
+              />
+            )}
+            <LedgerRow what="New session opened" val={newSessionLabel} ink={INK} />
+            <LedgerRow
+              what={sessionSource === 'adopt' && adoptCycleId ? 'First term activated' : 'First term created and activated'}
+              val={firstTermName}
+              ink={INK}
+            />
+            <LedgerRow what={feesRow.what} val={feesRow.val} ink={feesRow.ink} />
+          </div>
+
+          <div style={{ marginTop: 24, maxWidth: 480 }}>
+            <label className="m-label">
+              Type <span style={{ color: INK, fontWeight: 700 }}>{expectedConfirmName || 'the session name'}</span> to confirm
+            </label>
+            <input
+              type="text"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={expectedConfirmName}
+              className="m-input"
+            />
+          </div>
+
+          {submitError && <LeftRuleNote tone={SIGNAL_TEXT}>{submitError}</LeftRuleNote>}
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 22, alignItems: 'center' }}>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting || confirmText.trim() !== expectedConfirmName.trim()}
+              className="m-btn m-btn-danger"
+            >
+              {submitting ? 'Rolling over…' : 'Run year-end rollover'}
+            </button>
+            <button onClick={() => setStep('balances')} disabled={submitting} className="m-btn m-btn-outline">Back</button>
+            <span style={{ fontSize: 13, color: OCHRE, fontWeight: 600 }}>Cannot be undone</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -681,23 +1385,23 @@ function SessionSourceFields({
     <>
       {draftSessions.length > 0 && (
         <div>
-          <label className="block text-xs text-gray-500 mb-2">Which session are you rolling into?</label>
+          <label className="m-label">Which session are you rolling into?</label>
           <div className="space-y-2">
-            <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
+            <label className="flex items-start gap-2 p-2 cursor-pointer hover:bg-[var(--color-surface)]">
               <input
                 type="radio"
                 checked={sessionSource === 'adopt'}
                 onChange={() => setSessionSource('adopt')}
-                className="mt-0.5 text-mint"
+                className="mt-0.5 accent-[var(--color-ink)]"
               />
               <div className="flex-1">
-                <span className="text-sm text-navy">Use a session prepared ahead of time</span>
+                <span className="text-sm text-[var(--color-ink)]">Use a session prepared ahead of time</span>
                 {sessionSource === 'adopt' && (
                   <div className="mt-2 space-y-2">
                     <select
                       value={adoptSessionId}
                       onChange={(e) => { setAdoptSessionId(e.target.value); setAdoptCycleId('') }}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                      className="m-select"
                     >
                       {draftSessions.map(s => (
                         <option key={s.id} value={s.id}>{s.name}</option>
@@ -707,9 +1411,9 @@ function SessionSourceFields({
                       <select
                         value={adoptCycleId}
                         onChange={(e) => setAdoptCycleId(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                        className="m-select"
                       >
-                        <option value="">— Create a new term in this session —</option>
+                        <option value="">- Create a new term in this session -</option>
                         {adoptedSession.terms.map(t => (
                           <option key={t.id} value={t.id}>{t.name} (use this prepared term)</option>
                         ))}
@@ -719,96 +1423,96 @@ function SessionSourceFields({
                 )}
               </div>
             </label>
-            <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
+            <label className="flex items-start gap-2 p-2 cursor-pointer hover:bg-[var(--color-surface)]">
               <input
                 type="radio"
                 checked={sessionSource === 'new'}
                 onChange={() => setSessionSource('new')}
-                className="mt-0.5 text-mint"
+                className="mt-0.5 accent-[var(--color-ink)]"
               />
-              <span className="text-sm text-navy">Create a brand new session</span>
+              <span className="text-sm text-[var(--color-ink)]">Create a brand new session</span>
             </label>
           </div>
         </div>
       )}
 
       {sessionSource === 'adopt' && adoptCycleId ? (
-        <p className="text-sm text-gray-500">
-          Rolling into <span className="font-medium text-navy">{adoptedSession?.terms.find(t => t.id === adoptCycleId)?.name}</span> — its fee items are already set up.
+        <p className="text-sm text-[var(--color-neutral-800)]">
+          Rolling into <span className="font-medium text-[var(--color-ink)]">{adoptedSession?.terms.find(t => t.id === adoptCycleId)?.name}</span> — its fee items are already set up.
         </p>
       ) : (
         <>
           {sessionSource === 'new' && (
             <>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">New session name *</label>
+                <label className="m-label">New session name *</label>
                 <input
                   type="text"
                   value={newSessionName}
                   onChange={(e) => setNewSessionName(e.target.value)}
                   placeholder="e.g. 2027/2028"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                  className="m-input"
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Session start *</label>
+                  <label className="m-label">Session start *</label>
                   <input
                     type="date"
                     value={newSessionStart}
                     onChange={(e) => setNewSessionStart(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                    className="m-input"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Session end *</label>
+                  <label className="m-label">Session end *</label>
                   <input
                     type="date"
                     value={newSessionEnd}
                     onChange={(e) => setNewSessionEnd(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                    className="m-input"
                   />
                 </div>
               </div>
             </>
           )}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">First term name *</label>
+            <label className="m-label">First term name *</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. First Term 2027/2028"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-input"
             />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Term start *</label>
+              <label className="m-label">Term start *</label>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                className="m-input"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Term end *</label>
+              <label className="m-label">Term end *</label>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                className="m-input"
               />
             </div>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Term due date *</label>
+            <label className="m-label">Term due date *</label>
             <input
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-input"
             />
           </div>
         </>

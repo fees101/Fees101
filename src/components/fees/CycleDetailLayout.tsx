@@ -3,17 +3,24 @@
 import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import type { CycleDetailData, CycleInvoiceFilter, InvoiceRow } from '@/lib/queries/fees'
+import type { CycleDetailData, CycleInvoiceFilter, InvoiceRow, CycleRow, SessionRow } from '@/lib/queries/fees'
 import GenerateInvoicesPanel from './GenerateInvoicesPanel'
-import { regenerateInvoice, startInvoiceRegenerationJob } from '@/app/(app)/fees/cycles/actions'
-import { sendInvoiceUpdateNotice } from '@/app/(app)/invoices/actions'
+import CreateTermPanel from './CreateTermPanel'
+import CarryForwardSummaryModal from './CarryForwardSummaryModal'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
+import { regenerateInvoice, startInvoiceRegenerationJob, activateTerm, deleteTermDraft, reopenTermAsDraft } from '@/app/(app)/fees/cycles/actions'
+import { sendInvoiceUpdateNotice } from '@/app/(app)/money/invoices/actions'
 import { useActiveJobs, useTrackedJob, useOnJobOpenRequested } from '@/lib/jobs/ActiveJobsProvider'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { formatDate } from '@/lib/format/date'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
+import Toast from '@/components/ui/Toast'
 
 interface Props {
   data: CycleDetailData
+  cycles: CycleRow[]
+  sessions: SessionRow[]
   showFinancials?: boolean
   schoolId: string
 }
@@ -30,6 +37,16 @@ function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
+// Collected is bucketed by payment date across the whole school, so a term that
+// billed little but sat in a busy collection window can read well over 100%.
+// Cap the rate so an outlier can't render a broken-looking figure; the real
+// naira totals are shown alongside it.
+function collectedRate(collected: number, expected: number): string {
+  if (expected <= 0) return '0%'
+  const pct = Math.round((collected / expected) * 100)
+  return pct > 999 ? '>999%' : `${pct}%`
+}
+
 function getPageNumbers(currentPage: number, totalPages: number): (number | '...')[] {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
   if (currentPage <= 3) return [1, 2, 3, 4, '...', totalPages]
@@ -39,24 +56,26 @@ function getPageNumbers(currentPage: number, totalPages: number): (number | '...
   return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages]
 }
 
-function statusBadge(inv: InvoiceRow) {
+// Status as colour-carrying text, no pills: green only where money is fully
+// in, ochre for anything still needing a human, muted neutral for inert.
+function invoiceState(inv: InvoiceRow): { label: string; color: string } {
   // Cancelled overrides everything — a dead invoice never reads as "needs
   // resend" just because that flag happened to be set at cancellation time.
-  if (inv.status === 'cancelled') return { cls: 'bg-gray-100 text-gray-500', label: 'cancelled' }
-  if (inv.needsResend) return { cls: 'bg-amber-50 text-amber-700', label: 'needs resend' }
-  if (inv.status === 'paid') return { cls: 'bg-mint-light text-mint', label: 'paid' }
-  if (inv.status === 'partial') return { cls: 'bg-amber-50 text-amber-700', label: 'partial' }
-  if (inv.status === 'overdue') return { cls: 'bg-red-50 text-red-700', label: 'overdue' }
-  return { cls: 'bg-gray-100 text-gray-600', label: 'unpaid' }
+  if (inv.status === 'cancelled') return { label: 'CANCELLED', color: 'var(--color-neutral-500)' }
+  if (inv.needsResend) return { label: 'NEEDS RESEND', color: 'var(--color-ochre-text)' }
+  if (inv.status === 'paid') return { label: 'PAID', color: 'var(--color-ledger)' }
+  if (inv.status === 'partial') return { label: 'PARTIAL', color: 'var(--color-ochre-text)' }
+  if (inv.status === 'overdue') return { label: 'OVERDUE', color: 'var(--color-ochre-text)' }
+  return { label: 'UNPAID', color: 'var(--color-neutral-500)' }
 }
 
-function cycleStatusBadge(status: 'draft' | 'active' | 'closed') {
-  if (status === 'active') return { cls: 'bg-mint-light text-mint', dot: 'bg-mint' }
-  if (status === 'draft') return { cls: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' }
-  return { cls: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' }
+function cycleState(status: 'draft' | 'active' | 'closed'): { label: string; color: string } {
+  if (status === 'active') return { label: 'ACTIVE', color: 'var(--color-ink)' }
+  if (status === 'draft') return { label: 'DRAFT', color: 'var(--color-ochre-text)' }
+  return { label: 'CLOSED', color: 'var(--color-neutral-500)' }
 }
 
-export default function CycleDetailLayout({ data, showFinancials = true, schoolId }: Props) {
+export default function CycleDetailLayout({ data, cycles, sessions, showFinancials = true, schoolId }: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const canManageFeeStructure = useCan('manage-fee-structure')
@@ -95,6 +114,7 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
   // since they're discrete clicks, not keystrokes.
   const [searchInput, setSearchInput] = useState(search)
   const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ ok: boolean; message: string } | null>(null)
   const { trackJob, findRunningJob, cancelJob } = useActiveJobs()
   const runningGeneration = findRunningJob(j => j.jobType === 'invoice_generation' && j.meta?.cycleId === cycle?.id)
   // Reopen the panel automatically if generation is already running (e.g. the
@@ -115,6 +135,40 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
   const regeneratingAll = !!regenerateJob && regenerateJob.status === 'running'
   const [notifyingId, setNotifyingId] = useState<string | null>(null)
   const [notifiedIds, setNotifiedIds] = useState<Set<string>>(new Set())
+
+  // Term-lifecycle controls, available from a term's own page so a draft can be
+  // prepared and activated (and an active term reopened) without going back to
+  // the Cycles list. The server actions are the single source of truth; this is
+  // the same confirm-then-act flow as the list, just scoped to this one term.
+  // The activate/reopen/delete logic is deliberately duplicated from
+  // CyclesLayout rather than extracted into a shared hook: both surfaces are
+  // still awaiting the user's own test pass, so keeping the tested list code
+  // untouched matters more here than DRY. A useTermActions extraction is noted
+  // in ROADMAP as a follow-up once both are signed off.
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string
+    message: string
+    destructive?: boolean
+    confirmLabel?: string
+    onConfirm: () => Promise<void>
+  } | null>(null)
+  // Undo-activation and delete-draft both destroy real state, so they use the
+  // itemized DestructiveConfirmModal rather than the plain ConfirmDialog above
+  // (mirrors CyclesLayout — see the duplication note above).
+  const [destructiveAction, setDestructiveAction] = useState<
+    { type: 'undo-activation' | 'delete-draft'; cycle: CycleRow } | null
+  >(null)
+  const [destructiveBusy, setDestructiveBusy] = useState(false)
+  const [destructiveError, setDestructiveError] = useState<string | null>(null)
+  const [carryForwardSummary, setCarryForwardSummary] = useState<{
+    mode: 'activated' | 'closed'
+    closedTermName: string | null
+    invoicesUpdated: number
+    invoicesNeedingResend: number
+    studentsWithCarryForward: number
+    totalCarryForward: number
+  } | null>(null)
+  const [editPanelOpen, setEditPanelOpen] = useState(false)
 
   function navigate(patch: Record<string, string>) {
     const params = new URLSearchParams({
@@ -166,7 +220,7 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
     if (!cycle) return
     setRegenerateJobId(jobId)
     const lockedNote = lockedCount > 0
-      ? ` (${lockedCount} ${lockedCount === 1 ? 'invoice was' : 'invoices were'} left untouched — would drop below what's already been paid)`
+      ? ` (${lockedCount} ${lockedCount === 1 ? 'invoice was' : 'invoices were'} left untouched, would drop below what's already been paid)`
       : ''
     trackJob(jobId, 'invoice_regeneration', 'Invoice regeneration', undefined, (job) => {
       if (job.status === 'failed') {
@@ -178,7 +232,7 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
           : ''
         if (job.status === 'cancelled') {
           setRegenerateSummary(
-            `Cancelled — ${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated before stopping.${lockedNote}${failedNote}`
+            `Cancelled - ${job.processed} ${job.processed === 1 ? 'invoice' : 'invoices'} updated before stopping.${lockedNote}${failedNote}`
           )
         } else {
           setRegenerateSummary(
@@ -214,17 +268,114 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
     setNotifyingId(null)
   }
 
+  // A term-close (triggered implicitly when activating over an existing active
+  // term) can spin off a background job to carry balances forward. Surface it in
+  // the floating job chip so the user can watch it finish, same as the list.
+  function trackCloseTermJobIfAny(jobId: string | null | undefined, totalInvoices: number) {
+    if (!jobId) return
+    trackJob(jobId, 'close_term', 'Carrying forward balances', { total: totalInvoices }, undefined, { href: '/fees/cycles' })
+  }
+
+  function handleActivate(cycleRow: CycleRow) {
+    setError(null)
+    // Guard: activating a term from a past academic year would make the school's
+    // "active" term jump backwards in time. Match the list's guard exactly.
+    const activeSession = sessions.find(s => s.status === 'active')
+    const cycleSession = cycleRow.sessionId ? sessions.find(s => s.id === cycleRow.sessionId) : undefined
+    if (activeSession && cycleSession && cycleSession.id !== activeSession.id && cycleSession.startDate < activeSession.startDate) {
+      setError(`"${cycleRow.name}" belongs to "${cycleSession.name}", a past academic year. Terms from past years can't be activated.`)
+      return
+    }
+    const currentlyActive = cycles.find(c => c.status === 'active')
+
+    // Same routing as the Cycles list page: activating closes whatever term
+    // is currently live as a side effect, so send the admin through the real
+    // Close term review flow first instead of doing it invisibly inside a
+    // confirm dialog. ?activateAfter tells that page to activate this draft
+    // once the close completes.
+    if (currentlyActive && currentlyActive.id !== cycleRow.id) {
+      router.push(`/fees/close-term?cycle=${currentlyActive.id}&activateAfter=${cycleRow.id}`)
+      return
+    }
+
+    setConfirmDialog({
+      title: 'Activate this term?',
+      message: `Make "${cycleRow.name}" the active term.`,
+      confirmLabel: 'Activate',
+      onConfirm: async () => {
+        const result = await activateTerm(cycleRow.id)
+        if (result.error) {
+          setError(result.error)
+          setToast({ ok: false, message: result.error })
+        } else if (result.summary && result.summary.closedTermName) {
+          setCarryForwardSummary({ mode: 'activated', ...result.summary })
+          trackCloseTermJobIfAny(result.summary.jobId, result.summary.invoicesUpdated)
+          setToast({ ok: true, message: `${cycleRow.name} activated.` })
+          router.refresh()
+        } else {
+          setToast({ ok: true, message: `${cycleRow.name} activated.` })
+          router.refresh()
+        }
+        setConfirmDialog(null)
+      },
+    })
+  }
+
+  function handleReopenAsDraft(cycleRow: CycleRow) {
+    setError(null)
+    setDestructiveError(null)
+    setDestructiveAction({ type: 'undo-activation', cycle: cycleRow })
+  }
+
+  function handleDeleteDraft(cycleRow: CycleRow) {
+    setError(null)
+    setDestructiveError(null)
+    setDestructiveAction({ type: 'delete-draft', cycle: cycleRow })
+  }
+
+  async function handleDestructiveConfirm() {
+    if (!destructiveAction) return
+    const { type, cycle: cycleRow } = destructiveAction
+    setDestructiveBusy(true)
+    setDestructiveError(null)
+    if (type === 'undo-activation') {
+      const result = await reopenTermAsDraft(cycleRow.id)
+      setDestructiveBusy(false)
+      if (result.error) {
+        setDestructiveError(result.error)
+        return
+      }
+      setDestructiveAction(null)
+      setToast({ ok: true, message: `${cycleRow.name} reopened as draft.` })
+      router.refresh()
+      return
+    }
+    const result = await deleteTermDraft(cycleRow.id)
+    setDestructiveBusy(false)
+    if (result.error) {
+      setDestructiveError(result.error)
+      return
+    }
+    // We're on the page for the term we just deleted, so there's nothing
+    // left to show here — return to the list.
+    router.push('/fees/cycles')
+  }
+
   if (!cycle) {
     return (
-      <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
-        <p className="text-gray-500">Term not found.</p>
+      <div className="border-2 border-dashed border-[var(--color-neutral-300)] p-12 text-center">
+        <p className="text-[var(--color-neutral-700)]">Term not found.</p>
       </div>
     )
   }
 
-  const badge = cycleStatusBadge(cycle.status)
   const isClosed = cycle.status === 'closed'
   const isDraft = cycle.status === 'draft'
+  const isActive = cycle.status === 'active'
+  // The list-shaped row for this term (getAllCycles), carrying fields the detail
+  // fetch doesn't — feeItemCount and invoicesSent — and the shape the term
+  // actions + CreateTermPanel expect. Should always resolve; guarded anyway.
+  const cycleRow = cycles.find(c => c.id === cycle.id) ?? null
   // cycle.invoiceCount reflects the whole cycle, not just the current page/
   // filter — this is "does the cycle have invoices at all", used to decide
   // between the print-all/generate-more affordances and the fully-empty state.
@@ -233,104 +384,215 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
   const totalPages = Math.max(1, Math.ceil(invoicesTotal / perPage))
   const rangeStart = invoicesTotal === 0 ? 0 : (page - 1) * perPage + 1
   const rangeEnd = Math.min(page * perPage, invoicesTotal)
+  // studentsWithoutInvoices is unpaginated (see getCycleDetailById), so it's
+  // only rendered on the invoice list's last page — otherwise it would repeat
+  // in full on every page and the footer count would never reconcile with
+  // what's on screen.
+  const showNoInvoiceRows = page >= totalPages
+  const noInvoiceShown = showNoInvoiceRows ? studentsWithoutInvoices.length : 0
+
+  // Draft "Prepare this term" surface: the real order of operations before a
+  // term goes live — dates first, then fees, optionally draft invoices, then
+  // activate. Echoes the mockup's lifecycle-step pattern (number · title/body ·
+  // action), tailored to a draft since the canvas designs only the active-term
+  // lifecycle. Close term and year-end are intentionally absent here — they
+  // don't apply until the term is active.
+  const prepareSteps: {
+    n: string
+    title: string
+    body: string
+    action: { label: string; href?: string; onClick?: () => void; variant: 'primary' | 'outline'; disabled?: boolean } | null
+  }[] = isDraft ? [
+    {
+      n: '01',
+      title: "Set the term's dates",
+      body: cycle.startDate && cycle.endDate
+        ? `Runs ${formatDate(cycle.startDate)} to ${formatDate(cycle.endDate)}${cycle.dueDate ? `, payment due ${formatDate(cycle.dueDate)}` : ''}. Edit the schedule, name or session anytime before activating.`
+        : 'Add the start, end and payment due dates so invoices and reminders line up.',
+      action: canManageFeeStructure ? { label: 'Edit details', onClick: () => setEditPanelOpen(true), variant: 'outline' } : null,
+    },
+    {
+      n: '02',
+      title: "Set this term's fees",
+      body: cycleRow && cycleRow.feeItemCount > 0
+        ? `${cycleRow.feeItemCount} ${cycleRow.feeItemCount === 1 ? 'fee is' : 'fees are'} set for this term. Adjust prices or add more before you activate.`
+        : 'No fees yet. Add them so invoices have something to bill.',
+      action: canManageFeeStructure ? { label: 'Edit fees', href: `/fees/structure?cycle=${cycle.id}&from=${encodeURIComponent(`/fees/cycles/${cycle.id}`)}`, variant: 'outline' } : null,
+    },
+    {
+      n: '03',
+      title: 'Draft invoices in advance',
+      body: 'Optional. Generate them now to print into report cards before the term starts. Nothing is sent to parents while the term is a draft.'
+        + (cycle.invoiceCount > 0 ? ` ${cycle.invoiceCount} drafted so far.` : ''),
+      action: canManageInvoices ? {
+        label: runningGeneration ? `Generating... (${runningGeneration.processed}/${runningGeneration.total || '?'})` : 'Generate draft invoices',
+        onClick: () => setGeneratePanelOpen(true),
+        variant: 'outline',
+        disabled: (studentsWithoutInvoicesTotal === 0 && !runningGeneration) || (generatePanelOpen && !!runningGeneration),
+      } : null,
+    },
+    {
+      n: '04',
+      title: 'Activate when the term begins',
+      body: 'Activating lets you send invoices and start collecting. If another term is active, it will be closed and any unpaid balances carried forward.',
+      action: canManageFeeStructure ? { label: 'Activate term', onClick: () => { if (cycleRow) handleActivate(cycleRow) }, variant: 'primary' } : null,
+    },
+  ] : []
 
   return (
     <>
-      {/* Header */}
-      <header className="mb-6 flex items-start justify-between gap-4">
+      {/* Sub-header: status + dates + actions (title/back are handled by WorkspaceHeader) */}
+      <div className="mb-6 flex flex-col lg:flex-row lg:items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`w-2 h-2 rounded-full ${badge.dot}`}></span>
-            <h1 className="text-3xl font-bold text-navy">{cycle.name}</h1>
-            <span className={`text-xs px-2 py-0.5 rounded-full ${badge.cls}`}>
-              {cycle.status}
-            </span>
-          </div>
-          <p className="text-sm text-gray-500">
-            {formatDate(cycle.startDate)} – {formatDate(cycle.endDate)}
-            <span className="text-gray-400 font-bold"> · </span>
+          <span className="text-xs font-semibold uppercase" style={{ letterSpacing: '0.08em', color: cycleState(cycle.status).color }}>
+            {cycleState(cycle.status).label}
+          </span>
+          <p className="text-sm text-[var(--color-neutral-700)] mt-2">
+            {formatDate(cycle.startDate)} &ndash; {formatDate(cycle.endDate)}
+            <span className="text-[var(--color-neutral-500)]"> &middot; </span>
             {isClosed && cycle.closedAt ? `Closed: ${formatDate(cycle.closedAt)}` : `Due: ${formatDate(cycle.dueDate)}`}
             {cycle.sessionName && (
               <>
-                <span className="text-gray-400 font-bold"> · </span>
+                <span className="text-[var(--color-neutral-500)]"> &middot; </span>
                 Session: {cycle.sessionName}
               </>
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {canManageFeeStructure && (
-          <Link
-            href={`/fees/structure?cycle=${cycle.id}`}
-            className="px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50"
-          >
-            Edit fees
-          </Link>
+        <div className="flex items-center gap-2 flex-wrap">
+          {isActive && canManageFeeStructure && (
+            <Link href={`/fees/structure?cycle=${cycle.id}&from=${encodeURIComponent(`/fees/cycles/${cycle.id}`)}`} className="text-[13px] font-semibold hover:underline text-[var(--color-ink)]">
+              Edit fees
+            </Link>
           )}
           {hasInvoices && (
-
-              <a href={`/api/cycles/${cycle.id}/pdf`}
-              download
-              className="px-3 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-              </svg>
-              Print all ({cycle.invoiceCount})
+            <a href={`/api/cycles/${cycle.id}/pdf`} download className="text-[13px] font-semibold hover:underline text-[var(--color-ink)]">
+              Print all invoices ({cycle.invoiceCount})
             </a>
           )}
-          {!isClosed && canManageInvoices && (
+          {isActive && canManageInvoices && (
             <button
               onClick={() => setGeneratePanelOpen(true)}
               disabled={(studentsWithoutInvoicesTotal === 0 && !runningGeneration) || (generatePanelOpen && !!runningGeneration)}
-              title={runningGeneration && !generatePanelOpen ? 'Generation is already running — click to view its progress' : undefined}
-              className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+              title={runningGeneration && !generatePanelOpen ? 'Generation is already running, click to view its progress' : undefined}
+              className="m-btn m-btn-primary"
             >
               {runningGeneration
-                ? `Generating… (${runningGeneration.processed}/${runningGeneration.total || '?'})`
+                ? `Generating... (${runningGeneration.processed}/${runningGeneration.total || '?'})`
                 : hasInvoices ? `Generate for ${studentsWithoutInvoicesTotal} new` : `Generate invoices`}
             </button>
           )}
         </div>
-      </header>
+      </div>
 
-      {isClosed && (
-        <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-start gap-3">
-          <svg className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-navy">This term is closed</p>
-            <p className="text-xs text-gray-600 mt-0.5">No new invoices can be generated. Payments can still be recorded.</p>
-          </div>
+      {/* Active: quick term management. Closing and year-end live on their own
+          tabs (the redesign deliberately un-buried them), so we route to the
+          close-term ledger rather than re-embedding it here. */}
+      {isActive && canManageFeeStructure && (
+        <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]">
+          {cycleRow && cycleRow.canUndoActivation && (
+            <button onClick={() => handleReopenAsDraft(cycleRow)} className="font-semibold text-[var(--color-neutral-700)] hover:underline">
+              Undo activation
+            </button>
+          )}
+          <Link href={`/fees/close-term?cycle=${cycle.id}`} className="font-semibold text-[var(--color-ink)] hover:underline">
+            Review close term
+          </Link>
         </div>
       )}
 
+      {/* Draft: the prepare surface — set fees, optionally draft invoices, then
+          activate. No close/year-end here; they don't apply until active. */}
       {isDraft && (
-        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
-          <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-          </svg>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-navy">This is a draft term</p>
-            <p className="text-xs text-gray-600 mt-0.5">
-              You can generate invoices to draft them in advance (e.g., to print and slot into student report cards). Activate the term from <Link href="/fees/cycles" className="text-mint hover:underline">Billing cycles</Link> when ready.
-            </p>
+        <section className="mb-6" style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 20 }}>
+          <div className="flex flex-wrap items-baseline justify-between gap-3 mb-1">
+            <h2 className="text-[22px] font-extrabold text-[var(--color-ink)]" style={{ margin: 0 }}>Prepare this term</h2>
+            <span className="text-[12px] font-semibold text-[var(--color-ochre-text)]" style={{ letterSpacing: '0.08em' }}>DRAFT</span>
           </div>
-        </div>
+          <p className="text-[14px] text-[var(--color-neutral-700)] mb-5" style={{ maxWidth: '70ch' }}>
+            This term isn&apos;t billing yet. Set its fees, optionally draft invoices to print into report cards, then activate it when the term begins. Closing the term and year-end only apply once it&apos;s active.
+          </p>
+          {prepareSteps.map(s => (
+            <div
+              key={s.n}
+              className="grid items-start"
+              style={{ gridTemplateColumns: '34px minmax(0,1fr) auto', gap: 16, padding: '16px 0', borderBottom: '1px solid var(--color-neutral-300)' }}
+            >
+              <span className="m-num text-[13px] font-extrabold text-[var(--color-ink)]" style={{ paddingTop: 2 }}>{s.n}</span>
+              <div style={{ minWidth: 0 }}>
+                <p className="text-[16px] font-bold text-[var(--color-ink)]" style={{ margin: '0 0 3px' }}>{s.title}</p>
+                <p className="text-[13px] text-[var(--color-neutral-700)]" style={{ margin: 0, lineHeight: 1.5 }}>{s.body}</p>
+              </div>
+              <div className="text-right">
+                {s.action && (
+                  s.action.variant === 'primary' ? (
+                    s.action.href ? (
+                      <Link href={s.action.href} className="m-btn m-btn-primary m-btn-sm">
+                        {s.action.label}
+                      </Link>
+                    ) : (
+                      <button
+                        onClick={s.action.onClick}
+                        disabled={s.action.disabled}
+                        className="m-btn m-btn-primary m-btn-sm"
+                      >
+                        {s.action.label}
+                      </button>
+                    )
+                  ) : (
+                    s.action.href ? (
+                      <Link href={s.action.href} className="text-[13px] font-semibold hover:underline text-[var(--color-ink)]">
+                        {s.action.label}
+                      </Link>
+                    ) : (
+                      <button
+                        onClick={s.action.onClick}
+                        disabled={s.action.disabled}
+                        className="text-[13px] font-semibold hover:underline text-[var(--color-ink)] disabled:opacity-40 disabled:no-underline"
+                      >
+                        {s.action.label}
+                      </button>
+                    )
+                  )
+                )}
+              </div>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-4 text-[13px]">
+            {canManageFeeStructure && cycleRow && (
+              <button onClick={() => handleDeleteDraft(cycleRow)} className="font-semibold text-[var(--color-signal-text)] hover:underline">
+                Delete draft
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Closed: read-only, no recap section (the KPIs + invoice table below
+          already carry the money-level record). No reopen offered — the
+          server forbids reopening a closed term, so we don't surface an
+          action that would only error. */}
+      {isClosed && (
+        <section className="mb-6" style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 20 }}>
+          <div className="flex flex-wrap items-baseline justify-between gap-3 mb-1">
+            <span className="text-[12px] font-semibold text-[var(--color-neutral-500)]" style={{ letterSpacing: '0.08em' }}>
+              CLOSED{cycle.closedAt ? ` · ${formatDate(cycle.closedAt)}` : ''}
+            </span>
+          </div>
+          <p className="text-[14px] text-[var(--color-neutral-700)]" style={{ maxWidth: '70ch' }}>
+            This term is closed and read-only. No new invoices or edits, but payments can still be recorded against the outstanding balances shown below.
+          </p>
+        </section>
       )}
 
       {!isClosed && (totalsByStatus.needsRegeneration > 0 || regeneratingAll) && (
-        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
-          <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+        <div className="mb-4 pl-4 py-3 border-l-2 border-[var(--color-ochre)] flex flex-col sm:flex-row sm:items-start gap-3">
           <div className="flex-1">
-            <p className="text-sm font-medium text-navy">
+            <p className="text-sm font-medium text-[var(--color-ink)]">
               {totalsByStatus.needsRegeneration} {totalsByStatus.needsRegeneration === 1 ? 'invoice is' : 'invoices are'} out of date
             </p>
-            <p className="text-xs text-gray-600 mt-0.5">
-              Fees, opt-ins, or exemptions changed since these were generated. Regenerate to apply the current numbers — payments already made are preserved.
+            <p className="text-xs text-[var(--color-neutral-700)] mt-0.5">
+              Fees, opt-ins, or exemptions changed since these were generated. Regenerate to apply the current numbers, payments already made are preserved.
               {lockedOutOfDate > 0 && (
                 <> {autoRegenerableCount} can be auto-regenerated; {lockedOutOfDate} {lockedOutOfDate === 1 ? 'is' : 'are'} locked against payments already made.</>
               )}
@@ -341,7 +603,7 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
             <button
               onClick={handleRegenerateAll}
               disabled={regeneratingAll}
-              className="px-3 py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50"
+              className="m-btn m-btn-primary m-btn-sm"
             >
               {regeneratingAll
                 ? `Regenerating... ${regenerateJob?.processed ?? 0}/${regenerateJob?.total ?? 0}`
@@ -351,7 +613,7 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
               <button
                 onClick={() => cancelJob(regenerateJobId)}
                 disabled={regenerateJob?.cancelling}
-                className="text-xs text-red-600 hover:underline disabled:opacity-50 disabled:no-underline"
+                className="text-xs text-[var(--color-signal-text)] hover:underline disabled:opacity-50 disabled:no-underline"
               >
                 {regenerateJob?.cancelling ? 'Cancelling...' : 'Cancel'}
               </button>
@@ -362,78 +624,85 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
       )}
 
       {runningGeneration && !generatePanelOpen && (
-        <div className="mb-4 p-4 bg-mint-light/40 border border-mint/30 rounded-xl flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-4 h-4 border-2 border-mint border-t-transparent rounded-full animate-spin flex-shrink-0" />
-            <p className="text-sm text-navy">
-              Generating invoices in the background — {runningGeneration.processed}/{runningGeneration.total || '?'}
+        <div className="mb-4 border border-[var(--color-neutral-300)] p-4">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <p className="text-sm text-[var(--color-ink)]">
+              Generating invoices in the background - {runningGeneration.processed}/{runningGeneration.total || '?'}
             </p>
+            <button
+              onClick={() => setGeneratePanelOpen(true)}
+              className="text-sm font-medium text-[var(--color-ink)] hover:underline flex-shrink-0"
+            >
+              View
+            </button>
           </div>
-          <button
-            onClick={() => setGeneratePanelOpen(true)}
-            className="px-3 py-1.5 text-sm font-medium text-mint hover:underline flex-shrink-0"
-          >
-            View
-          </button>
+          <div className="m-loading" />
         </div>
       )}
 
       {regenerateSummary && (
-        <div className="mb-4 p-3 bg-mint-light/40 border border-mint/30 rounded-lg text-sm text-navy flex items-center justify-between">
+        <div className="mb-4 pl-3 py-2 border-l-2 border-[var(--color-ink)] text-sm text-[var(--color-ink)] flex items-center justify-between gap-3">
           {regenerateSummary}
-          <button onClick={() => setRegenerateSummary(null)} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+          <button onClick={() => setRegenerateSummary(null)} className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-ink)] flex-shrink-0" aria-label="Dismiss">
+            Dismiss
           </button>
         </div>
       )}
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        <div className="mb-4 pl-3 py-2 border-l-2 border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">
           {error}
         </div>
       )}
 
       {/* KPIs */}
       <div className={`grid grid-cols-2 gap-4 mb-6 ${showFinancials ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
-        <div className="bg-white p-4 rounded-xl border border-gray-200">
-          <p className="text-xs text-gray-500 mb-1">Invoices</p>
-          <p className="text-2xl font-bold text-navy">
-            {cycle.invoiceCount} <span className="text-sm text-gray-400">/ {totalActiveStudents}</span>
+        <div className="border-t-2 border-[var(--color-ink)] pt-4">
+          <p className="text-xs text-[var(--color-neutral-700)] mb-1">Invoices</p>
+          {/* Show the invoice count as a plain number, not a "count / students"
+              ratio. invoiceCount is every invoice in the cycle (it can include
+              invoices for students who have since withdrawn), while the student
+              figures below count only active students — so a ratio between them
+              never cleanly reconciles and can even read over 100%. The actionable
+              coverage signal is "how many active students still have no invoice",
+              which is what the line beneath carries. */}
+          <p className="text-2xl font-bold text-[var(--color-ink)] m-num">
+            {cycle.invoiceCount}
           </p>
-          {studentsWithoutInvoicesTotal > 0 && (
-            <p className="text-xs text-amber-600 mt-1">{studentsWithoutInvoicesTotal} students missing</p>
+          {studentsWithoutInvoicesTotal > 0 ? (
+            <p className="text-xs text-[var(--color-ochre-text)] mt-1">{studentsWithoutInvoicesTotal} students missing</p>
+          ) : (
+            <p className="text-xs text-[var(--color-neutral-500)] mt-1">All {totalActiveStudents} students invoiced</p>
           )}
         </div>
         {showFinancials && (
-          <div className="bg-white p-4 rounded-xl border border-gray-200">
-            <p className="text-xs text-gray-500 mb-1">Expected</p>
-            <p className="text-2xl font-bold text-navy">{formatNaira(cycle.totalExpected)}</p>
+          <div className="border-t-2 border-[var(--color-ink)] pt-4">
+            <p className="text-xs text-[var(--color-neutral-700)] mb-1">Expected</p>
+            <p className="text-2xl font-bold text-[var(--color-ink)] m-num">{formatNaira(cycle.totalExpected)}</p>
           </div>
         )}
-        <div className="bg-white p-4 rounded-xl border border-gray-200">
-          <p className="text-xs text-gray-500 mb-1">Collected</p>
-          <p className="text-2xl font-bold text-mint">
+        <div className="border-t-2 border-[var(--color-ink)] pt-4">
+          <p className="text-xs text-[var(--color-neutral-700)] mb-1">Collected</p>
+          <p className="text-2xl font-bold text-[var(--color-ledger)] m-num">
             {showFinancials
               ? formatNaira(cycle.totalCollected)
-              : `${cycle.totalExpected > 0 ? Math.round((cycle.totalCollected / cycle.totalExpected) * 100) : 0}%`}
+              : collectedRate(cycle.totalCollected, cycle.totalExpected)}
           </p>
           {cycle.totalExpected > 0 && (
-            <p className="text-xs text-gray-500 mt-1">
-              {showFinancials ? `${Math.round((cycle.totalCollected / cycle.totalExpected) * 100)}% collected` : 'of expected'}
+            <p className="text-xs text-[var(--color-neutral-700)] mt-1">
+              {showFinancials ? `${collectedRate(cycle.totalCollected, cycle.totalExpected)} collected` : 'of expected'}
               {cycle.invoiceCount > 0 && ` · ${totalsByStatus.paid}/${cycle.invoiceCount} paid up`}
             </p>
           )}
         </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200">
-          <p className="text-xs text-gray-500 mb-1">Outstanding</p>
-          <p className="text-2xl font-bold text-amber-600">
+        <div className="border-t-2 border-[var(--color-ink)] pt-4">
+          <p className="text-xs text-[var(--color-neutral-700)] mb-1">Outstanding</p>
+          <p className="text-2xl font-bold text-[var(--color-ochre-text)] m-num">
             {showFinancials
               ? formatNaira(cycle.totalOutstanding)
               : `${cycle.totalExpected > 0 ? Math.round((cycle.totalOutstanding / cycle.totalExpected) * 100) : 0}%`}
           </p>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-[var(--color-neutral-700)] mt-1">
             {!showFinancials && 'of expected, still owed'}
             {cycle.invoiceCount > 0 && `${!showFinancials ? ' · ' : ''}${totalsByStatus.partial + totalsByStatus.pending + totalsByStatus.overdue}/${cycle.invoiceCount} owe`}
           </p>
@@ -445,32 +714,32 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <button
             onClick={() => setFilter('all')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'all' ? 'bg-navy text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            className={`px-3 py-1.5 text-xs font-semibold border ${filter === 'all' ? 'bg-[var(--color-ink)] text-[var(--color-paper)] border-[var(--color-ink)]' : 'bg-[var(--color-paper)] text-[var(--color-neutral-700)] border-[var(--color-neutral-300)] hover:border-[var(--color-ink)]'}`}
           >
             All {cycle.invoiceCount + studentsWithoutInvoicesTotal}
           </button>
           <button
             onClick={() => setFilter('paid')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'paid' ? 'bg-mint text-navy' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            className={`px-3 py-1.5 text-xs font-semibold border ${filter === 'paid' ? 'bg-[var(--color-ink)] text-[var(--color-paper)] border-[var(--color-ink)]' : 'bg-[var(--color-paper)] text-[var(--color-neutral-700)] border-[var(--color-neutral-300)] hover:border-[var(--color-ink)]'}`}
           >
             Paid {totalsByStatus.paid}
           </button>
           <button
             onClick={() => setFilter('partial')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            className={`px-3 py-1.5 text-xs font-semibold border ${filter === 'partial' ? 'bg-[var(--color-ink)] text-[var(--color-paper)] border-[var(--color-ink)]' : 'bg-[var(--color-paper)] text-[var(--color-neutral-700)] border-[var(--color-neutral-300)] hover:border-[var(--color-ink)]'}`}
           >
             Partial {totalsByStatus.partial}
           </button>
           <button
             onClick={() => setFilter('unpaid')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'unpaid' ? 'bg-gray-200 text-gray-800' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            className={`px-3 py-1.5 text-xs font-semibold border ${filter === 'unpaid' ? 'bg-[var(--color-ink)] text-[var(--color-paper)] border-[var(--color-ink)]' : 'bg-[var(--color-paper)] text-[var(--color-neutral-700)] border-[var(--color-neutral-300)] hover:border-[var(--color-ink)]'}`}
           >
             Unpaid {totalsByStatus.pending + totalsByStatus.overdue}
           </button>
           {totalsByStatus.needsResend > 0 && (
             <button
               onClick={() => setFilter('needs_resend')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'needs_resend' ? 'bg-amber-200 text-amber-800' : 'bg-white border border-gray-200 text-amber-700 hover:bg-amber-50'}`}
+              className={`px-3 py-1.5 text-xs font-semibold border ${filter === 'needs_resend' ? 'bg-[var(--color-ink)] text-[var(--color-paper)] border-[var(--color-ink)]' : 'bg-[var(--color-paper)] text-[var(--color-ochre-text)] border-[var(--color-neutral-300)] hover:border-[var(--color-ink)]'}`}
             >
               Needs resend {totalsByStatus.needsResend}
             </button>
@@ -478,7 +747,7 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
           {totalsByStatus.needsRegeneration > 0 && (
             <button
               onClick={() => setFilter('out_of_date')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'out_of_date' ? 'bg-amber-200 text-amber-800' : 'bg-white border border-gray-200 text-amber-700 hover:bg-amber-50'}`}
+              className={`px-3 py-1.5 text-xs font-semibold border ${filter === 'out_of_date' ? 'bg-[var(--color-ink)] text-[var(--color-paper)] border-[var(--color-ink)]' : 'bg-[var(--color-paper)] text-[var(--color-ochre-text)] border-[var(--color-neutral-300)] hover:border-[var(--color-ink)]'}`}
             >
               Out of date {totalsByStatus.needsRegeneration}
             </button>
@@ -486,7 +755,7 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
           {studentsWithoutInvoicesTotal > 0 && (
             <button
               onClick={() => setFilter('no_invoice')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md ${filter === 'no_invoice' ? 'bg-red-100 text-red-800' : 'bg-white border border-gray-200 text-red-700 hover:bg-red-50'}`}
+              className={`px-3 py-1.5 text-xs font-semibold border ${filter === 'no_invoice' ? 'bg-[var(--color-ink)] text-[var(--color-paper)] border-[var(--color-ink)]' : 'bg-[var(--color-paper)] text-[var(--color-signal-text)] border-[var(--color-neutral-300)] hover:border-[var(--color-ink)]'}`}
             >
               No invoice {studentsWithoutInvoicesTotal}
             </button>
@@ -496,36 +765,40 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search by name or admission #"
-            className="ml-auto px-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-mint/40 w-64"
+            className="m-input ml-auto w-full sm:w-64"
           />
         </div>
       )}
 
       {/* Empty state */}
       {!hasInvoices && studentsWithoutInvoicesTotal === 0 && (
-        <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
-          <p className="text-gray-500 mb-2">No active students yet.</p>
-          <Link href="/students" className="text-mint hover:underline text-sm">
-            Add students →
-          </Link>
+        <div className="py-12 border-t-2 border-[var(--color-ink)]" style={{ maxWidth: '60ch' }}>
+          <p className="text-[17px] font-bold text-[var(--color-ink)] mb-2">No students in this term yet</p>
+          <p className="text-[14px] leading-[1.55] text-[var(--color-neutral-800)] mb-4">
+            There is no one to invoice until the roster has active students. Add them first, then generate
+            invoices for the term.
+          </p>
+          <Link href="/students" className="m-btn m-btn-primary">Add students</Link>
         </div>
       )}
 
       {!hasInvoices && studentsWithoutInvoicesTotal > 0 && (
-        <div className="bg-white p-12 rounded-xl border border-gray-200 text-center">
-          <p className="text-gray-500 mb-2">No invoices generated for this term yet.</p>
-          <p className="text-sm text-gray-400 mb-4">
-            {studentsWithoutInvoicesTotal} active {studentsWithoutInvoicesTotal === 1 ? 'student' : 'students'} ready to be invoiced
+        <div className="py-12 border-t-2 border-[var(--color-ink)]" style={{ maxWidth: '60ch' }}>
+          <p className="text-[17px] font-bold text-[var(--color-ink)] mb-2">No invoices for this term</p>
+          <p className="text-[14px] leading-[1.55] text-[var(--color-neutral-800)] mb-4">
+            {cycle.invoicesGeneratedAt
+              ? `Generation ran on ${formatDate(cycle.invoicesGeneratedAt)} but produced no invoices — check exemptions and opt-outs. ${studentsWithoutInvoicesTotal} active ${studentsWithoutInvoicesTotal === 1 ? 'student is' : 'students are'} still ready to be invoiced.`
+              : `Generation has not run yet. ${studentsWithoutInvoicesTotal} active ${studentsWithoutInvoicesTotal === 1 ? 'student is' : 'students are'} ready to be invoiced.`}
           </p>
           {!isClosed && canManageInvoices && (
             <button
               onClick={() => setGeneratePanelOpen(true)}
               disabled={generatePanelOpen && !!runningGeneration}
-              title={runningGeneration && !generatePanelOpen ? 'Generation is already running — click to view its progress' : undefined}
-              className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
+              title={runningGeneration && !generatePanelOpen ? 'Generation is already running, click to view its progress' : undefined}
+              className="m-btn m-btn-primary"
             >
               {runningGeneration
-                ? `Generating… (${runningGeneration.processed}/${runningGeneration.total || '?'})`
+                ? `Generating... (${runningGeneration.processed}/${runningGeneration.total || '?'})`
                 : 'Generate invoices'}
             </button>
           )}
@@ -534,181 +807,193 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
 
       {/* Invoices table */}
       {(invoices.length > 0 || studentsWithoutInvoices.length > 0) && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full">
+        <div className="border border-[var(--color-neutral-300)]">
+          <div className="overflow-x-auto">
+          <table className="m-table min-w-[880px]">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Invoice #</th>
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Student</th>
-                <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Class</th>
-                <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Total</th>
-                <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Paid</th>
-                <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Outstanding</th>
-                <th className="text-center text-xs text-gray-500 font-medium uppercase tracking-wider py-2.5 px-4">Status</th>
+              <tr>
+                <th className="text-left">Invoice #</th>
+                <th className="text-left">Student</th>
+                <th className="text-left">Class</th>
+                <th className="text-right">Total</th>
+                <th className="text-right">Paid</th>
+                <th className="text-right">Outstanding</th>
+                <th className="text-center">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
-              {invoices.map(inv => {
-                const b = statusBadge(inv)
-                return (
-                  <tr 
-                    key={inv.id}
-                    onClick={() => router.push(`/invoices/${inv.id}`)}
-                    className="cursor-pointer hover:bg-gray-50"
-                  >
-                    <td className="py-3 px-4 text-sm text-gray-500">
-                      {inv.invoiceNumber || '—'}
-                    </td>
-                    <td className="py-3 px-4 text-sm text-navy font-medium">
-                      {inv.studentFirstName} {inv.studentLastName}
-                      <p className="text-xs text-gray-500 mt-0.5">#{inv.studentAdmissionNumber}</p>
-                    </td>
-                    <td className="py-3 px-4 text-sm text-gray-700">{inv.className}</td>
-                    <td className="py-3 px-4 text-sm text-right text-navy">
-                      {formatNaira(inv.totalAmount)}
-                      {inv.previousBalance > 0 && (
-                        <p className="text-xs text-amber-600 mt-0.5">
-                          incl. {formatNaira(inv.previousBalance)} prev. balance
-                        </p>
-                      )}
-                      {inv.creditApplied > 0 && (
-                        <p className="text-xs text-mint mt-0.5">
-                          − {formatNaira(inv.creditApplied)} credit
-                        </p>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-sm text-right">
-                      <span className={inv.paidAmount > 0 ? 'text-mint font-medium' : 'text-gray-400'}>
-                        {formatNaira(inv.paidAmount)}
+            <tbody>
+              {invoices.map(inv => (
+                <tr
+                  key={inv.id}
+                  onClick={() => router.push(`/money/invoices/${inv.id}`)}
+                  className="cursor-pointer"
+                >
+                  <td className="text-sm text-[var(--color-neutral-500)]">
+                    {inv.invoiceNumber || '-'}
+                  </td>
+                  <td className="text-sm text-[var(--color-ink)] font-medium">
+                    {inv.studentFirstName} {inv.studentLastName}
+                    <p className="text-xs text-[var(--color-neutral-700)] mt-0.5">#{inv.studentAdmissionNumber}</p>
+                  </td>
+                  <td className="text-sm text-[var(--color-neutral-700)]">{inv.className}</td>
+                  <td className="text-sm text-right text-[var(--color-ink)] m-num">
+                    {formatNaira(inv.totalAmount)}
+                    {inv.previousBalance > 0 && (
+                      <p className="text-xs text-[var(--color-ochre-text)] mt-0.5">
+                        incl. {formatNaira(inv.previousBalance)} prev. balance
+                      </p>
+                    )}
+                    {inv.creditApplied > 0 && (
+                      <p className="text-xs text-[var(--color-ledger)] mt-0.5">
+                        &minus; {formatNaira(inv.creditApplied)} credit
+                      </p>
+                    )}
+                  </td>
+                  <td className="text-sm text-right m-num">
+                    <span className={inv.paidAmount > 0 ? 'text-[var(--color-ledger)] font-medium' : 'text-[var(--color-neutral-500)]'}>
+                      {formatNaira(inv.paidAmount)}
+                    </span>
+                  </td>
+                  <td className="text-sm text-right m-num">
+                    <span className={inv.outstandingAmount > 0 ? 'text-[var(--color-ochre-text)] font-medium' : 'text-[var(--color-neutral-500)]'}>
+                      {formatNaira(inv.outstandingAmount)}
+                    </span>
+                  </td>
+                  <td className="text-center">
+                    <div className="flex items-center justify-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold uppercase" style={{ letterSpacing: '0.08em', color: invoiceState(inv).color }}>
+                        {invoiceState(inv).label}
                       </span>
-                    </td>
-                    <td className="py-3 px-4 text-sm text-right">
-                      <span className={inv.outstandingAmount > 0 ? 'text-amber-600 font-medium' : 'text-gray-400'}>
-                        {formatNaira(inv.outstandingAmount)}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-2 flex-wrap">
-                        <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${b.cls}`}>
-                          {b.label}
-                        </span>
-                        {inv.needsResend && canManageInvoices && (
-                          notifiedIds.has(inv.id) ? (
-                            <span className="text-xs text-mint font-medium">Notified</span>
-                          ) : inv.carriedForwardToCycleName ? (
-                            <span className="text-xs text-gray-400" title={`This balance carried forward to ${inv.carriedForwardToCycleName}`}>
-                              Carried forward to {inv.carriedForwardToCycleName}
-                            </span>
-                          ) : (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleNotifyUpdate(inv.id)
-                              }}
-                              disabled={notifyingId === inv.id}
-                              className="text-xs text-mint font-medium hover:underline disabled:opacity-50"
-                            >
-                              {notifyingId === inv.id ? 'Sending...' : 'Notify parent of update'}
-                            </button>
-                          )
-                        )}
-                        {inv.needsRegeneration && (
-                          <>
-                            <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
-                              out of date
-                            </span>
-                            {canManageInvoices && (
-                              inv.regenerationBlocked ? (
-                                <span
-                                  className="text-xs text-gray-400"
-                                  title="This change would drop the total below what's already been paid — that needs a manual refund/credit reconciliation, not a regenerate."
-                                >
-                                  Locked
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleRegenerateOne(inv.id)
-                                  }}
-                                  disabled={regeneratingId === inv.id}
-                                  className="text-xs text-mint font-medium hover:underline disabled:opacity-50"
-                                >
-                                  {regeneratingId === inv.id ? 'Regenerating...' : 'Regenerate'}
-                                </button>
-                              )
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-              {studentsWithoutInvoices.map(s => (
+                      {inv.needsResend && canManageInvoices && (
+                        notifiedIds.has(inv.id) ? (
+                          <span className="text-xs text-[var(--color-ink)] font-medium">Notified</span>
+                        ) : inv.carriedForwardToCycleName ? (
+                          <span className="text-xs text-[var(--color-neutral-500)]" title={`This balance carried forward to ${inv.carriedForwardToCycleName}`}>
+                            Carried forward to {inv.carriedForwardToCycleName}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleNotifyUpdate(inv.id)
+                            }}
+                            disabled={notifyingId === inv.id}
+                            className="text-xs text-[var(--color-ink)] font-medium hover:underline disabled:opacity-50"
+                          >
+                            {notifyingId === inv.id ? 'Sending...' : 'Notify parent of update'}
+                          </button>
+                        )
+                      )}
+                      {inv.needsRegeneration && (
+                        <>
+                          <span className="text-xs font-semibold uppercase" style={{ letterSpacing: '0.08em', color: 'var(--color-ochre-text)' }}>
+                            OUT OF DATE
+                          </span>
+                          {canManageInvoices && (
+                            inv.regenerationBlocked ? (
+                              <span
+                                className="text-xs text-[var(--color-neutral-500)]"
+                                title="This change would drop the total below what's already been paid, that needs a manual refund/credit reconciliation, not a regenerate."
+                              >
+                                Locked
+                              </span>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleRegenerateOne(inv.id)
+                                }}
+                                disabled={regeneratingId === inv.id}
+                                className="text-xs text-[var(--color-ink)] font-medium hover:underline disabled:opacity-50"
+                              >
+                                {regeneratingId === inv.id ? 'Regenerating...' : 'Regenerate'}
+                              </button>
+                            )
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {showNoInvoiceRows && studentsWithoutInvoices.map(s => (
                 <tr
                   key={s.id}
                   onClick={() => router.push(`/students/${s.id}?tab=fees`)}
-                  className="cursor-pointer hover:bg-gray-50 bg-red-50/30"
+                  className="cursor-pointer bg-[color-mix(in_srgb,var(--color-signal)_5%,transparent)]"
                 >
-                  <td className="py-3 px-4 text-sm text-gray-400">—</td>
-                  <td className="py-3 px-4 text-sm text-navy font-medium">
+                  <td className="text-sm text-[var(--color-neutral-500)]">-</td>
+                  <td className="text-sm text-[var(--color-ink)] font-medium">
                     {s.firstName} {s.lastName}
-                    <p className="text-xs text-gray-500 mt-0.5">#{s.admissionNumber}</p>
+                    <p className="text-xs text-[var(--color-neutral-700)] mt-0.5">#{s.admissionNumber}</p>
                   </td>
-                  <td className="py-3 px-4 text-sm text-gray-700">
-                    {s.className || <span className="text-red-600">No class</span>}
+                  <td className="text-sm text-[var(--color-neutral-700)]">
+                    {s.className || <span className="text-[var(--color-signal-text)]">No class</span>}
                   </td>
-                  <td colSpan={3} className="py-3 px-4 text-sm text-gray-400 italic text-center">
+                  <td colSpan={3} className="text-sm text-[var(--color-neutral-500)] italic text-center">
                     No invoice yet
                   </td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-red-100 text-red-700">
-                      no invoice
+                  <td className="text-center">
+                    <span className="text-xs font-semibold uppercase" style={{ letterSpacing: '0.08em', color: 'var(--color-signal-text)' }}>
+                      NO INVOICE
                     </span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
 
-          {invoicesTotal > 0 && (
-            <div className="px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center gap-3 justify-between text-sm">
+          {(invoicesTotal > 0 || noInvoiceShown > 0) && (
+            <div className="px-4 py-3 border-t-2 border-[var(--color-ink)] flex flex-col sm:flex-row items-center gap-3 justify-between text-sm">
               <div className="flex items-center gap-4">
-                <p className="text-gray-500">
-                  Showing {rangeStart}-{rangeEnd} of {invoicesTotal} invoices
+                <p className="text-[var(--color-neutral-700)] m-num">
+                  {invoicesTotal > 0
+                    ? <>Showing {rangeStart}-{rangeEnd} of {invoicesTotal} {invoicesTotal === 1 ? 'invoice' : 'invoices'}{noInvoiceShown > 0 && <> &middot; {noInvoiceShown} without an invoice</>}</>
+                    : <>{noInvoiceShown} {noInvoiceShown === 1 ? 'student' : 'students'} without an invoice</>}
                 </p>
-                <label className="flex items-center gap-1.5 text-gray-500">
-                  <span className="hidden sm:inline">Per page</span>
-                  <select
-                    value={perPage}
-                    onChange={(e) => navigate({ perPage: e.target.value, page: '1' })}
-                    className="px-2 py-1 border border-gray-200 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20"
-                  >
-                    {CYCLE_INVOICES_PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                </label>
+                {invoicesTotal > 0 && (
+                  <label className="flex items-center gap-2 text-[var(--color-neutral-700)]">
+                    <span className="hidden sm:inline">Show</span>
+                    <span className="flex items-center gap-2.5">
+                      {CYCLE_INVOICES_PAGE_SIZE_OPTIONS.map(n => (
+                        <button
+                          key={n}
+                          onClick={() => navigate({ perPage: String(n), page: '1' })}
+                          className="m-num"
+                          style={{
+                            background: 'none', border: 0, padding: 0, cursor: 'pointer',
+                            fontWeight: perPage === n ? 700 : 400,
+                            color: perPage === n ? 'var(--color-ink)' : 'var(--color-neutral-700)',
+                          }}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </span>
+                  </label>
+                )}
               </div>
-              {totalPages > 1 && (
+              {invoicesTotal > 0 && totalPages > 1 && (
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => navigate({ page: String(page - 1) })}
                     disabled={page <= 1}
-                    className="px-3 py-1 text-sm text-gray-700 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-3 py-1 text-sm text-[var(--color-ink)] hover:bg-[var(--color-surface)] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    ← Previous
+                    Previous
                   </button>
                   {getPageNumbers(page, totalPages).map((p, index) => (
                     p === '...' ? (
-                      <span key={`ellipsis-${index}`} className="px-2 text-gray-400">...</span>
+                      <span key={`ellipsis-${index}`} className="px-2 text-[var(--color-neutral-500)]">...</span>
                     ) : (
                       <button
                         key={p}
                         onClick={() => navigate({ page: String(p) })}
-                        className={`min-w-[32px] px-2 py-1 text-sm rounded ${
+                        className={`min-w-[32px] px-2 py-1 text-sm m-num ${
                           page === p
-                            ? 'bg-navy text-white font-medium'
-                            : 'text-gray-700 hover:bg-gray-50'
+                            ? 'bg-[var(--color-ink)] text-[var(--color-paper)] font-medium'
+                            : 'text-[var(--color-ink)] hover:bg-[var(--color-surface)]'
                         }`}
                       >
                         {p}
@@ -718,9 +1003,9 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
                   <button
                     onClick={() => navigate({ page: String(page + 1) })}
                     disabled={page >= totalPages}
-                    className="px-3 py-1 text-sm text-gray-700 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-3 py-1 text-sm text-[var(--color-ink)] hover:bg-[var(--color-surface)] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Next →
+                    Next
                   </button>
                 </div>
               )}
@@ -739,6 +1024,86 @@ export default function CycleDetailLayout({ data, showFinancials = true, schoolI
           }}
         />
       )}
+
+      {/* Edit term details: the same panel the Cycles list uses to create/edit a
+          term, rendered here so the edit happens in place on the term's own
+          page. CreateTermPanel owns its own fixed overlay/backdrop/slide-over
+          shell, so it's rendered directly without an extra wrapper. */}
+      {editPanelOpen && cycleRow && (
+        <CreateTermPanel
+          mode="edit"
+          cycles={cycles}
+          sessions={sessions}
+          editingCycle={cycleRow}
+          onClose={() => setEditPanelOpen(false)}
+          onSuccess={() => {
+            setEditPanelOpen(false)
+            router.refresh()
+          }}
+        />
+      )}
+
+      {confirmDialog && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          destructive={confirmDialog.destructive}
+          confirmLabel={confirmDialog.confirmLabel || 'Confirm'}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
+
+      {destructiveAction && destructiveAction.type === 'undo-activation' && (
+        <DestructiveConfirmModal
+          eyebrow="This cannot be undone"
+          title={`Undo activation of "${destructiveAction.cycle.name}"?`}
+          description="Puts the term back to draft. Only use this for a term activated by mistake — it does not reopen the term that was closed when this one activated."
+          rows={[
+            { label: 'Invoices sent to parents', value: destructiveAction.cycle.invoicesSent },
+            { label: 'Collected so far', value: formatNaira(destructiveAction.cycle.totalCollected), emphasize: true },
+          ]}
+          note="Blocked once any invoice on this term has been sent or paid, or it inherited a balance from the term it replaced."
+          error={destructiveError}
+          actions={[
+            { label: 'Cancel', onClick: () => setDestructiveAction(null), variant: 'outline', disabled: destructiveBusy },
+            { label: destructiveBusy ? 'Working...' : 'Undo activation', onClick: handleDestructiveConfirm, variant: 'danger', disabled: destructiveBusy },
+          ]}
+        />
+      )}
+
+      {destructiveAction && destructiveAction.type === 'delete-draft' && (
+        <DestructiveConfirmModal
+          eyebrow="This cannot be undone"
+          title={`Delete draft "${destructiveAction.cycle.name}"?`}
+          description="Permanently deletes this term, its fee items, and any draft invoices generated for it."
+          rows={[
+            { label: 'Fee items configured', value: destructiveAction.cycle.feeItemCount },
+            { label: 'Draft invoices generated', value: destructiveAction.cycle.invoiceCount, emphasize: true },
+          ]}
+          note="Blocked if any invoice on this term has already been sent to a parent."
+          error={destructiveError}
+          actions={[
+            { label: 'Cancel', onClick: () => setDestructiveAction(null), variant: 'outline', disabled: destructiveBusy },
+            { label: destructiveBusy ? 'Deleting...' : 'Delete term', onClick: handleDestructiveConfirm, variant: 'danger', disabled: destructiveBusy },
+          ]}
+        />
+      )}
+
+      {carryForwardSummary && (
+        <CarryForwardSummaryModal
+          mode={carryForwardSummary.mode}
+          closedTermName={carryForwardSummary.closedTermName}
+          invoicesUpdated={carryForwardSummary.invoicesUpdated}
+          invoicesNeedingResend={carryForwardSummary.invoicesNeedingResend}
+          studentsWithCarryForward={carryForwardSummary.studentsWithCarryForward}
+          totalCarryForward={carryForwardSummary.totalCarryForward}
+          showFinancials={showFinancials}
+          onClose={() => setCarryForwardSummary(null)}
+        />
+      )}
+
+      {toast && <Toast message={toast.message} ok={toast.ok} onDismiss={() => setToast(null)} />}
     </>
   )
 }

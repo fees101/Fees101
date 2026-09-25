@@ -5,7 +5,7 @@
 //
 // One-off manual discounts (is_recurring = false) are NOT handled here —
 // they're requested/approved directly against an already-generated invoice
-// (see src/app/(app)/invoices/[id]/discountActions.ts) since `discounts.invoice_id`
+// (see src/app/(app)/money/invoices/[id]/discountActions.ts) since `discounts.invoice_id`
 // is required not-null, so a discount can't exist before its target invoice does.
 
 import type { DiscountSettings, SiblingTier } from '@/lib/queries/discounts'
@@ -148,12 +148,22 @@ export async function computeDiscountsForInvoice(
   supabase: any,
   schoolId: string,
   student: { id: string; family_id: string | null },
+  // Full this-term subtotal (every line item, discountable or not) and the
+  // discountable-only subset of it. Every category computes against
+  // discountableSubtotal except staff_child when settings.staffDiscountScope
+  // is 'full_invoice' — that one branch is the only thing subtotal is for.
   subtotal: number,
+  discountableSubtotal: number,
   settings: DiscountSettings,
   existingInvoiceId?: string,
   preload?: DiscountsPreload
 ): Promise<DiscountComputation> {
   const applied: AppliedDiscount[] = []
+
+  // Only staff_child ever branches on scope; sibling and every other
+  // category stay hardcoded to discountableSubtotal, unchanged.
+  const baseFor = (category: string): number =>
+    category === 'staff_child' && settings.staffDiscountScope === 'full_invoice' ? subtotal : discountableSubtotal
 
   // When a preload is present it is authoritative: a family/student/invoice
   // with no entry in the map means "no rows", NOT "not loaded" — so coalesce
@@ -166,7 +176,7 @@ export async function computeDiscountsForInvoice(
   const siblingTier = await computeSiblingDiscount(supabase, schoolId, student, settings.siblingTiers, preloadedSiblings)
   if (siblingTier) {
     const computedAmount = siblingTier.isPercentage
-      ? Math.round((subtotal * siblingTier.value) / 100)
+      ? Math.round((discountableSubtotal * siblingTier.value) / 100)
       : siblingTier.value
     applied.push({
       category: 'sibling_discount',
@@ -181,7 +191,7 @@ export async function computeDiscountsForInvoice(
   const preloadedRecurring = preload ? (preload.recurringByStudent.get(student.id) ?? []) : undefined
   const recurring = await getRecurringDiscounts(supabase, schoolId, student.id, preloadedRecurring)
   for (const row of recurring) {
-    const computedAmount = row.is_percentage ? Math.round((subtotal * Number(row.amount)) / 100) : Number(row.amount)
+    const computedAmount = row.is_percentage ? Math.round((baseFor(row.category) * Number(row.amount)) / 100) : Number(row.amount)
     if (computedAmount <= 0) continue
     applied.push({
       category: row.category,
@@ -216,7 +226,7 @@ export async function computeDiscountsForInvoice(
     }
 
     for (const row of manualRows || []) {
-      const computedAmount = row.is_percentage ? Math.round((subtotal * Number(row.amount)) / 100) : Number(row.amount)
+      const computedAmount = row.is_percentage ? Math.round((baseFor(row.category) * Number(row.amount)) / 100) : Number(row.amount)
       if (computedAmount <= 0) continue
       applied.push({
         category: row.category,

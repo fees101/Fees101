@@ -3,9 +3,75 @@ import type { EmailContent } from './sendMessage'
 // Staff-facing internal emails: onboarding (invite) and account-security
 // notices. Kept in their own file so wording/branding stays independent of
 // the parent-facing invoice/receipt templates in composeInvoice.ts.
+//
+// composeInviteEmail() is the actual staff-invite email a real invitee
+// receives — team/users/actions.ts addStaff()/resendInvite() call
+// generateLink() to get an action link, then send it through this template
+// via sendEmail(), rather than relying on Supabase's dashboard-configured
+// "Invite user" template.
 
-const SIGNATURE = 'Powered by Fees101'
-const SIGNATURE_HTML = 'Powered by Fees<span style="color:#5AD8A6; font-weight:bold;">101</span>'
+const INK = '#201e1d'
+const SECONDARY = '#605d5d'
+const BODY_TEXT = '#3a3736'
+const SURFACE = '#eae9e9'
+const PAPER = '#f3f2f2'
+const RULE = '#d7d3d3'
+const RED = '#ec3013'
+const EMAIL_FONT = 'font-family: Helvetica, Arial, sans-serif;'
+
+function wordmark(): string {
+  return (
+    `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;"><tr>` +
+    `<td style="font-size:14px; font-weight:800; letter-spacing:0.14em; color:${INK}; ${EMAIL_FONT}">FEES101</td>` +
+    `<td style="padding-left:9px;"><div style="width:24px; height:2px; line-height:2px; font-size:0; background-color:${RED};">&nbsp;</div></td>` +
+    `</tr></table>`
+  )
+}
+
+function primaryButton(url: string, label: string): string {
+  return (
+    `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0 0;"><tr><td>` +
+    `<a href="${url}" style="display:inline-block; background-color:${INK}; color:${PAPER}; border:2px solid ${INK}; padding:13px 22px; font-size:15px; font-weight:600; text-decoration:none; ${EMAIL_FONT}">${label}</a>` +
+    `</td></tr></table>`
+  )
+}
+
+// Shared shell for every email in this file — a plain ink-bordered card led
+// by the FEES101 wordmark, matching Messages.dc.html's "Staff invite" spec
+// (no logo+school-name header like the parent-facing invoice emails; Fees101
+// itself is the sender here, not the school).
+function staffEmailShell(bodyHtml: string, footerText: string): string {
+  return (
+    `<!DOCTYPE html>` +
+    `<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/></head>` +
+    `<body style="margin:0; padding:0; background-color:${SURFACE}; ${EMAIL_FONT}">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:${SURFACE};"><tr><td align="center" style="padding:32px 16px;">` +
+    `<table role="presentation" width="680" cellpadding="0" cellspacing="0" style="max-width:680px; width:100%; background-color:#ffffff; border:2px solid ${INK};">` +
+
+    `<tr><td style="padding:32px 32px 30px;">` +
+    wordmark() +
+    bodyHtml +
+    `</td></tr>` +
+
+    `<tr><td style="padding:16px 32px; background-color:${INK};">` +
+    `<p style="margin:0; color:${RULE}; font-size:12px; line-height:1.6; ${EMAIL_FONT}">${footerText}</p>` +
+    `</td></tr>` +
+
+    `</table>` +
+    `</td></tr></table>` +
+    `</body></html>`
+  )
+}
+
+function paragraph(html: string): string {
+  return `<p style="margin:0 0 16px; color:${BODY_TEXT}; font-size:15px; line-height:1.6; ${EMAIL_FONT}">${html}</p>`
+}
+
+function reassurance(text: string): string {
+  return `<p style="margin:18px 0 0; color:${SECONDARY}; font-size:13px; line-height:1.6; ${EMAIL_FONT}">${text}</p>`
+}
+
+const NOT_EXPECTING_FOOTER = 'Sent by <strong style="color:#ffffff;">Fees101</strong>. Not expecting this? Contact your school office.'
 
 interface InviteEmailParams {
   schoolName: string
@@ -14,115 +80,88 @@ interface InviteEmailParams {
   actionUrl: string   // the Supabase-generated set-password / recovery link
 }
 
-function inviteWrapper(schoolName: string, bodyHtml: string): string {
-  return (
-    `<!DOCTYPE html>` +
-    `<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/></head>` +
-    `<body style="margin:0; padding:0; background-color:#f3f4f6; font-family: Helvetica, Arial, sans-serif;">` +
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6; padding:32px 16px;">` +
-    `<tr><td align="center">` +
-    `<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.08);">` +
-
-    // Header band
-    `<tr><td style="background-color:#0D1B36; padding:24px 32px;">` +
-    `<p style="margin:0; color:#ffffff; font-size:18px; font-weight:bold;">${schoolName}</p>` +
-    `<p style="margin:4px 0 0; color:#9CA8C0; font-size:12px;">Team invitation</p>` +
-    `</td></tr>` +
-
-    // Body
-    `<tr><td style="padding:32px; color:#0D1B36; font-size:14px; line-height:1.7;">` +
-    `${bodyHtml}` +
-    `</td></tr>` +
-
-    // Footer
-    `<tr><td style="padding:20px 32px; background-color:#f9fafb; border-top:1px solid #e5e7eb;">` +
-    `<p style="margin:0; color:#6b7280; font-size:12px; line-height:1.6;">` +
-    `You're receiving this because someone at <strong>${schoolName}</strong> added you to their Fees101 account.<br/>` +
-    `If you weren't expecting this, you can safely ignore this email — the link won't do anything until you use it.` +
-    `</p>` +
-    `<p style="margin:16px 0 0; color:#9CA8C0; font-size:11px;">${SIGNATURE}</p>` +
-    `</td></tr>` +
-
-    `</table>` +
-    `</td></tr>` +
-    `</table>` +
-    `</body></html>`
-  )
-}
-
-function ctaButton(url: string, label: string): string {
-  return (
-    `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">` +
-    `<tr><td style="border-radius:6px; background-color:#0D1B36;">` +
-    `<a href="${url}" style="display:inline-block; padding:12px 28px; color:#ffffff; font-size:14px; font-weight:bold; text-decoration:none; border-radius:6px;">${label}</a>` +
-    `</td></tr></table>`
-  )
-}
-
 export function composeInviteEmail(p: InviteEmailParams): EmailContent {
-  const subject = `You've been added to ${p.schoolName} on Fees101`
-  const invitedBy = p.inviterName ? ` by ${p.inviterName}` : ''
+  const subject = p.inviterName ? `${p.inviterName} has added you to Fees101` : `You've been added to ${p.schoolName} on Fees101`
+  const invitedBy = p.inviterName ? ` — ${p.inviterName}` : ''
 
   const text =
     `Hello,\n\n` +
-    `You've been added${invitedBy} to ${p.schoolName}'s account on Fees101 as ${p.roleName}.\n\n` +
+    `You've been added${p.inviterName ? ` by ${p.inviterName}` : ''} to ${p.schoolName}'s account on Fees101 as ${p.roleName}.\n\n` +
     `To activate your login, set your password using the link below:\n` +
     `${p.actionUrl}\n\n` +
-    `Once your password is set you can sign in and start helping manage fees, students and invoices.\n\n` +
-    `If you weren't expecting this, you can safely ignore this email.\n\n` +
-    `${SIGNATURE}`
+    `The link expires in 7 days. If you weren't expecting this, ignore it — nothing happens until you set a password.`
 
-  const html = inviteWrapper(
-    p.schoolName,
-    `<p style="margin:0 0 12px;">Hello,</p>` +
-    `<p style="margin:0 0 12px;">You've been added${invitedBy ? `<strong>${invitedBy}</strong>` : ''} to <strong>${p.schoolName}</strong>'s account on Fees101 as <strong>${p.roleName}</strong>.</p>` +
-    `<p style="margin:0 0 12px;">To activate your login, set your password:</p>` +
-    ctaButton(p.actionUrl, 'Set your password') +
-    `<p style="margin:12px 0 0; color:#6b7280; font-size:12px;">Or paste this link into your browser:<br/>` +
-    `<a href="${p.actionUrl}" style="color:#1D4ED8; word-break:break-all;">${p.actionUrl}</a></p>`,
+  const html = staffEmailShell(
+    paragraph(
+      `${invitedBy} has given you a <strong>${p.roleName}</strong> account for ${p.schoolName} on Fees101, where the school tracks fees.`,
+    ) +
+    primaryButton(p.actionUrl, 'Set your password') +
+    reassurance("The link expires in 7 days. If you weren't expecting this, ignore it — nothing happens until you set a password."),
+    NOT_EXPECTING_FOOTER,
   )
 
   return { subject, html, text }
 }
 
-// Account-security notice: sent when an admin changes a staff member's login
-// email (settings/users/actions.ts, updateStaffEmail()). Supabase's own
-// "Email address changed" notification (Authentication > Emails) was
-// confirmed NOT to fire for this admin-initiated updateUserById() path
-// (only self-service changes trigger it) — this fills that gap with our own
-// send, to both the old and new address.
-function securityWrapper(bodyHtml: string): string {
-  return (
-    `<!DOCTYPE html>` +
-    `<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/></head>` +
-    `<body style="margin:0; padding:0; background-color:#f3f4f6; font-family: Helvetica, Arial, sans-serif;">` +
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6; padding:32px 16px;">` +
-    `<tr><td align="center">` +
-    `<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.08);">` +
+export interface LockoutNoticeParams {
+  schoolName: string
+  lockedAccountName: string
+  lockedAccountEmail: string
+  lockedAt: string   // ISO timestamp
+}
 
-    `<tr><td style="background-color:#0D1B36; padding:24px 32px;">` +
-    `<p style="margin:0; color:#ffffff; font-size:18px; font-weight:bold;">Fees101</p>` +
-    `<p style="margin:4px 0 0; color:#9CA8C0; font-size:12px;">Security notice</p>` +
-    `</td></tr>` +
-
-    `<tr><td style="height:4px; line-height:4px; font-size:0; background-color:#5AD8A6;">&nbsp;</td></tr>` +
-
-    `<tr><td style="padding:32px; color:#0D1B36; font-size:14px; line-height:1.7;">` +
-    `${bodyHtml}` +
-    `</td></tr>` +
-
-    `<tr><td style="padding:20px 32px; background-color:#f9fafb; border-top:1px solid #e5e7eb;">` +
-    `<p style="margin:0; color:#6b7280; font-size:12px; line-height:1.6;">` +
-    `This is an automatic security notification sent whenever the login email on a Fees101 account changes.` +
-    `</p>` +
-    `<p style="margin:16px 0 0; color:#9CA8C0; font-size:11px;">${SIGNATURE_HTML}</p>` +
-    `</td></tr>` +
-
-    `</table>` +
-    `</td></tr>` +
-    `</table>` +
-    `</body></html>`
+// Sent to the school owner the moment an account on their school hits the
+// 5-failed-attempt lockout (loginRateLimit.ts). Not sent to the locked-out
+// account itself — if that account IS the owner's own, this lands in the
+// same inbox anyway.
+export function composeLockoutEmail(p: LockoutNoticeParams): EmailContent {
+  const subject = `${p.lockedAccountName}'s Fees101 login was locked after repeated failed attempts`
+  const when = new Date(p.lockedAt).toLocaleString('en-GB', {
+    day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+  const text =
+    `Hello,\n\n` +
+    `${p.lockedAccountName} (${p.lockedAccountEmail}) on your Fees101 account, ${p.schoolName}, was locked out ` +
+    `after five failed sign-in attempts in a row, on ${when}.\n\n` +
+    `The account unlocks itself after 15 minutes. If this was really them mistyping their password, no action ` +
+    `is needed. If it wasn't, reset their password from Settings -> Users.`
+  const html = staffEmailShell(
+    paragraph(
+      `<strong>${p.lockedAccountName}</strong> (${p.lockedAccountEmail}) on your Fees101 account, <strong>${p.schoolName}</strong>, was locked out after five failed sign-in attempts in a row, on ${when}.`,
+    ) +
+    paragraph('The account unlocks itself after 15 minutes.') +
+    reassurance(`<span style="color:#8a4805;">If this wasn't just a mistyped password, reset their password from Settings → Users.</span>`),
+    'Automatic security notice from Fees101.',
   )
+  return { subject, html, text }
+}
+
+export interface InviteExpiredNoticeParams {
+  schoolName: string
+  inviteeName: string
+  inviteeEmail: string
+}
+
+// Sent to whoever originally invited a staff member (looked up from the
+// audit log's most recent staff.added/staff.invite_resent entry for that
+// account) when the invitee's link has expired before they could set a
+// password — paired with an admin_notifications row so it also shows in the
+// app's own notifications bell.
+export function composeInviteExpiredEmail(p: InviteExpiredNoticeParams): EmailContent {
+  const subject = `${p.inviteeName}'s invite to ${p.schoolName} expired`
+  const text =
+    `Hello,\n\n` +
+    `${p.inviteeName} (${p.inviteeEmail}) tried to set up their Fees101 login for ${p.schoolName}, but the invite ` +
+    `link had already expired.\n\n` +
+    `Resend it from Settings -> Users -> Resend invite.`
+  const html = staffEmailShell(
+    paragraph(
+      `<strong>${p.inviteeName}</strong> (${p.inviteeEmail}) tried to set up their Fees101 login for <strong>${p.schoolName}</strong>, but the invite link had already expired.`,
+    ) +
+    reassurance('Resend it from Settings → Users → Resend invite.'),
+    'Automatic security notice from Fees101.',
+  )
+  return { subject, html, text }
 }
 
 export interface EmailChangedNoticeParams {
@@ -138,12 +177,14 @@ export function composeEmailChangedToNewAddress(p: EmailChangedNoticeParams): Em
   const text =
     `Hello,\n\n` +
     `${p.actorName} changed your Fees101 login email to this address (previously ${p.oldEmail}).\n\n` +
-    `Sign in going forward using ${p.newEmail}. If this wasn't expected, contact your school's Fees101 administrator immediately.\n\n${SIGNATURE}`
-  const html = securityWrapper(
-    `<p style="margin:0 0 12px;">Hello,</p>` +
-    `<p style="margin:0 0 12px;"><strong>${p.actorName}</strong> changed your Fees101 login email to this address (previously <strong>${p.oldEmail}</strong>).</p>` +
-    `<p style="margin:0 0 12px;"><span style="display:inline-block; background-color:#E8F8F1; color:#0D1B36; padding:4px 12px; border-radius:6px; font-size:13px; font-weight:bold;">Sign in going forward using ${p.newEmail}.</span></p>` +
-    `<p style="margin:20px 0 0; color:#b91c1c; font-size:13px;">If you weren't expecting this, contact your school's Fees101 administrator immediately.</p>`
+    `Sign in going forward using ${p.newEmail}. If this wasn't expected, contact your school's Fees101 administrator immediately.`
+  const html = staffEmailShell(
+    paragraph(
+      `<strong>${p.actorName}</strong> changed your Fees101 login email to this address (previously <strong>${p.oldEmail}</strong>).`,
+    ) +
+    paragraph(`Sign in going forward using <strong>${p.newEmail}</strong>.`) +
+    reassurance(`<span style="color:#8a4805;">If you weren't expecting this, contact your school's Fees101 administrator immediately.</span>`),
+    'Automatic security notice from Fees101.',
   )
   return { subject, html, text }
 }
@@ -156,12 +197,41 @@ export function composeEmailChangedToOldAddress(p: EmailChangedNoticeParams): Em
   const text =
     `Hello,\n\n` +
     `${p.actorName} changed the login email on your Fees101 account from this address to ${p.newEmail}.\n\n` +
-    `If you made this change (or asked an admin to), no action is needed. If you didn't expect this, contact your school's Fees101 administrator immediately.\n\n${SIGNATURE}`
-  const html = securityWrapper(
-    `<p style="margin:0 0 12px;">Hello,</p>` +
-    `<p style="margin:0 0 12px;"><strong>${p.actorName}</strong> changed the login email on your Fees101 account from this address to <strong>${p.newEmail}</strong>.</p>` +
-    `<p style="margin:0 0 12px;"><span style="display:inline-block; background-color:#E8F8F1; color:#0D1B36; padding:4px 12px; border-radius:6px; font-size:13px; font-weight:bold;">If you made this change, no action is needed.</span></p>` +
-    `<p style="margin:20px 0 0; color:#b91c1c; font-size:13px;">If you didn't expect this, contact your school's Fees101 administrator immediately.</p>`
+    `If you made this change (or asked an admin to), no action is needed. If you didn't expect this, contact your school's Fees101 administrator immediately.`
+  const html = staffEmailShell(
+    paragraph(
+      `<strong>${p.actorName}</strong> changed the login email on your Fees101 account from this address to <strong>${p.newEmail}</strong>.`,
+    ) +
+    paragraph('If you made this change, no action is needed.') +
+    reassurance(`<span style="color:#8a4805;">If you didn't expect this, contact your school's Fees101 administrator immediately.</span>`),
+    'Automatic security notice from Fees101.',
+  )
+  return { subject, html, text }
+}
+
+export interface SchoolEmailVerificationParams {
+  schoolName: string
+  actionUrl: string
+}
+
+// Sent to the School profile "Email address" field whenever it's set or
+// changed (school/actions.ts, updateSchoolGeneralInfo()) — this address is
+// Fees101's own contact channel to the school, not a login credential, so
+// there's nothing to protect by verifying it; the point is purely making
+// sure it's a real, reachable inbox rather than a typo, so we're never stuck
+// unable to reach the school if we need to.
+export function composeSchoolEmailVerification(p: SchoolEmailVerificationParams): EmailContent {
+  const subject = `Confirm the contact email for ${p.schoolName} on Fees101`
+  const text =
+    `Hello,\n\n` +
+    `This address was just set as ${p.schoolName}'s contact email on Fees101. Confirm it's correct by opening ` +
+    `the link below:\n${p.actionUrl}\n\n` +
+    `If you didn't expect this, ignore this email — nothing changes until the link is opened.`
+  const html = staffEmailShell(
+    paragraph(`This address was just set as <strong>${p.schoolName}</strong>'s contact email on Fees101.`) +
+    primaryButton(p.actionUrl, 'Confirm this email') +
+    reassurance("If you didn't expect this, ignore it — nothing changes until the link is opened."),
+    NOT_EXPECTING_FOOTER,
   )
   return { subject, html, text }
 }

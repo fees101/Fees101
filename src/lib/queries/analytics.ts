@@ -12,7 +12,7 @@ async function resolveSchoolId(supabase: any): Promise<string | null> {
 const n = (v: any) => Number(v) || 0
 
 // ---------------------------------------------------------------------------
-// Raw per-cycle series. The /payments page is a client-side dashboard: it pulls
+// Raw per-cycle series. The /money/collections page is a client-side dashboard: it pulls
 // these small per-cycle rows once and does ALL scoping/aggregation/comparison
 // in the browser (brush a range, overlay periods, hover for detail) with no
 // round-trips. See src/lib/analytics/aggregate.ts for the aggregation helpers.
@@ -173,8 +173,39 @@ export async function getAnalyticsBundle(): Promise<AnalyticsBundle> {
   return { ready: true, hasData: true, termSeries, feeSeries, discountSeries, classSeries, feeClassSeries }
 }
 
+// Server-side redaction for a caller who holds see-analytics but not
+// see-financial-totals. PaymentsDashboard is a client component and this
+// bundle becomes its props, so masking only in the render layer (the amt()
+// helpers there) still puts real billed/collected/discountTotal/price naira
+// figures into the RSC payload — readable from devtools/network regardless of
+// what's drawn on screen. Zeroing the money fields here, before the bundle
+// ever reaches the client, closes that. Non-money fields (names, counts,
+// dates, status) are left alone, matching the "item shows, only the naira
+// figure redacts" convention used elsewhere.
+//
+// Trade-off: rate/percentage visuals that this dashboard computes client-side
+// from these same fields (collection rate, per-fee/class rate, the billed-vs-
+// collected bar heights, the fee price-fan lines) are derived from the exact
+// numbers zeroed here, so they flatten to 0/blank for this permission
+// combination rather than continuing to show relative shape without exact
+// figures. Preserving those would need the client-side range-brushing/compare
+// aggregation (src/lib/analytics/aggregate.ts) to work off pre-computed
+// ratios instead of raw per-cycle sums — a larger change than this pass.
+export function redactAnalyticsBundle(bundle: AnalyticsBundle): AnalyticsBundle {
+  return {
+    ...bundle,
+    termSeries: bundle.termSeries.map(t => ({
+      ...t, billed: 0, collected: 0, outstanding: 0, discountTotal: 0, grossPotential: 0,
+    })),
+    feeSeries: bundle.feeSeries.map(f => ({ ...f, billed: 0, collected: 0 })),
+    discountSeries: bundle.discountSeries.map(d => ({ ...d, estAmount: 0 })),
+    classSeries: bundle.classSeries.map(c => ({ ...c, billed: 0, collected: 0, outstanding: 0 })),
+    feeClassSeries: bundle.feeClassSeries.map(f => ({ ...f, billed: 0, price: 0 })),
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Drill-down: the underlying students behind a fee/class row on the /payments
+// Drill-down: the underlying students behind a fee/class row on the /money/collections
 // page, scoped to the cycle(s) currently selected there. Queries the
 // already-RLS-scoped invoices/students tables directly rather than a new RPC
 // — there's no cross-cycle aggregation here, just a filtered row list.

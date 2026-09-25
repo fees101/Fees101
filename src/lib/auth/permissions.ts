@@ -35,14 +35,51 @@ async function loadAuthContext(): Promise<AuthContext | null> {
   // asymmetric signing keys this is signature-only. `claims.sub` is the user id.
   const { data: claimsData } = await supabase.auth.getClaims()
   const userId = claimsData?.claims?.sub
+  // No valid JWT → genuinely unauthenticated. This is the ONLY condition that
+  // legitimately sends the caller down its `if (!ctx) redirect('/login')` path.
   if (!userId) return null
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('school_id, role, role_id, is_active, roles(is_admin, permissions)')
-    .eq('id', userId)
-    .single()
+  // Profile enrichment. A TRANSIENT failure here (the corporate proxy makes
+  // outbound Supabase calls slow/flaky) must not be mistaken for "no session":
+  // returning null would send a validly-authenticated user to /login, which the
+  // middleware — whose getClaims() JWT check still passes — bounces straight
+  // back to /today, producing the ERR_TOO_MANY_REDIRECTS loop.
+  //
+  // maybeSingle() (not single()) so zero rows come back as data:null/error:null,
+  // letting us tell a genuinely-missing user row (return null → /login) apart
+  // from a query/network error (retry, then throw). Retry a few times to ride
+  // out the proxy's intermittent stalls.
+  let profile: any = null
+  let lookupError: { message?: string } | null = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('school_id, role, role_id, is_active, roles(is_admin, permissions)')
+      .eq('id', userId)
+      .maybeSingle()
+    if (!error) {
+      profile = data
+      lookupError = null
+      break
+    }
+    lookupError = error
+    // Brief backoff before retrying (150ms, 300ms).
+    await new Promise((r) => setTimeout(r, 150 * (attempt + 1)))
+  }
 
+  // Valid JWT but the profile lookup genuinely errored after retries. Throwing
+  // (rather than returning null) keeps us OUT of the /login redirect loop: the
+  // caller's `if (!ctx) redirect('/login')` never fires, so the user gets an
+  // error/reload state instead of an infinite bounce. Real auth is untouched —
+  // an unauthenticated request already returned null above.
+  if (lookupError) {
+    throw new Error(
+      `getAuthContext: profile lookup failed for ${userId} after retries: ${lookupError.message ?? 'unknown error'}`
+    )
+  }
+
+  // Query succeeded but there is no user row (e.g. deleted account) → treat as
+  // unauthenticated.
   if (!profile) return null
 
   // super_admin (Fees101 staff) with no school: fall back to the first school,

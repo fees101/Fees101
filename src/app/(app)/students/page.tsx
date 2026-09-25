@@ -2,9 +2,13 @@ import { redirect } from 'next/navigation'
 import { getStudents, STUDENTS_PAGE_SIZE_OPTIONS, type StudentSortKey, type StudentSortDir } from '@/lib/queries/students'
 import StudentsTable from '@/components/students/StudentsTable'
 import StudentsHeader from '@/components/students/StudentsHeader'
-import PaymentAccountsBanner from '@/components/students/PaymentAccountsBanner'
 import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
+import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
+import AccessDenied from '@/components/layout/AccessDenied'
 import { getAuthContext, can } from '@/lib/auth/permissions'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = { title: 'Students' }
 
 interface PageProps {
   searchParams: Promise<{
@@ -24,7 +28,14 @@ const SORT_KEYS: StudentSortKey[] = ['class', 'name', 'parent', 'phone', 'total'
 export default async function StudentsPage({ searchParams }: PageProps) {
   const ctx = await getAuthContext()
   if (!ctx) redirect('/login')
-  if (!can(ctx, 'see-students')) redirect('/dashboard')
+  if (!can(ctx, 'see-students')) {
+    return (
+      <>
+        <WorkspaceHeader workspaceKey="students" title="Students" />
+        <AccessDenied ctx={ctx} permissionKey="see-students" />
+      </>
+    )
+  }
 
   const sp = await searchParams
   const validStatus = (sp.status === 'withdrawn' || sp.status === 'graduated' || sp.status === 'all')
@@ -36,13 +47,20 @@ export default async function StudentsPage({ searchParams }: PageProps) {
     : 50
   const search = sp.search || ''
   const classId = sp.class || 'all'
-  const invoiceStatus = (sp.invoiceStatus === 'paid' || sp.invoiceStatus === 'partial' || sp.invoiceStatus === 'pending' || sp.invoiceStatus === 'no_invoice')
+  const invoiceStatus = (
+    sp.invoiceStatus === 'owing' ||
+    sp.invoiceStatus === 'not_billed' ||
+    sp.invoiceStatus === 'paid' ||
+    sp.invoiceStatus === 'partial' ||
+    sp.invoiceStatus === 'pending' ||
+    sp.invoiceStatus === 'no_invoice'
+  )
     ? sp.invoiceStatus
     : 'all'
   const sortKey = SORT_KEYS.includes(sp.sort as StudentSortKey) ? (sp.sort as StudentSortKey) : 'class'
   const sortDir: StudentSortDir = sp.dir === 'desc' ? 'desc' : 'asc'
 
-  const { students, classes, currentTermName, classCount, statusCounts, paymentsConfigured, studentsWithoutDvaCount, total } = await getStudents({
+  const { students, classes, statusCounts, invoiceCounts, total } = await getStudents({
     statusFilter: validStatus,
     search,
     classId,
@@ -54,35 +72,23 @@ export default async function StudentsPage({ searchParams }: PageProps) {
   })
 
   return (
-    <main className="px-6 py-6">
-      <div className="max-w-[1440px] mx-auto">
-
-        {ctx.schoolId && (
-          <RealtimeRefresh
-            subscriptions={[
-              // Roster balances/status move on payment webhooks (payments),
-              // invoice generation (invoices) and DVA provisioning / other
-              // staff edits (students) — all school-scoped, all published.
-              { table: 'students', filter: `school_id=eq.${ctx.schoolId}` },
-              { table: 'invoices', filter: `school_id=eq.${ctx.schoolId}` },
-              { table: 'payments', filter: `school_id=eq.${ctx.schoolId}` },
-            ]}
-          />
-        )}
-
-        <StudentsHeader
-          studentCount={total}
-          classCount={classCount}
-          currentTermName={currentTermName}
-          classes={classes}
-          statusCounts={statusCounts}
-          activeStatusFilter={validStatus}
+    <>
+      {ctx.schoolId && (
+        <RealtimeRefresh
+          subscriptions={[
+            // Roster balances/status move on payment webhooks (payments),
+            // invoice generation (invoices) and DVA provisioning / other
+            // staff edits (students) — all school-scoped, all published.
+            { table: 'students', filter: `school_id=eq.${ctx.schoolId}` },
+            { table: 'invoices', filter: `school_id=eq.${ctx.schoolId}` },
+            { table: 'payments', filter: `school_id=eq.${ctx.schoolId}` },
+          ]}
         />
+      )}
 
-        {paymentsConfigured && can(ctx, 'manage-payment-config') && (
-          <PaymentAccountsBanner studentsWithoutDvaCount={studentsWithoutDvaCount} />
-        )}
+      <StudentsHeader classes={classes} />
 
+      <div className="px-4 sm:px-7 py-7">
         <StudentsTable
           students={students}
           classes={classes}
@@ -92,11 +98,13 @@ export default async function StudentsPage({ searchParams }: PageProps) {
           search={search}
           classId={classId}
           invoiceStatus={invoiceStatus}
+          statusFilter={validStatus}
+          statusCounts={statusCounts}
+          invoiceCounts={invoiceCounts}
           sortKey={sortKey}
           sortDir={sortDir}
         />
-
       </div>
-    </main>
+    </>
   )
 }

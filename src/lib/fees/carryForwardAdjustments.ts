@@ -6,11 +6,17 @@ export async function carryForwardFeeAdjustments(
   supabase: any,
   schoolId: string,
   sourceCycleId: string,
-  targetCycleId: string
+  targetCycleId: string,
+  // True when the target term opens a new academic year. A once_a_session
+  // opt-in follows its fee only across that boundary — within the same session
+  // the fee isn't on the sibling term, so carrying the opt-in would just leave
+  // an unmatchable row. Defaults true so any caller that hasn't opted in keeps
+  // the safe "carry it" behaviour.
+  crossingSession: boolean = true
 ): Promise<{ carried: number; unmatched: { studentId: string; feeItemName: string }[] }> {
   const { data: sourceAdjustments } = await supabase
     .from('student_fee_adjustments')
-    .select('student_id, adjustment_type, carry_forward, fee_items!inner(name, billing_cycle_id, is_recurring)')
+    .select('student_id, adjustment_type, carry_forward, fee_items!inner(name, billing_cycle_id, is_recurring, billing_frequency)')
     .eq('school_id', schoolId)
     .eq('fee_items.billing_cycle_id', sourceCycleId)
 
@@ -63,8 +69,14 @@ export async function carryForwardFeeAdjustments(
     // A one-time opt-in (e.g. a uniform purchase) is only meant to bill once —
     // it should not resurface on the new term just because the student never
     // explicitly opted out. Exemptions (on mandatory fees) are unaffected;
-    // "recurring" only has meaning for optional fees.
-    if (adj.adjustment_type === 'opt_in' && adj.fee_items?.is_recurring === false) continue
+    // frequency only has meaning for optional fees here.
+    const freq: string = adj.fee_items?.billing_frequency
+      || (adj.fee_items?.is_recurring === false ? 'this_term_only' : 'per_term')
+    if (adj.adjustment_type === 'opt_in' && freq === 'this_term_only') continue
+    // A once_a_session opt-in only follows its fee when we cross into a new
+    // year. On a sibling term in the same session the fee row doesn't exist, so
+    // carrying the opt-in would just be noise (an unmatched row).
+    if (adj.adjustment_type === 'opt_in' && freq === 'once_a_session' && !crossingSession) continue
     // A student opted out of a fee they'd already paid for this term keeps
     // their opt-in row in place (the paid invoice stays untouched) but is
     // flagged not to carry forward — the deferred opt-out takes effect here.

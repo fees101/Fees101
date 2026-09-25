@@ -13,9 +13,12 @@ interface Props {
   bankName: string | null
 }
 
-// Compact virtual-account block for the student header. Mirrors the states in
-// PaymentAccountCard (has account / can create / not configured) but sized to
-// sit beside the student's name rather than as a full card in the payments tab.
+// The identity header's "VIRTUAL ACCOUNT" column (App Shell showStudent):
+// an 11px/0.16em label, the account number at 22px/800 tabular, then
+// "<bank> · copy". Mirrors the states in PaymentAccountCard (has account /
+// can create / not configured).
+const LABEL = 'text-[11px] tracking-[0.16em] text-[var(--color-neutral-700)] mb-2'
+
 export default function HeaderVirtualAccount({ studentId, providerConfigured, hasAccount, accountNumber, bankName }: Props) {
   const router = useRouter()
   const [creating, setCreating] = useState(false)
@@ -46,26 +49,18 @@ export default function HeaderVirtualAccount({ studentId, providerConfigured, ha
   if (hasAccount) {
     return (
       <div>
-        <p className="text-xs text-gray-500 mb-1">Virtual account</p>
-        <p className="text-2xl font-bold text-navy tracking-wide">{accountNumber}</p>
-        <div className="flex items-center gap-1 mt-1">
-          <p className="text-xs text-gray-500">{bankName}</p>
+        <p className={LABEL}>VIRTUAL ACCOUNT</p>
+        <p className="text-[22px] font-extrabold tracking-[0.02em] m-num text-[var(--color-ink)] mb-1">{accountNumber}</p>
+        <p className="text-[13px] text-[var(--color-neutral-800)]">
+          {bankName}
+          <span className="text-[var(--color-neutral-400)]"> · </span>
           <button
             onClick={handleCopy}
-            title={copied ? 'Copied' : 'Copy account number'}
-            className="p-1 text-gray-400 hover:text-navy hover:bg-gray-50 rounded-md"
+            className="font-semibold text-[var(--color-neutral-700)] hover:text-[var(--color-ink)]"
           >
-            {copied ? (
-              <svg className="w-3.5 h-3.5 text-mint" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            ) : (
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-            )}
+            {copied ? <span className="text-[var(--color-ink)]">copied</span> : 'copy'}
           </button>
-        </div>
+        </p>
       </div>
     )
   }
@@ -73,9 +68,9 @@ export default function HeaderVirtualAccount({ studentId, providerConfigured, ha
   if (!providerConfigured) {
     return (
       <div>
-        <p className="text-xs text-gray-500 mb-1">Virtual account</p>
-        <p className="text-lg font-semibold text-gray-400">Not available</p>
-        <p className="text-xs text-gray-500 mt-1">Online payments not set up for this school yet.</p>
+        <p className={LABEL}>VIRTUAL ACCOUNT</p>
+        <p className="text-[18px] font-semibold text-[var(--color-neutral-500)] mb-1">Not available</p>
+        <p className="text-[13px] text-[var(--color-neutral-700)]">Online payments not set up for this school yet.</p>
       </div>
     )
   }
@@ -83,26 +78,26 @@ export default function HeaderVirtualAccount({ studentId, providerConfigured, ha
   if (!canCreate) {
     return (
       <div>
-        <p className="text-xs text-gray-500 mb-1">Virtual account</p>
-        <p className="text-lg font-semibold text-gray-400">Not set up yet</p>
-        <p className="text-xs text-gray-500 mt-1">No virtual account yet — ask an admin to set one up.</p>
+        <p className={LABEL}>VIRTUAL ACCOUNT</p>
+        <p className="text-[18px] font-semibold text-[var(--color-neutral-500)] mb-1">Not set up yet</p>
+        <p className="text-[13px] text-[var(--color-neutral-700)]">Ask an admin to set one up.</p>
       </div>
     )
   }
 
   return (
     <div>
-      <p className="text-xs text-gray-500 mb-1">Virtual account</p>
+      <p className={LABEL}>VIRTUAL ACCOUNT</p>
       <button
         onClick={handleCreate}
         disabled={creating}
-        className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+        className="m-btn m-btn-primary m-btn-sm whitespace-nowrap"
       >
         {creating ? 'Creating...' : 'Create account'}
       </button>
-      <p className="text-xs text-gray-500 mt-1">So parents have an account to pay into.</p>
+      <p className="text-[13px] text-[var(--color-neutral-700)] mt-2">So parents have an account to pay into.</p>
       {error && (
-        <p className="text-xs text-red-600 mt-1 max-w-[200px]">{error}</p>
+        <p className="text-[13px] text-[var(--color-signal-text)] mt-1 max-w-[200px]">{error}</p>
       )}
     </div>
   )

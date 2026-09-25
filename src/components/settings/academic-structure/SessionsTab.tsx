@@ -2,51 +2,79 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { SessionRow } from '@/lib/queries/fees'
 import { createSession, setActiveSession, closeSession } from '@/app/(app)/fees/cycles/actions'
-import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 import { formatDate } from '@/lib/format/date'
+import { useCan } from '@/lib/auth/PermissionsProvider'
 
 interface Props {
   sessions: SessionRow[]
   termCounts: Record<string, number>
+  actorName: string
+  onClose: () => void
+  // Fires a "Change saved" toast in the parent — SessionsTab itself unmounts
+  // on close, so the confirmation has to live one level up.
+  onSaved: (message: string) => void
 }
 
-export default function SessionsTab({ sessions, termCounts }: Props) {
+// Matches the App Shell canvas's generic field-edit drawer for "Current
+// session" (Current / Choose one / note / Reason / Recorded as / Save-Cancel),
+// with "+ New session" and "Close" (a draft/active session, independent of
+// which one is current) preserved as the two actions the canvas's plain
+// choice list doesn't have room for.
+export default function SessionsTab({ sessions, termCounts, actorName, onClose, onSaved }: Props) {
   const router = useRouter()
+  const canRunYearEnd = useCan('run-year-end')
+  const activeSession = sessions.find(s => s.status === 'active') || null
+
   const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ name: '', startDate: '', endDate: '' })
+  const [addForm, setAddForm] = useState({ name: '', startDate: '', endDate: '' })
+  const [addSaving, setAddSaving] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  const [selectedId, setSelectedId] = useState(activeSession?.id || '')
+  const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmClose, setConfirmClose] = useState<SessionRow | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   async function handleAdd() {
+    setAddError(null)
+    if (!addForm.name.trim()) return setAddError('Session name is required')
+    if (!addForm.startDate || !addForm.endDate) return setAddError('Start and end dates are required')
+    setAddSaving(true)
+    const result = await createSession(addForm)
+    setAddSaving(false)
+    if (result.error) {
+      setAddError(result.error)
+      return
+    }
+    setAddForm({ name: '', startDate: '', endDate: '' })
+    setShowAdd(false)
+    onSaved(`Session "${addForm.name}" created.`)
+    router.refresh()
+  }
+
+  async function handleSave() {
     setError(null)
-    if (!form.name.trim()) return setError('Session name is required')
-    if (!form.startDate || !form.endDate) return setError('Start and end dates are required')
+    if (!selectedId || selectedId === activeSession?.id) {
+      onClose()
+      return
+    }
     setSaving(true)
-    const result = await createSession(form)
+    const result = await setActiveSession(selectedId, reason)
     setSaving(false)
     if (result.error) {
       setError(result.error)
       return
     }
-    setForm({ name: '', startDate: '', endDate: '' })
-    setShowAdd(false)
+    const newName = sessions.find(s => s.id === selectedId)?.name || activeSession?.name
     router.refresh()
-  }
-
-  async function handleSetActive(session: SessionRow) {
-    setError(null)
-    setBusyId(session.id)
-    const result = await setActiveSession(session.id)
-    setBusyId(null)
-    if (result.error) {
-      setError(result.error)
-      return
-    }
-    router.refresh()
+    onSaved(`Current session set to ${newName} — recorded in the audit log.`)
+    onClose()
   }
 
   async function handleClose() {
@@ -55,139 +83,235 @@ export default function SessionsTab({ sessions, termCounts }: Props) {
     setBusyId(confirmClose.id)
     const result = await closeSession(confirmClose.id)
     setBusyId(null)
-    setConfirmClose(null)
     if (result.error) {
       setError(result.error)
       return
     }
+    const closedName = confirmClose.name
+    setConfirmClose(null)
+    onSaved(`"${closedName}" closed — recorded in the audit log.`)
     router.refresh()
+  }
+
+  if (showAdd) {
+    return (
+      <div className="border-2 border-[var(--color-ink)] flex flex-col m-anim-slab">
+        <div className="p-5 border-b-2 border-[var(--color-ink)] flex items-center justify-between flex-shrink-0">
+          <h3 className="text-base font-extrabold tracking-[-0.01em] text-[var(--color-ink)]">New session</h3>
+          <button onClick={() => { setShowAdd(false); setAddError(null) }} aria-label="Close" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-ink)]">
+            Close
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <label className="block">
+            <span className="m-label">Session name</span>
+            <input
+              type="text"
+              value={addForm.name}
+              onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+              placeholder="e.g. 2027/2028"
+              autoFocus
+              className="m-input"
+            />
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block">
+              <span className="m-label">Start date</span>
+              <input
+                type="date"
+                value={addForm.startDate}
+                onChange={(e) => setAddForm({ ...addForm, startDate: e.target.value })}
+                className="m-input"
+              />
+            </label>
+            <label className="block">
+              <span className="m-label">End date</span>
+              <input
+                type="date"
+                value={addForm.endDate}
+                onChange={(e) => setAddForm({ ...addForm, endDate: e.target.value })}
+                className="m-input"
+              />
+            </label>
+          </div>
+
+          {addError && (
+            <div className="p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">
+              {addError}
+            </div>
+          )}
+
+          <p className="text-[12px] leading-relaxed text-[var(--color-neutral-700)]">
+            Creating a session on its own doesn&apos;t move any students up a class.{' '}
+            {canRunYearEnd ? (
+              <>
+                If this is for a new academic year, use{' '}
+                <Link href="/fees/year-end" className="underline hover:text-[var(--color-ink)]">
+                  Year-End Rollover
+                </Link>{' '}
+                instead — it promotes students and can create the new session for you.
+              </>
+            ) : (
+              'If this is for a new academic year, Year-End Rollover promotes students and can create the new session for you.'
+            )}
+          </p>
+        </div>
+
+        <div className="p-5 border-t-2 border-[var(--color-ink)] flex items-center justify-end gap-2 flex-shrink-0">
+          <button onClick={() => { setShowAdd(false); setAddError(null) }} disabled={addSaving} className="m-btn m-btn-outline">
+            Cancel
+          </button>
+          <button onClick={handleAdd} disabled={addSaving} className="m-btn m-btn-primary">
+            {addSaving ? 'Creating...' : 'Create session'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="flex items-center justify-between gap-4 mb-1">
-          <h2 className="text-navy font-semibold text-lg">Sessions</h2>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="px-3 py-1.5 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 flex-shrink-0"
-          >
-            + New session
-          </button>
+      <div className="flex items-center justify-end" style={{ marginBottom: 16 }}>
+        <button onClick={() => setShowAdd(true)} className="m-btn m-btn-primary m-btn-sm flex-shrink-0">
+          + New session
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <span style={{ display: 'block', fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', marginBottom: 5, color: 'var(--color-ink)' }}>CURRENT</span>
+        <div className="text-[14px]" style={{ background: 'var(--color-surface)', border: '2px solid var(--color-neutral-300)', padding: '10px 12px', color: 'var(--color-neutral-700)' }}>
+          {activeSession ? activeSession.name : 'None set'}
         </div>
-        <p className="text-sm text-gray-500 mb-5">
-          Academic years, like 2026/2027. Terms are created inside a session from Billing cycles.
-        </p>
+      </div>
 
-        {showAdd && (
-          <div className="mb-4 p-4 bg-mint-light/30 border border-mint/20 rounded-lg space-y-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Session name</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="e.g. 2027/2028"
-                autoFocus
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-              />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Start date</label>
-                <input
-                  type="date"
-                  value={form.startDate}
-                  onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">End date</label>
-                <input
-                  type="date"
-                  value={form.endDate}
-                  onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleAdd}
-                disabled={saving}
-                className="px-3 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
-              >
-                {saving ? 'Creating...' : 'Create session'}
-              </button>
-              <button
-                onClick={() => { setShowAdd(false); setError(null) }}
-                className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
+      <div style={{ marginBottom: 16 }}>
+        <span style={{ display: 'block', fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', marginBottom: 5, color: 'var(--color-ink)' }}>CHOOSE ONE</span>
         {sessions.length === 0 ? (
-          <p className="text-sm text-gray-400 italic text-center py-8">No sessions yet.</p>
+          <p className="text-sm text-[var(--color-neutral-500)] italic" style={{ padding: '16px 0' }}>No sessions yet.</p>
         ) : (
-          <div className="space-y-2">
-            {sessions.map(session => (
-              <div key={session.id} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 border border-gray-200 rounded-lg">
-                <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${session.status === 'active' ? 'bg-mint' : session.status === 'draft' ? 'bg-amber-400' : 'bg-gray-400'}`} />
-                  <span className="text-sm font-medium text-navy">{session.name}</span>
-                  <span className="text-xs text-gray-400">
-                    {formatDate(session.startDate)} – {formatDate(session.endDate)}
-                  </span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${session.status === 'active' ? 'bg-mint-light text-mint' : session.status === 'draft' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
-                    {session.status}
-                  </span>
-                  <span className="text-xs text-gray-400">
-                    {termCounts[session.id] || 0} {termCounts[session.id] === 1 ? 'term' : 'terms'}
-                  </span>
+          <div style={{ border: '2px solid var(--color-ink)', background: '#fff' }}>
+            {sessions.map(session => {
+              const closed = session.status === 'closed'
+              const selected = selectedId === session.id
+              return (
+                <div
+                  key={session.id}
+                  onClick={() => { if (!closed) setSelectedId(session.id) }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    padding: '10px 14px',
+                    borderBottom: '1px solid var(--color-neutral-300)',
+                    cursor: closed ? 'default' : 'pointer',
+                    background: selected ? 'var(--color-surface)' : 'transparent',
+                    opacity: closed ? 0.55 : 1,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    {!closed && (
+                      <span
+                        aria-hidden
+                        style={{
+                          width: 14, height: 14, flexShrink: 0,
+                          border: '2px solid var(--color-ink)',
+                          background: selected ? 'var(--color-ink)' : 'transparent',
+                        }}
+                      />
+                    )}
+                    <span className="text-[14px]" style={{ fontWeight: 600, color: 'var(--color-ink)' }}>{session.name}</span>
+                    <span className="text-xs text-[var(--color-neutral-700)] m-num">
+                      {formatDate(session.startDate)} – {formatDate(session.endDate)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                    <span className="text-xs text-[var(--color-neutral-700)] m-num">
+                      {termCounts[session.id] || 0} {termCounts[session.id] === 1 ? 'term' : 'terms'}
+                    </span>
+                    {session.status === 'active' && (
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-ink)]">Active</span>
+                    )}
+                    {session.status === 'closed' && (
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-neutral-500)]">Closed</span>
+                    )}
+                    {!closed && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setConfirmClose(session) }}
+                        disabled={busyId === session.id}
+                        className="text-xs font-semibold text-[var(--color-ochre-text)] hover:underline disabled:opacity-50"
+                      >
+                        Close
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {session.status === 'draft' && (
-                    <button
-                      onClick={() => handleSetActive(session)}
-                      disabled={busyId === session.id}
-                      className="text-xs text-mint font-medium hover:underline disabled:opacity-50"
-                    >
-                      Set current
-                    </button>
-                  )}
-                  {session.status === 'active' && (
-                    <button
-                      onClick={() => setConfirmClose(session)}
-                      disabled={busyId === session.id}
-                      className="text-xs text-amber-600 font-medium hover:underline disabled:opacity-50"
-                    >
-                      Close
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
 
+      <p className="text-[12px] leading-relaxed text-[var(--color-neutral-700)]" style={{ marginBottom: 16 }}>
+        Invoices are filed under the session current at the time they are generated. Closing a session here does not change which one is current.
+      </p>
+
+      <div style={{ marginBottom: 18 }}>
+        <span style={{ display: 'block', fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', marginBottom: 5, color: 'var(--color-ink)' }}>REASON (OPTIONAL)</span>
+        <input
+          type="text"
+          value={reason}
+          onChange={e => setReason(e.target.value)}
+          placeholder="Shown in the audit log"
+          className="m-input"
+          style={{ width: '100%', boxSizing: 'border-box' }}
+        />
+      </div>
+
+      <div style={{ borderTop: '1px solid var(--color-neutral-300)', paddingTop: 14, marginBottom: 18 }}>
+        <p className="text-[12px]" style={{ margin: 0, lineHeight: 1.5, color: 'var(--color-neutral-700)' }}>
+          Recorded as <strong style={{ color: 'var(--color-ink)' }}>{actorName}</strong> in Team &amp; Trust → Audit log.
+        </p>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 text-sm text-[var(--color-signal-text)]" style={{ borderLeft: '3px solid var(--color-signal)' }}>
+          {error}
+        </div>
+      )}
+
+      <div className="flex items-center gap-[10px]">
+        <button
+          onClick={handleSave}
+          disabled={saving || !selectedId}
+          className="m-btn m-btn-primary"
+          style={{ flex: 1 }}
+        >
+          {saving ? 'Saving...' : 'Save change'}
+        </button>
+        <button onClick={onClose} disabled={saving} className="m-btn m-btn-outline">Cancel</button>
+      </div>
+
       {confirmClose && (
-        <ConfirmDialog
+        <DestructiveConfirmModal
+          eyebrow="This cannot be undone"
           title={`Close "${confirmClose.name}"?`}
-          message="The session will be marked closed. Existing terms are unaffected, but you'll need to set a different session as current before creating new ones."
-          confirmLabel="Close session"
-          onConfirm={handleClose}
-          onCancel={() => setConfirmClose(null)}
+          description="The session is marked closed. Its terms and invoices stay exactly as they are, but the session itself can't be reopened or set as current again — only support can recover a closed session."
+          rows={[
+            {
+              label: 'Terms filed under this session',
+              value: termCounts[confirmClose.id] || 0,
+              emphasize: true,
+            },
+          ]}
+          note="You'll need to set a different session as current before creating new terms."
+          error={error}
+          actions={[
+            { label: 'Cancel', onClick: () => setConfirmClose(null), variant: 'outline', disabled: busyId === confirmClose.id },
+            { label: busyId === confirmClose.id ? 'Closing...' : 'Close session', onClick: handleClose, variant: 'danger', disabled: busyId === confirmClose.id },
+          ]}
         />
       )}
     </>

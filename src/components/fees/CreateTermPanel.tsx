@@ -1,8 +1,83 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import Link from 'next/link'
 import { CycleRow, SessionRow } from '@/lib/queries/fees'
 import { createTerm, updateTerm } from '@/app/(app)/fees/cycles/actions'
+import { useCan } from '@/lib/auth/PermissionsProvider'
+
+// Paper-ground palette, matching FeeFormPanel's option-card treatment.
+const INK = '#201e1d'
+const HINT = '#605d5d'
+const RULE_SOFT = '#d7d3d3'
+
+// 14px square selection mark, ink border, filled with an inset white ring when
+// on — the App Shell .mk, shared with FeeFormPanel/EditFeeGroupPanel.
+function Mark({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 14,
+        height: 14,
+        flexShrink: 0,
+        marginTop: 2,
+        border: `2px solid ${INK}`,
+        background: on ? INK : 'transparent',
+        boxShadow: on ? 'inset 0 0 0 2px #fff' : 'none',
+        display: 'block',
+      }}
+    />
+  )
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p style={{ fontSize: 11, letterSpacing: '0.1em', color: INK, fontWeight: 600, textTransform: 'uppercase', margin: '0 0 6px' }}>
+      {children}
+    </p>
+  )
+}
+
+// A bordered radio/checkbox row inside a 2px-ink box (the App Shell .opt) —
+// same component as FeeFormPanel's, so "Add a fee" and "Create term" read as
+// the same design language. `children` renders inline below the hint, only
+// while the row is selected — used for the session picker's embedded select
+// and the new-session fields.
+function OptRow({
+  on, onClick, title, hint, last = false, children,
+}: { on: boolean, onClick: () => void, title: string, hint?: string, last?: boolean, children?: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        borderBottom: last ? 'none' : `1px solid ${RULE_SOFT}`,
+        background: on ? '#eae7e7' : 'transparent',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        style={{
+          display: 'flex',
+          gap: 10,
+          alignItems: 'flex-start',
+          width: '100%',
+          textAlign: 'left',
+          padding: '11px 12px',
+          background: 'transparent',
+          cursor: 'pointer',
+        }}
+      >
+        <Mark on={on} />
+        <span style={{ display: 'block' }}>
+          <span style={{ display: 'block', fontSize: 13, color: INK, fontWeight: 600 }}>{title}</span>
+          {hint && <span style={{ display: 'block', fontSize: 12, color: HINT, marginTop: 2 }}>{hint}</span>}
+        </span>
+      </button>
+      {on && children && <div style={{ padding: '0 12px 12px 36px' }}>{children}</div>}
+    </div>
+  )
+}
 
 interface Props {
   mode: 'create' | 'edit'
@@ -23,6 +98,7 @@ interface Props {
 
 export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, forceNewSession, onClose, onSuccess }: Props) {
   const isEdit = mode === 'edit'
+  const canRunYearEnd = useCan('run-year-end')
 
   // A closed session shouldn't be offered for new terms — draft sessions are, so a term
   // (with fee items) can be prepared ahead of time under a session that isn't current yet.
@@ -127,118 +203,127 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 flex flex-col h-fit sticky top-6">
+    <div className="fixed inset-0 z-50 flex m-anim-fade">
+      <div
+        className="flex-1 bg-[color-mix(in_srgb,var(--color-ink)_45%,transparent)]"
+        onClick={onClose}
+      />
 
-      <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-        <h3 className="text-base font-semibold text-navy">
-          {isEdit ? 'Edit term' : 'Create new term'}
-        </h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+      {/* Same shell as FeeFormPanel/AddStudentModal: 420px, single p-[22px]
+          scroll (header, fields and footer all scroll together). */}
+      <aside
+        style={{ width: '420px', maxWidth: '100%' }}
+        className="h-full overflow-y-auto bg-[var(--color-paper)] border-l-2 border-[var(--color-ink)] p-[22px] m-anim-slide"
+      >
+        <div className="flex items-baseline justify-between gap-3 mb-1">
+          <h2 className="text-[22px] font-extrabold tracking-[-0.01em] text-[var(--color-ink)]">
+            {isEdit ? 'Edit term' : 'Create new term'}
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--color-signal-text)] hover:underline"
+          >
+            Close
+          </button>
+        </div>
+        <p className="text-[13px] leading-relaxed mb-5 text-[var(--color-neutral-700)]">
+          {isEdit
+            ? "Change the term's name or dates."
+            : 'Name it, set its dates, choose a session, and optionally roll fees forward.'}
+        </p>
 
-      <div className="p-5 space-y-4">
+        <div className="space-y-4" style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 16 }}>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Term name *</label>
+          <label className="m-label">Term name *</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Second Term 2026/2027"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+            className="m-input"
             autoFocus
           />
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Start date *</label>
+            <label className="m-label">Start date *</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-input"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">End date *</label>
+            <label className="m-label">End date *</label>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-input"
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Due date *</label>
+          <label className="m-label">Due date *</label>
           <input
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+            className="m-input"
           />
-          <p className="text-xs text-gray-500 mt-1">When parents should pay by</p>
+          <p className="text-xs text-[var(--color-neutral-700)] mt-1">When parents should pay by</p>
         </div>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-2">Session</label>
           {isEdit ? (
-            <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
-              {editingCycle?.sessionId
-                ? <>{selectableSessions.find(s => s.id === editingCycle.sessionId)?.name || 'Unknown session'} <span className="text-xs text-gray-400">— fixed at creation, cannot be changed</span></>
-                : <>No session <span className="text-xs text-gray-400">— fixed at creation, cannot be changed</span></>
-              }
-            </div>
+            <>
+              <label className="m-label">Session</label>
+              <div className="p-3 bg-[var(--color-surface)] text-sm text-[var(--color-neutral-700)]">
+                {editingCycle?.sessionId
+                  ? <>{selectableSessions.find(s => s.id === editingCycle.sessionId)?.name || 'Unknown session'} <span className="text-xs text-[var(--color-neutral-500)]">- fixed at creation, cannot be changed</span></>
+                  : <>No session <span className="text-xs text-[var(--color-neutral-500)]">- fixed at creation, cannot be changed</span></>
+                }
+              </div>
+            </>
           ) : (
-          <div className="space-y-2">
-            {selectableSessions.length > 0 && (
-              <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
-                <input
-                  type="radio"
-                  checked={sessionMode === 'existing'}
-                  onChange={() => setSessionMode('existing')}
-                  className="mt-0.5 text-mint"
-                />
-                <div className="flex-1">
-                  <span className="text-sm text-navy">Existing session</span>
-                  {sessionMode === 'existing' && (
+            <>
+              <SectionLabel>Session</SectionLabel>
+              <div style={{ border: `2px solid ${INK}`, background: '#fff' }}>
+                {selectableSessions.length > 0 && (
+                  <OptRow
+                    on={sessionMode === 'existing'}
+                    onClick={() => setSessionMode('existing')}
+                    title="Existing session"
+                  >
                     <select
                       value={sessionId}
                       onChange={(e) => setSessionId(e.target.value)}
-                      className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                      className="m-select"
                     >
                       {selectableSessions.map(s => (
                         <option key={s.id} value={s.id}>{s.name}{s.status === 'closed' ? ' (closed)' : s.status === 'draft' ? ' (draft)' : ''}</option>
                       ))}
                     </select>
-                  )}
-                </div>
-              </label>
-            )}
-            {(forceNewSession || selectableSessions.length === 0) && (
-              <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
-                <input
-                  type="radio"
-                  checked={sessionMode === 'new'}
-                  onChange={() => setSessionMode('new')}
-                  className="mt-0.5 text-mint"
-                />
-                <div className="flex-1">
-                  <span className="text-sm text-navy">New session</span>
-                  {sessionMode === 'new' && (
-                    <div className="mt-2 space-y-2">
+                  </OptRow>
+                )}
+                {(forceNewSession || selectableSessions.length === 0) && (
+                  <OptRow
+                    on={sessionMode === 'new'}
+                    onClick={() => setSessionMode('new')}
+                    title="New session"
+                  >
+                    <div className="space-y-2">
                       <input
                         type="text"
                         value={newSessionName}
                         onChange={(e) => setNewSessionName(e.target.value)}
                         placeholder="e.g. 2027/2028"
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                        className="m-input"
                       />
                       <div className="grid grid-cols-2 gap-2">
                         <input
@@ -246,53 +331,64 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
                           value={newSessionStart}
                           onChange={(e) => setNewSessionStart(e.target.value)}
                           placeholder="Start"
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                          className="m-input"
                         />
                         <input
                           type="date"
                           value={newSessionEnd}
                           onChange={(e) => setNewSessionEnd(e.target.value)}
                           placeholder="End"
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                          className="m-input"
                         />
                       </div>
                     </div>
-                  )}
-                </div>
-              </label>
-            )}
-            <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
-              <input
-                type="radio"
-                checked={sessionMode === 'none'}
-                onChange={() => setSessionMode('none')}
-                className="mt-0.5 text-mint"
-              />
-              <div>
-                <span className="text-sm text-navy">No session</span>
-                <p className="text-xs text-gray-500">Standalone term, not part of an academic year</p>
+                  </OptRow>
+                )}
+                <OptRow
+                  on={sessionMode === 'none'}
+                  onClick={() => setSessionMode('none')}
+                  title="No session"
+                  hint="Standalone term, not part of an academic year"
+                  last
+                />
               </div>
-            </label>
-          </div>
+            </>
           )}
         </div>
 
+        {!isEdit && activationBlockedByDraftSession && selectedSession && (
+          <p className="text-[12px] leading-relaxed text-[var(--color-neutral-700)]">
+            {selectedSession.name} isn&apos;t the active session yet. A term created here won&apos;t move any students up a class
+            {canRunYearEnd ? (
+              <>
+                {' '}— when you&apos;re ready to make this the live academic year, use{' '}
+                <Link href="/fees/year-end" className="underline hover:text-[var(--color-ink)]">
+                  Year-End Rollover
+                </Link>{' '}
+                instead.
+              </>
+            ) : (
+              <> — when you&apos;re ready to make this the live academic year, use Year-End Rollover instead.</>
+            )}
+          </p>
+        )}
+
         {!isEdit && sortedCycles.length > 0 && (
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Roll forward fees from (optional)</label>
+            <label className="m-label">Roll forward fees from (optional)</label>
             <select
               value={rollForwardFromId}
               onChange={(e) => setRollForwardFromId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+              className="m-select"
             >
-              <option value="">— None, start fresh —</option>
+              <option value="">- None, start fresh -</option>
               {sortedCycles.map(c => (
                 <option key={c.id} value={c.id}>
                   {c.name} ({c.feeItemCount} {c.feeItemCount === 1 ? 'fee' : 'fees'})
                 </option>
               ))}
             </select>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-[var(--color-neutral-700)] mt-1">
               Copies all fee items from chosen term. You can then edit prices for this term.
             </p>
           </div>
@@ -300,50 +396,38 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
 
         {!isEdit && (
           activationBlockedByDraftSession ? (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
-              This session is still a draft, so this term will be saved as a draft too. Set the session as current from Academic Structure → Sessions, then activate this term.
+            <div className="pl-3 py-2 border-l-2 border-[var(--color-ochre)] text-xs text-[var(--color-ochre-text)]">
+              This session is still a draft, so this term will be saved as a draft too. Set the session as current from the Sessions tab in Academic Structure, then activate this term.
             </div>
           ) : (
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={activateImmediately}
-                  onChange={(e) => setActivateImmediately(e.target.checked)}
-                  className="mt-0.5 text-mint"
-                />
-                <div>
-                  <span className="text-sm text-navy">Activate immediately</span>
-                  <p className="text-xs text-gray-500">Otherwise, this term will be saved as a draft</p>
-                </div>
-              </label>
+            <div style={{ border: `2px solid ${INK}`, background: '#fff' }}>
+              <OptRow
+                on={activateImmediately}
+                onClick={() => setActivateImmediately(v => !v)}
+                title="Activate immediately"
+                hint="Otherwise, this term will be saved as a draft"
+                last
+              />
             </div>
           )
         )}
 
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          <div className="pl-3 py-2 border-l-2 border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">
             {error}
           </div>
         )}
-      </div>
+        </div>
 
-      <div className="p-4 border-t border-gray-100 flex items-center justify-end gap-2">
-        <button
-          onClick={onClose}
-          disabled={saving}
-          className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSubmit}
-          disabled={saving}
-          className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 disabled:opacity-50"
-        >
-          {saving ? 'Saving...' : isEdit ? 'Save changes' : (activateImmediately ? 'Create & activate' : 'Save as draft')}
-        </button>
-      </div>
+        <div className="flex items-center justify-end gap-2 mt-5" style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 16 }}>
+          <button onClick={onClose} disabled={saving} className="m-btn m-btn-outline">
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={saving} className="m-btn m-btn-primary">
+            {saving ? 'Saving...' : isEdit ? 'Save changes' : (activateImmediately ? 'Create & activate' : 'Save as draft')}
+          </button>
+        </div>
+      </aside>
     </div>
   )
 }

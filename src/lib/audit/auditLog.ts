@@ -1,4 +1,4 @@
-// Read-side of the audit log — powers the /settings/audit-log page.
+// Read-side of the audit log — powers the /team/audit-log page.
 // actor_name is denormalized on the row at write time, so no join needed here
 // (unlike report_downloads, which joins users in JS because it doesn't
 // denormalize the name).

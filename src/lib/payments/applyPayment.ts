@@ -8,7 +8,7 @@ import { sendMultiChannel } from '@/lib/messaging/sendMessage'
 import { composePartialPaymentSMS, composeFullPaymentSMS, composeFullPaymentEmail } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 import { getInvoiceByIdForSchool } from '@/lib/queries/fees'
-import { renderInvoicePdfBuffer } from '@/lib/pdf/renderInvoicePdf'
+import { renderReceiptPdfBuffer } from '@/lib/pdf/renderReceiptPdf'
 
 // Above this, a webhook amount is still applied in full (a school can
 // legitimately collect a whole year's fees in one transfer) but flagged for
@@ -88,7 +88,7 @@ export async function applyProviderPayment(
 
   const { data: candidateInvoices } = await supabase
     .from('invoices')
-    .select('id, status, outstanding_amount, billing_cycles!inner(name, start_date, status)')
+    .select('id, status, outstanding_amount, billing_cycles!inner(name, start_date, status, due_date)')
     .eq('student_id', studentId)
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
@@ -185,6 +185,11 @@ export async function applyProviderPayment(
 
     if (notifyInfo) {
       const termName = (invoice.billing_cycles as any)?.name || ''
+      const dueDate: string | undefined = (invoice.billing_cycles as any)?.due_date || undefined
+      // Prefer the provider's own reference (what a parent would see on their
+      // bank statement); fall back to the payment row's id when there isn't
+      // one (e.g. a provider that doesn't return a reference).
+      const paymentReference = providerReference || applyResult.payment_id
       const smsText = isFull
         ? composeFullPaymentSMS({
             studentName: notifyInfo.studentName,
@@ -200,6 +205,7 @@ export async function applyProviderPayment(
             amountPaid: applyAmount,
             balance: newOutstanding,
             accountNumber: notifyInfo.accountNumber,
+            dueDate,
           })
 
       // Email carries the receipt as a PDF — reserved for full payment only.
@@ -216,9 +222,12 @@ export async function applyProviderPayment(
           termName,
           amountPaid: applyAmount,
           logoUrl: invoiceDetail?.schoolLogoUrl,
+          paidAt,
+          accountNumber: notifyInfo.accountNumber,
+          reference: paymentReference,
         })
         const pdfBuffer = invoiceDetail
-          ? await renderInvoicePdfBuffer(invoiceDetail, invoiceDetail.schoolLogoUrl)
+          ? await renderReceiptPdfBuffer(invoiceDetail, invoiceDetail.schoolLogoUrl, applyResult.payment_id)
           : null
         emailContent = {
           ...email,

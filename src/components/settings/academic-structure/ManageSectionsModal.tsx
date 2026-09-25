@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { updateSection, deleteSection } from '@/app/(app)/settings/academic-structure/actions'
+import { updateSection, deleteSection } from '@/app/(app)/school/academic-structure/actions'
+import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 
 interface Section {
   id: string
@@ -21,6 +22,7 @@ export default function ManageSectionsModal({ sections, onClose, onSectionDelete
   const [editingName, setEditingName] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<Section | null>(null)
 
   function startEditing(section: Section) {
     setError(null)
@@ -53,27 +55,27 @@ export default function ManageSectionsModal({ sections, onClose, onSectionDelete
     }
     onSectionDeleted(sectionId)
     setDeletingId(null)
+    setConfirmDelete(null)
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-sm w-full">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-navy">Manage sections</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 m-anim-fade">
+      <div className="absolute inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)]" onClick={onClose} />
+      <div className="relative bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-sm w-full m-anim-scale">
+        <div className="p-6 border-b-2 border-[var(--color-ink)] flex items-center justify-between">
+          <h3 className="text-lg font-extrabold tracking-[-0.01em] text-[var(--color-ink)]">Manage sections</h3>
+          <button onClick={onClose} aria-label="Close" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-ink)]">
+            Close
           </button>
         </div>
 
         <div className="p-6">
           {sections.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-4">No sections to manage.</p>
+            <p className="text-sm text-[var(--color-neutral-700)] text-center py-4">No sections to manage.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="border-2 border-[var(--color-neutral-300)] divide-y divide-[var(--color-neutral-300)]">
               {sections.map(section => (
-                <div key={section.id} className="p-3 border border-gray-200 rounded-lg">
+                <div key={section.id} className="p-3">
                   {editingId === section.id ? (
                     <div className="flex items-center gap-2">
                       <input
@@ -81,37 +83,36 @@ export default function ManageSectionsModal({ sections, onClose, onSectionDelete
                         value={editingName}
                         onChange={(e) => setEditingName(e.target.value)}
                         autoFocus
-                        className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-mint/40"
+                        className="m-input flex-1 min-w-0"
                       />
                       <button
                         onClick={() => handleRename(section.id)}
                         disabled={savingId === section.id || !editingName.trim()}
-                        className="text-xs text-mint font-medium hover:underline disabled:opacity-50"
+                        className="text-xs font-semibold text-[var(--color-ink)] hover:underline disabled:opacity-50 flex-shrink-0"
                       >
                         Save
                       </button>
                       <button
                         onClick={() => setEditingId(null)}
-                        className="text-xs text-gray-500 hover:underline"
+                        className="text-xs text-[var(--color-neutral-700)] hover:underline flex-shrink-0"
                       >
                         Cancel
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-navy">{section.name}</span>
-                      <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-[var(--color-ink)] truncate">{section.name}</span>
+                      <div className="flex items-center gap-3 flex-shrink-0">
                         <button
                           onClick={() => startEditing(section)}
-                          className="text-xs text-gray-600 hover:underline"
+                          className="text-xs text-[var(--color-neutral-700)] hover:text-[var(--color-ink)] hover:underline"
                         >
                           Rename
                         </button>
-                        <span className="text-gray-300">·</span>
                         <button
-                          onClick={() => handleDelete(section.id)}
+                          onClick={() => { setError(null); setConfirmDelete(section) }}
                           disabled={deletingId === section.id}
-                          className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                          className="text-xs font-semibold text-[var(--color-signal-text)] hover:underline disabled:opacity-50"
                         >
                           {deletingId === section.id ? 'Deleting...' : 'Delete'}
                         </button>
@@ -124,18 +125,31 @@ export default function ManageSectionsModal({ sections, onClose, onSectionDelete
           )}
 
           {error && (
-            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <div className="mt-3 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">
               {error}
             </div>
           )}
         </div>
 
-        <div className="p-6 border-t border-gray-100 flex items-center justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+        <div className="p-6 border-t-2 border-[var(--color-ink)] flex items-center justify-end">
+          <button onClick={onClose} className="m-btn m-btn-outline">
             Done
           </button>
         </div>
       </div>
+
+      {confirmDelete && (
+        <DestructiveConfirmModal
+          title={`Delete "${confirmDelete.name}"?`}
+          description="Only goes through if no classes are currently assigned to it — otherwise you'll be told which ones to move first."
+          note="This removes it from the section dropdown everywhere it's offered. There's no undo — you'd need to add it again from scratch."
+          error={error}
+          actions={[
+            { label: 'Cancel', onClick: () => setConfirmDelete(null), variant: 'outline', disabled: deletingId === confirmDelete.id },
+            { label: deletingId === confirmDelete.id ? 'Deleting...' : 'Delete', onClick: () => handleDelete(confirmDelete.id), variant: 'danger', disabled: deletingId === confirmDelete.id },
+          ]}
+        />
+      )}
     </div>
   )
 }

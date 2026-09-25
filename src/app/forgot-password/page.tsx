@@ -1,14 +1,32 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { forgotPassword } from '../login/actions'
+
+// FEES101 wordmark + red rule — the one piece of branding every logged-out
+// screen in Messages.dc.html's "Staff invite" spec carries.
+function Wordmark() {
+  return (
+    <div className="flex items-baseline gap-2 mb-6">
+      <span className="text-[14px] font-extrabold" style={{ letterSpacing: '0.14em', color: 'var(--color-ink)' }}>FEES101</span>
+      <span className="inline-block" style={{ width: 24, height: 2, backgroundColor: 'var(--color-signal)' }} />
+    </div>
+  )
+}
 
 export default function ForgotPasswordPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
 
-  async function handleSubmit(formData: FormData) {
+  useEffect(() => { document.title = 'Forgot password · Fees101' }, [])
+
+  // onSubmit + preventDefault, not the form `action` prop: React 19 auto-resets
+  // an action form once the action resolves, which would wipe the email on a
+  // failed send. Keep it so the person can correct it without retyping.
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
     setLoading(true)
     setError(null)
     const result = await forgotPassword(formData)
@@ -21,51 +39,52 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 flex items-center justify-center p-5">
-      <div className="bg-white p-10 rounded-xl border border-gray-200 w-full max-w-md">
-        <h1 className="text-navy text-3xl font-bold mb-2">Fees101</h1>
+    <main className="min-h-screen bg-[var(--color-paper)] flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-[420px] border-2 border-[var(--color-ink)] bg-white p-6">
+        <Wordmark />
+        <h1 className="text-xl font-extrabold text-[var(--color-ink)] mb-1">Reset password</h1>
 
         {sent ? (
           <>
-            <p className="text-gray-700 text-sm mb-6">
+            <p className="text-sm leading-[1.55] text-[var(--color-neutral-800)] mt-4 mb-5">
               If that email matches an account, a password reset link is on its way. Check your inbox.
             </p>
-            <a href="/login" className="text-mint font-semibold text-sm hover:underline">Back to sign in</a>
+            <a href="/login" className="m-btn m-btn-outline w-full justify-start">Back to sign in</a>
           </>
         ) : (
           <>
-            <p className="text-gray-500 text-sm mb-8">
+            <p className="text-sm text-[var(--color-neutral-700)] mb-6">
               Enter your email and we&apos;ll send you a link to reset your password.
             </p>
 
-            <form action={handleSubmit} className="flex flex-col gap-5">
-              <label className="flex flex-col gap-2 text-sm text-gray-700 font-medium">
-                Email
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div>
+                <label className="m-label" htmlFor="email">Email</label>
                 <input
+                  id="email"
                   type="email"
                   name="email"
                   required
                   autoFocus
-                  placeholder="you@school.edu.ng"
-                  className="px-3.5 py-3 border border-gray-300 rounded-lg text-sm outline-none focus:border-mint focus:ring-2 focus:ring-mint/20"
+                  placeholder="you@yourschool.ng"
+                  className="m-input"
                 />
-              </label>
+              </div>
 
               {error && (
-                <p className="text-red-700 text-xs px-3 py-2 bg-red-50 rounded-md">
-                  {error}
-                </p>
+                <p className="text-sm text-[var(--color-signal-text)] leading-[1.5]">{error}</p>
               )}
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="bg-mint text-navy py-3 rounded-lg text-sm font-semibold hover:bg-mint/90 disabled:opacity-50 mt-2"
-              >
-                {loading ? 'Sending…' : 'Send reset link'}
-              </button>
+              <div className="mt-1">
+                <button type="submit" disabled={loading} className="m-btn m-btn-primary w-full">
+                  Send reset link
+                </button>
+                {loading && <div className="m-loading mt-2" />}
+              </div>
 
-              <a href="/login" className="text-gray-500 text-sm text-center hover:underline">Back to sign in</a>
+              <a href="/login" className="text-[13px] text-center text-[var(--color-neutral-700)] hover:text-[var(--color-ink)]">
+                Back to sign in
+              </a>
             </form>
           </>
         )}

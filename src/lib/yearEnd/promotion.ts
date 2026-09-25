@@ -7,6 +7,13 @@ export interface PromotionPreviewRow {
   suggestedAction: 'promote' | 'graduate'
   suggestedTargetClassId: string | null
   suggestedTargetClassName: string | null
+  // Outstanding balance on this student's invoice for the term being rolled
+  // from. Zero when they owe nothing (or have no invoice yet). The wizard uses
+  // it to show, before the irreversible run, how much money carries into the
+  // new session's first term versus how much sits on a leaver who carries
+  // nowhere. Enriched by getPromotionPreviewAction; getPromotionPreview itself
+  // leaves it 0.
+  outstandingAmount: number
 }
 
 export interface PromotionPreviewGroup {
@@ -52,6 +59,7 @@ export async function getPromotionPreview(supabase: any, schoolId: string): Prom
       suggestedAction: targetClass ? 'promote' : 'graduate',
       suggestedTargetClassId: targetClass?.id || null,
       suggestedTargetClassName: targetClass?.name || null,
+      outstandingAmount: 0,
     }
 
     if (!groups[currentClass.id]) {

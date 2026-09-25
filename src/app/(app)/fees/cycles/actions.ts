@@ -85,12 +85,12 @@ export async function createSession(form: {
   })
 
   revalidatePath('/fees/cycles')
-  revalidatePath('/settings/academic-structure')
+  revalidatePath('/school/academic-structure')
   return { success: true, sessionId: data.id }
 }
 
 // Only one session is "current" at a time — activating one closes the rest.
-export async function setActiveSession(id: string) {
+export async function setActiveSession(id: string, reason?: string) {
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -131,10 +131,11 @@ export async function setActiveSession(id: string) {
     targetType: 'session',
     targetId: id,
     summary: `Activated session ${target.name}`,
+    metadata: reason?.trim() ? { reason: reason.trim() } : undefined,
   })
 
   revalidatePath('/fees/cycles')
-  revalidatePath('/settings/academic-structure')
+  revalidatePath('/school/academic-structure')
   return { success: true }
 }
 
@@ -168,7 +169,7 @@ export async function closeSession(id: string) {
   })
 
   revalidatePath('/fees/cycles')
-  revalidatePath('/settings/academic-structure')
+  revalidatePath('/school/academic-structure')
   return { success: true }
 }
 
@@ -275,19 +276,63 @@ export async function createTerm(form: {
   if (error) return { error: error.message }
 
   if (form.rollForwardFromCycleId && newCycle) {
-    const { data: sourceFees } = await supabase
+    // Which academic year is the fee's *source* term in, and is the new term a
+    // fresh year? This is the whole basis of the once-a-session rule below.
+    const { data: sourceCycle } = await supabase
+      .from('billing_cycles')
+      .select('session_id')
+      .eq('id', form.rollForwardFromCycleId)
+      .eq('school_id', schoolId)
+      .maybeSingle()
+    const sourceSessionId: string | null = sourceCycle?.session_id ?? null
+    const crossingSession = sourceSessionId !== (sessionId ?? null)
+
+    const feeSelect = 'class_id, name, amount, is_mandatory, is_optional_extra, is_discountable, is_recurring, billing_frequency, display_order'
+
+    // per_term fees always roll forward from the term immediately before this
+    // one — they bill on every invoice, so they live on every term. A
+    // this_term_only fee never carries (it was charged for one specific term).
+    const { data: perTermFees } = await supabase
       .from('fee_items')
-      .select('class_id, name, amount, is_mandatory, is_optional_extra, is_discountable, is_recurring, display_order')
+      .select(feeSelect)
       .eq('billing_cycle_id', form.rollForwardFromCycleId)
       .eq('school_id', schoolId)
-      // Only recurring fees roll forward into the new term — a one-time fee
-      // (is_recurring: false, set via FeeFormPanel's "One-time" toggle) was
-      // charged for a specific term and shouldn't reappear on every future
-      // term just because it's copied here. Shared by both manual roll-forward
-      // and year-end rollover, since continueYearEndRollover calls createTerm.
-      .eq('is_recurring', true)
+      .eq('billing_frequency', 'per_term')
 
-    if (sourceFees && sourceFees.length > 0) {
+    const sourceFees: any[] = [...(perTermFees || [])]
+
+    // once_a_session fees carry ONLY when the new term opens a new academic
+    // year (the year-end rollover). They bill on their session's first term and
+    // only live there, so by the last term (the one we roll from) they're gone
+    // — source them from every term of the session we're leaving instead, and
+    // dedupe by name + class + required/optional so a fee defined once comes
+    // across once. Within the same session, sibling terms get no copy, which is
+    // exactly what "once a session" means.
+    if (crossingSession && sourceSessionId) {
+      const { data: sessionCycles } = await supabase
+        .from('billing_cycles')
+        .select('id')
+        .eq('school_id', schoolId)
+        .eq('session_id', sourceSessionId)
+      const sessionCycleIds = (sessionCycles || []).map((c: { id: string }) => c.id)
+      if (sessionCycleIds.length > 0) {
+        const { data: onceFees } = await supabase
+          .from('fee_items')
+          .select(feeSelect)
+          .eq('school_id', schoolId)
+          .eq('billing_frequency', 'once_a_session')
+          .in('billing_cycle_id', sessionCycleIds)
+        const seen = new Set<string>()
+        for (const f of onceFees || []) {
+          const key = `${f.name}::${f.class_id ?? 'null'}::${f.is_optional_extra}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          sourceFees.push(f)
+        }
+      }
+    }
+
+    if (sourceFees.length > 0) {
       const newFees = sourceFees.map(f => ({
         school_id: schoolId,
         billing_cycle_id: newCycle.id,
@@ -298,6 +343,7 @@ export async function createTerm(form: {
         is_optional_extra: f.is_optional_extra,
         is_discountable: f.is_discountable,
         is_recurring: f.is_recurring,
+        billing_frequency: f.billing_frequency || (f.is_recurring === false ? 'this_term_only' : 'per_term'),
         display_order: f.display_order || 0,
       }))
       await supabase.from('fee_items').insert(newFees)
@@ -306,7 +352,16 @@ export async function createTerm(form: {
 
   let unmatchedAdjustments: { studentId: string; feeItemName: string }[] | undefined
   if (form.rollForwardFromCycleId && newCycle && !form.skipAdjustmentCarryForward) {
-    const result = await carryForwardFeeAdjustments(supabase, schoolId, form.rollForwardFromCycleId, newCycle.id)
+    // Recompute the crossing flag for the adjustment carry (same rule): a
+    // once_a_session opt-in only follows the fee across a year boundary.
+    const { data: srcForAdj } = await supabase
+      .from('billing_cycles')
+      .select('session_id')
+      .eq('id', form.rollForwardFromCycleId)
+      .eq('school_id', schoolId)
+      .maybeSingle()
+    const crossingSessionForAdj = (srcForAdj?.session_id ?? null) !== (sessionId ?? null)
+    const result = await carryForwardFeeAdjustments(supabase, schoolId, form.rollForwardFromCycleId, newCycle.id, crossingSessionForAdj)
     unmatchedAdjustments = result.unmatched.length > 0 ? result.unmatched : undefined
   }
 
@@ -360,6 +415,13 @@ export async function updateTerm(id: string, form: {
   if (!cycle) return { error: 'Term not found' }
   if (cycle.status === 'closed') {
     return { error: 'Closed terms cannot be edited. Contact support if you need to recover a closed term.' }
+  }
+  // An active term is live: invoices are out and payments may already be in
+  // progress, so its dates and name are locked to stay true to what parents
+  // received. Changes are only possible before it goes live — undo the
+  // activation first (only allowed while nothing has been sent or paid).
+  if (cycle.status === 'active') {
+    return { error: 'This term is live, so its dates and name are locked. Undo its activation first (only possible before anything has been sent or paid) if you need to change them.' }
   }
 
   const name = form.name.trim()
@@ -594,6 +656,19 @@ export async function activateTerm(id: string) {
         return { error: `"${session.name}" is a past session — terms from past academic years can't be activated. Contact support if you need to recover it.` }
       }
 
+      // A term whose session ISN'T the current one (a same-year-ahead or
+      // future session, prepared as a draft) is a new academic year, not
+      // just the next term of this one — activating it here would silently
+      // switch sessions and close out the old term with a plain carry-
+      // forward, but never promote a single student to their next class
+      // (that only happens inside Year-End Rollover). Route through rollover
+      // instead, which closes the old term/session and promotes as one step.
+      if (currentActiveSession && currentActiveSession.id !== session.id) {
+        return {
+          error: `"${session.name}" isn't the current session — activating a term there is a new academic year, not just the next term. Use Year-End Rollover instead: it closes out the current year properly and promotes every student to their next class first.`,
+        }
+      }
+
       if (session.status !== 'active') {
         const sessResult = await setActiveSession(target.session_id)
         if ('error' in sessResult) return { error: sessResult.error }
@@ -661,6 +736,12 @@ type PreviewCloseTermResult =
       futureInvoicesNeedingResendCount: number
       hasFutureTerm: boolean
       unnotifiedChangedCount: number
+      // Ledger extras for the dedicated Close term surface (read-only):
+      // every invoice in the term locks against edits when it closes, and
+      // any active family credit rides forward to reduce a future invoice.
+      invoicesLockedCount: number
+      studentsWithCreditCount: number
+      creditCarried: number
     }
 
 // Read-only preview shown in the close-term confirmation modal — no writes.
@@ -735,6 +816,22 @@ export async function previewCloseTerm(cycleId: string): Promise<PreviewCloseTer
     .eq('school_id', schoolId)
     .eq('needs_resend', true)
 
+  // Active-family credit that rides forward. It sits on the student, not the
+  // term, so closing doesn't move it — but the ledger states it so the person
+  // closing sees the money already working in families' favour next term.
+  const { data: creditStudents } = await supabase
+    .from('students')
+    .select('credit_balance')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .gt('credit_balance', 0)
+
+  const studentsWithCreditCount = (creditStudents || []).length
+  const creditCarried = (creditStudents || []).reduce(
+    (s: number, x: any) => s + Number(x.credit_balance || 0),
+    0
+  )
+
   return {
     success: true as const,
     hasOutstanding: studentsWithOutstanding.length > 0,
@@ -744,6 +841,9 @@ export async function previewCloseTerm(cycleId: string): Promise<PreviewCloseTer
     futureInvoicesNeedingResendCount,
     hasFutureTerm,
     unnotifiedChangedCount: unnotifiedChangedCount || 0,
+    invoicesLockedCount: (invoices || []).length,
+    studentsWithCreditCount,
+    creditCarried,
   }
 }
 
@@ -799,17 +899,33 @@ export async function reopenTermAsDraft(id: string) {
     return { error: 'Term is already a draft' }
   }
 
-  // Check if any invoices have been SENT to parents.
-  // If not sent, we can safely move back to draft.
-  const { data: sentInvoices } = await supabase
+  // An undo is only safe while the term is "pristine since activation". One
+  // read derives every "already operating" signal: a recorded payment
+  // (paid_amount > 0, which also subsumes receipts — a receipt only exists for
+  // a payment), a sent invoice (a live obligation a parent already holds), or a
+  // balance carried IN from a term closed at activation (previous_balance > 0,
+  // which an undo cannot unwind since closed terms are permanent). Cancelled
+  // invoices are excluded, matching the counts on the Cycles list.
+  const { data: invs } = await supabase
     .from('invoices')
-    .select('id')
+    .select('sent_at, paid_amount, previous_balance')
     .eq('billing_cycle_id', id)
-    .not('sent_at', 'is', null)
-    .limit(1)
+    .eq('school_id', schoolId)
+    .neq('status', 'cancelled')
 
-  if (sentInvoices && sentInvoices.length > 0) {
-    return { error: 'Cannot move to draft — invoices have already been sent to parents for this term.' }
+  const anyPaid = (invs || []).some(i => Number(i.paid_amount || 0) > 0)
+  const anySent = (invs || []).some(i => i.sent_at != null)
+  const anyCarriedIn = (invs || []).some(i => Number(i.previous_balance || 0) > 0)
+
+  // Money first (the loudest signal), then sent, then carried-in.
+  if (anyPaid) {
+    return { error: 'Payments have already been recorded on this term, so it cannot go back to draft. Its dates and name stay locked to match what parents were billed.' }
+  }
+  if (anySent) {
+    return { error: 'Invoices for this term have already been sent to parents, so it cannot go back to draft. Its dates and name stay locked to match what parents received.' }
+  }
+  if (anyCarriedIn) {
+    return { error: 'This term carried unpaid balances forward from the term it replaced, so it cannot go back to draft, and its dates and name stay locked.' }
   }
 
   const { error } = await supabase

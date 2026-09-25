@@ -1,5 +1,5 @@
 // Core per-invoice send logic, shared by the single-invoice action
-// (src/app/(app)/invoices/[id]/actions.ts) and the bulk_send background-job
+// (src/app/(app)/money/invoices/[id]/actions.ts) and the bulk_send background-job
 // chunk processor below. No permission check here — callers are expected to
 // have already checked (mirrors provisionStudentDVA vs. its wrapping actions
 // in src/lib/payments/provisionDVA.ts) since a service-role-driven job worker
@@ -23,7 +23,12 @@ async function buildInvoiceEmailContent(
   params: InvoiceMessageParams
 ): Promise<EmailContent> {
   const invoiceDetail = await getInvoiceByIdForSchool(supabase, schoolId, invoiceId)
-  const email = composeInvoiceEmail({ ...params, logoUrl: invoiceDetail?.schoolLogoUrl })
+  const email = composeInvoiceEmail({
+    ...params,
+    logoUrl: invoiceDetail?.schoolLogoUrl,
+    className: invoiceDetail?.className || undefined,
+    lineItems: invoiceDetail?.lineItems,
+  })
   const pdfBuffer = invoiceDetail
     ? await renderInvoicePdfBuffer(invoiceDetail, invoiceDetail.schoolLogoUrl)
     : null
@@ -177,15 +182,22 @@ export async function sendInvoiceCore(
 export async function startBulkSendInvoicesJob(
   supabase: any,
   schoolId: string,
-  createdBy: string
+  createdBy: string,
+  opts: { onlyNeedsResend?: boolean } = {}
 ): Promise<{ error: string } | { jobId: string | null; total: number; processed: number }> {
-  const { data: allInvoices, error } = await supabase
+  // needs_resend bypasses the outstanding-balance gate: a parent needs to hear
+  // about a changed invoice even if it nets to a zero balance now (e.g. it was
+  // fully paid, then the fee items changed) — the notification is about the
+  // change itself, not about money still owed.
+  let query = supabase
     .from('invoices')
     .select('id, billing_cycles!inner(status)')
     .eq('school_id', schoolId)
     .neq('status', 'cancelled')
-    .gt('outstanding_amount', 0)
-    .or('sent_at.is.null,needs_resend.eq.true')
+  query = opts.onlyNeedsResend
+    ? query.eq('needs_resend', true)
+    : query.or('and(sent_at.is.null,outstanding_amount.gt.0),needs_resend.eq.true')
+  const { data: allInvoices, error } = await query
 
   if (error) return { error: error.message }
 

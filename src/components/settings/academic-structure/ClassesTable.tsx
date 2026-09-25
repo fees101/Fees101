@@ -4,7 +4,9 @@ import { Fragment, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AddClassPanel from './AddClassPanel'
 import EditClassPanel from './EditClassPanel'
-import { updateClass } from '@/app/(app)/settings/academic-structure/actions'
+import { updateClass } from '@/app/(app)/school/academic-structure/actions'
+import Toast from '@/components/ui/Toast'
+import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 
 interface ClassRow {
   id: string
@@ -33,6 +35,10 @@ export default function ClassesTable({ classes, sections }: Props) {
   const [showAdd, setShowAdd] = useState(false)
   const [editingClass, setEditingClass] = useState<ClassRow | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ ok: boolean; message: string } | null>(null)
+  const [deactivateConfirm, setDeactivateConfirm] = useState<ClassRow | null>(null)
+  const [deactivating, setDeactivating] = useState(false)
+  const [deactivateError, setDeactivateError] = useState<string | null>(null)
 
   const existingDisplayOrders = classes.map(c => c.displayOrder)
 
@@ -61,8 +67,8 @@ export default function ClassesTable({ classes, sections }: Props) {
   }, [classes])
 
   function promotesToLabel(cls: ClassRow) {
-    if (!cls.nextClassId) return <span className="text-amber-600">Exits school</span>
-    return classNameById[cls.nextClassId] || <span className="text-gray-400 italic">Unknown class</span>
+    if (!cls.nextClassId) return <span className="text-[var(--color-ochre-text)]">Exits school</span>
+    return classNameById[cls.nextClassId] || <span className="text-[var(--color-neutral-500)] italic">Unknown class</span>
   }
 
   async function handleDeactivate(cls: ClassRow) {
@@ -71,17 +77,28 @@ export default function ClassesTable({ classes, sections }: Props) {
       setError(`Cannot deactivate ${cls.name} — it has ${cls.studentCount} active ${cls.studentCount === 1 ? 'student' : 'students'}. Move them to another class first.`)
       return
     }
-    if (!confirm(`Deactivate ${cls.name}?`)) return
+    setDeactivateError(null)
+    setDeactivateConfirm(cls)
+  }
+
+  async function confirmDeactivate() {
+    if (!deactivateConfirm) return
+    const cls = deactivateConfirm
+    setDeactivating(true)
+    setDeactivateError(null)
     const result = await updateClass(cls.id, {
       name: cls.name,
       sectionId: cls.sectionId,
       displayOrder: cls.displayOrder,
       isActive: false,
     })
+    setDeactivating(false)
     if (result.error) {
-      setError(result.error)
+      setDeactivateError(result.error)
       return
     }
+    setDeactivateConfirm(null)
+    setToast({ ok: true, message: `${cls.name} deactivated.` })
     router.refresh()
   }
 
@@ -103,184 +120,157 @@ export default function ClassesTable({ classes, sections }: Props) {
     setEditingClass(null)
   }
 
-  const sidePanelOpen = showAdd || editingClass !== null
+  function renderRow(cls: ClassRow) {
+    return (
+      <tr key={cls.id} className={cls.isActive ? '' : 'opacity-50'}>
+        <td className="text-center m-num">{cls.displayOrder}</td>
+        <td className="font-medium text-[var(--color-ink)]">{cls.name}</td>
+        <td className="text-center m-num">{cls.studentCount}</td>
+        <td className="text-center m-num">{cls.feeItemCount}</td>
+        <td>{promotesToLabel(cls)}</td>
+        <td>
+          {cls.isActive ? (
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-ink)]">Active</span>
+          ) : (
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-neutral-500)]">Inactive</span>
+          )}
+        </td>
+        <td className="text-right">
+          <div className="inline-flex items-center gap-3">
+            <button
+              onClick={() => openEdit(cls)}
+              className="text-xs font-semibold text-[var(--color-ink)] hover:underline"
+            >
+              Edit
+            </button>
+            {cls.isActive && (
+              <button
+                onClick={() => handleDeactivate(cls)}
+                className="text-xs font-semibold text-[var(--color-signal-text)] hover:underline"
+              >
+                Deactivate
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+  if (showAdd) {
+    return (
+      <AddClassPanel
+        sections={sections}
+        existingDisplayOrders={existingDisplayOrders}
+        allClasses={classes}
+        onClose={closeAdd}
+        onSuccess={() => { closeAdd(); router.refresh() }}
+      />
+    )
+  }
+
+  if (editingClass) {
+    return (
+      <EditClassPanel
+        classData={editingClass}
+        sections={sections}
+        allClasses={classes}
+        onClose={closeEdit}
+        onSuccess={() => { closeEdit(); router.refresh() }}
+      />
+    )
+  }
 
   return (
     <>
       <div className="mb-4 flex items-center justify-between gap-4">
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-[var(--color-neutral-700)] m-num">
           {classes.filter(c => c.isActive).length} active {classes.filter(c => c.isActive).length === 1 ? 'class' : 'classes'}
         </p>
         <button
           onClick={openAdd}
-          className="px-4 py-2 bg-mint text-navy text-sm font-semibold rounded-lg hover:bg-mint/90 flex-shrink-0"
+          className="m-btn m-btn-primary m-btn-sm flex-shrink-0"
         >
           + Add class
         </button>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        <div className="mb-4 p-3 bg-[var(--color-signal-100)] border-l-[3px] border-[var(--color-signal)] text-sm text-[var(--color-signal-text)]">
           {error}
         </div>
       )}
 
-      <div className={`grid gap-4 ${sidePanelOpen ? 'grid-cols-1 lg:grid-cols-[1fr_380px]' : 'grid-cols-1'}`}>
-
-        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-          {classes.length === 0 && sections.length === 0 ? (
-            <p className="p-12 text-center text-gray-500 text-sm">
-              No sections or classes yet. Add a section on the Sections tab, then &quot;+ Add class&quot; here.
-            </p>
-          ) : (
-            <table className="w-full min-w-[640px]">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <th className="text-center text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3 w-16">Order</th>
-                  <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Class</th>
-                  <th className="text-center text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Students</th>
-                  <th className="text-center text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Fee items</th>
-                  <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Promotes to</th>
-                  <th className="text-left text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Status</th>
-                  <th className="text-right text-xs text-gray-500 font-medium uppercase tracking-wider px-6 py-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {groupedBySection.map(({ section, classes: sectionClasses }) => (
-                  <Fragment key={section.id}>
-                    <tr className="bg-gray-50/70">
-                      <td colSpan={7} className="px-6 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                        {section.name} <span className="text-gray-400 font-normal normal-case">({sectionClasses.length})</span>
+      <div className="border-2 border-[var(--color-ink)] overflow-x-auto">
+        {classes.length === 0 && sections.length === 0 ? (
+          <p className="p-12 text-center text-sm text-[var(--color-neutral-700)]">
+            No sections or classes yet. Add a section on the Sections tab, then &quot;+ Add class&quot; here.
+          </p>
+        ) : (
+          <table className="m-table min-w-[640px]">
+            <thead>
+              <tr>
+                <th className="text-center w-16">Order</th>
+                <th>Class</th>
+                <th className="text-center">Students</th>
+                <th className="text-center">Fee items</th>
+                <th>Promotes to</th>
+                <th>Status</th>
+                <th className="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupedBySection.map(({ section, classes: sectionClasses }) => (
+                <Fragment key={section.id}>
+                  <tr className="bg-[var(--color-surface)]">
+                    <td colSpan={7} className="text-xs font-semibold text-[var(--color-neutral-700)] uppercase tracking-wider">
+                      {section.name} <span className="text-[var(--color-neutral-500)] font-normal normal-case">({sectionClasses.length})</span>
+                    </td>
+                  </tr>
+                  {sectionClasses.length === 0 ? (
+                    <tr key={`empty-${section.id}`}>
+                      <td colSpan={7} className="text-sm text-[var(--color-neutral-500)] italic text-center">
+                        No classes in this section yet.
                       </td>
                     </tr>
-                    {sectionClasses.length === 0 ? (
-                      <tr key={`empty-${section.id}`}>
-                        <td colSpan={7} className="px-6 py-4 text-sm text-gray-400 italic text-center">
-                          No classes in this section yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      sectionClasses.map(cls => (
-                        <tr key={cls.id} className={cls.isActive ? '' : 'opacity-50'}>
-                          <td className="px-6 py-3 text-sm text-center text-gray-500">{cls.displayOrder}</td>
-                          <td className="px-6 py-3 text-sm font-medium text-navy">{cls.name}</td>
-                          <td className="px-6 py-3 text-sm text-center text-navy">{cls.studentCount}</td>
-                          <td className="px-6 py-3 text-sm text-center text-navy">{cls.feeItemCount}</td>
-                          <td className="px-6 py-3 text-sm text-navy">{promotesToLabel(cls)}</td>
-                          <td className="px-6 py-3">
-                            {cls.isActive ? (
-                              <span className="inline-flex px-2 py-0.5 text-xs font-medium bg-mint-light text-mint rounded-full">
-                                Active
-                              </span>
-                            ) : (
-                              <span className="inline-flex px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">
-                                Inactive
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-6 py-3 text-right">
-                            <div className="inline-flex items-center gap-2">
-                              <button
-                                onClick={() => openEdit(cls)}
-                                className="text-xs text-mint font-medium hover:underline"
-                              >
-                                Edit
-                              </button>
-                              {cls.isActive && (
-                                <>
-                                  <span className="text-gray-300">·</span>
-                                  <button
-                                    onClick={() => handleDeactivate(cls)}
-                                    className="text-xs text-red-600 font-medium hover:underline"
-                                  >
-                                    Deactivate
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </Fragment>
-                ))}
+                  ) : (
+                    sectionClasses.map(cls => renderRow(cls))
+                  )}
+                </Fragment>
+              ))}
 
-                {orphanedClasses.length > 0 && (
-                  <>
-                    <tr className="bg-gray-50/70">
-                      <td colSpan={7} className="px-6 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                        No section <span className="text-gray-400 font-normal normal-case">({orphanedClasses.length})</span>
-                      </td>
-                    </tr>
-                    {orphanedClasses.map(cls => (
-                      <tr key={cls.id} className={cls.isActive ? '' : 'opacity-50'}>
-                        <td className="px-6 py-3 text-sm text-center text-gray-500">{cls.displayOrder}</td>
-                        <td className="px-6 py-3 text-sm font-medium text-navy">{cls.name}</td>
-                        <td className="px-6 py-3 text-sm text-center text-navy">{cls.studentCount}</td>
-                        <td className="px-6 py-3 text-sm text-center text-navy">{cls.feeItemCount}</td>
-                        <td className="px-6 py-3 text-sm text-navy">{promotesToLabel(cls)}</td>
-                        <td className="px-6 py-3">
-                          {cls.isActive ? (
-                            <span className="inline-flex px-2 py-0.5 text-xs font-medium bg-mint-light text-mint rounded-full">
-                              Active
-                            </span>
-                          ) : (
-                            <span className="inline-flex px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">
-                              Inactive
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-3 text-right">
-                          <div className="inline-flex items-center gap-2">
-                            <button
-                              onClick={() => openEdit(cls)}
-                              className="text-xs text-mint font-medium hover:underline"
-                            >
-                              Edit
-                            </button>
-                            {cls.isActive && (
-                              <>
-                                <span className="text-gray-300">·</span>
-                                <button
-                                  onClick={() => handleDeactivate(cls)}
-                                  className="text-xs text-red-600 font-medium hover:underline"
-                                >
-                                  Deactivate
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </>
-                )}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        {showAdd && (
-          <AddClassPanel
-            sections={sections}
-            existingDisplayOrders={existingDisplayOrders}
-            allClasses={classes}
-            onClose={closeAdd}
-            onSuccess={() => { closeAdd(); router.refresh() }}
-          />
+              {orphanedClasses.length > 0 && (
+                <>
+                  <tr className="bg-[var(--color-surface)]">
+                    <td colSpan={7} className="text-xs font-semibold text-[var(--color-neutral-700)] uppercase tracking-wider">
+                      No section <span className="text-[var(--color-neutral-500)] font-normal normal-case">({orphanedClasses.length})</span>
+                    </td>
+                  </tr>
+                  {orphanedClasses.map(cls => renderRow(cls))}
+                </>
+              )}
+            </tbody>
+          </table>
         )}
-
-        {editingClass && (
-          <EditClassPanel
-            classData={editingClass}
-            sections={sections}
-            allClasses={classes}
-            onClose={closeEdit}
-            onSuccess={() => { closeEdit(); router.refresh() }}
-          />
-        )}
-
       </div>
+
+      {toast && <Toast message={toast.message} ok={toast.ok} onDismiss={() => setToast(null)} />}
+
+      {deactivateConfirm && (
+        <DestructiveConfirmModal
+          title={`Deactivate ${deactivateConfirm.name}?`}
+          description="Hides this class from the dropdowns used when adding a student or setting up a new term's fees."
+          rows={[
+            { label: 'Fee items already set up for this class', value: deactivateConfirm.feeItemCount, emphasize: true },
+          ]}
+          note="Those existing fee items stay as they are — you just can't add new ones here until it's reactivated. Reactivate anytime from Edit."
+          error={deactivateError}
+          actions={[
+            { label: 'Cancel', onClick: () => setDeactivateConfirm(null), variant: 'outline', disabled: deactivating },
+            { label: deactivating ? 'Deactivating...' : 'Deactivate', onClick: confirmDeactivate, variant: 'danger', disabled: deactivating },
+          ]}
+        />
+      )}
     </>
   )
 }

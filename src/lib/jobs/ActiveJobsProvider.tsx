@@ -195,12 +195,12 @@ export function ActiveJobsProvider({ children, interruptedJobs = [] }: { childre
           const failedNote = final.failed ? `, ${final.failed} failed` : ''
           setToasts(t => [
             ...t,
-            { id: jobId, ok: true, message: `${label} complete — ${final.processed}${final.total ? `/${final.total}` : ''}${failedNote}` },
+            { id: jobId, ok: true, message: `${label} complete - ${final.processed}${final.total ? `/${final.total}` : ''}${failedNote}` },
           ])
         } else if (final.status === 'failed') {
-          setToasts(t => [...t, { id: jobId, ok: false, message: `${label} failed — ${final.error || 'something went wrong'}` }])
+          setToasts(t => [...t, { id: jobId, ok: false, message: `${label} failed - ${final.error || 'something went wrong'}` }])
         } else if (final.status === 'cancelled') {
-          setToasts(t => [...t, { id: jobId, ok: false, message: `${label} cancelled — ${final.processed}${final.total ? `/${final.total}` : ''} done` }])
+          setToasts(t => [...t, { id: jobId, ok: false, message: `${label} cancelled - ${final.processed}${final.total ? `/${final.total}` : ''} done` }])
         }
 
         const listener = completionListeners.current.get(jobId)
@@ -328,30 +328,27 @@ export function ActiveJobsProvider({ children, interruptedJobs = [] }: { childre
       <div className="fixed bottom-6 right-6 z-[110] flex flex-col-reverse gap-3 items-end pointer-events-none max-w-[calc(100vw-3rem)]">
         {failedNotices.map(j => (
           <div key={j.jobId} className="pointer-events-auto max-w-sm">
-            <div className="flex items-start gap-3 p-4 rounded-xl shadow-lg border border-amber-200 bg-white">
-              <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
+            <div className="flex items-start gap-3 p-4 bg-[var(--color-ink)] text-[var(--color-paper)] border-l-[5px] border-[var(--color-signal)] m-anim-slab">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-navy">{j.label} didn't finish</p>
-                <p className="text-xs text-gray-600 mt-0.5">
-                  {j.processed}{j.total ? `/${j.total}` : ''} done{j.failed ? `, ${j.failed} failed` : ''}
-                  {j.error ? ` — ${j.error}` : ''}
+                <p className="text-sm font-semibold">
+                  {j.label} stopped after {j.processed}{j.total ? ` of ${j.total}` : ''}
+                </p>
+                <p className="text-xs text-[var(--color-neutral-400)] mt-0.5 m-num">
+                  Resume from {j.processed + 1}{j.failed ? ` · ${j.failed} failed` : ''}
+                  {j.error ? ` · ${j.error}` : ''}
                 </p>
                 {j.href && (
-                  <a href={j.href} className="text-xs font-medium text-mint hover:underline mt-1 inline-block">
-                    Go review →
+                  <a href={j.href} className="text-xs font-semibold text-[var(--color-paper)] hover:underline mt-1 inline-block">
+                    Go review
                   </a>
                 )}
               </div>
               <button
                 onClick={() => dismissFailedNotice(j.jobId)}
                 aria-label="Dismiss"
-                className="p-1.5 -m-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 flex-shrink-0"
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-400)] hover:text-[var(--color-paper)] flex-shrink-0"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                Dismiss
               </button>
             </div>
           </div>
@@ -359,53 +356,55 @@ export function ActiveJobsProvider({ children, interruptedJobs = [] }: { childre
         {hiddenRunningJobs.length > 0 && (
           <button
             onClick={restoreHiddenChips}
-            className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full shadow-lg border border-gray-200 bg-white text-xs font-medium text-gray-600 hover:bg-gray-50"
+            className="pointer-events-auto flex items-center gap-2.5 px-3 py-2 bg-[var(--color-ink)] text-[var(--color-paper)] text-xs font-semibold hover:bg-[var(--color-neutral-900)]"
           >
-            <div className="w-2.5 h-2.5 border-2 border-mint border-t-transparent rounded-full animate-spin flex-shrink-0" />
-            {hiddenRunningJobs.length} hidden job{hiddenRunningJobs.length === 1 ? '' : 's'} running — Show
+            <span className="m-loading w-7 flex-shrink-0" />
+            {hiddenRunningJobs.length} hidden job{hiddenRunningJobs.length === 1 ? '' : 's'} running - Show
           </button>
         )}
         {runningJobs.map(j => {
           const pct = j.total > 0 ? Math.min(100, Math.round((j.processed / j.total) * 100)) : 0
           const inner = (
             <>
-              <div className="w-4 h-4 border-2 border-mint border-t-transparent rounded-full animate-spin flex-shrink-0" />
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium text-navy truncate">
-                  {j.cancelling ? 'Cancelling...' : `${j.label}... ${j.processed}/${j.total || '?'}`}
+                <p className="text-xs font-semibold truncate">
+                  {j.cancelling ? 'Cancelling...' : j.label}
                 </p>
-                <div className="w-40 h-1.5 bg-gray-100 rounded-full overflow-hidden mt-1">
-                  <div className="h-full bg-mint transition-all duration-500" style={{ width: `${pct}%` }} />
-                </div>
+                {j.total > 0 ? (
+                  <div className="w-44 h-0.5 bg-[var(--color-neutral-800)] overflow-hidden mt-2">
+                    <div className="h-full bg-[var(--color-paper)]" style={{ width: `${pct}%`, transition: 'width var(--dur-settle) var(--ease-out)' }} />
+                  </div>
+                ) : (
+                  <div className="w-44 mt-2 m-loading" />
+                )}
+                <p className="text-[11px] text-[var(--color-neutral-400)] mt-1 m-num">{j.processed}/{j.total || '?'}</p>
               </div>
               {!j.cancelling && (
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelJob(j.jobId) }}
                   aria-label="Cancel"
                   title="Cancel this job"
-                  className="px-2 py-1 -m-1 rounded-md text-xs font-medium text-red-500 hover:text-red-600 hover:bg-red-50 flex-shrink-0"
+                  className="px-2 py-1 -m-1 text-xs font-semibold text-[var(--color-signal-500)] hover:text-[var(--color-signal-400)] flex-shrink-0"
                 >
                   Cancel
                 </button>
               )}
-              {/* Hides the chip only — the job keeps running/polling in the
-                  background. This is distinct from Cancel above, which stops
-                  the job itself — kept as its own small "x" so the two
-                  actions (stop the job vs. stop watching it) stay visually
-                  and functionally separate. */}
+              {/* Hides the chip only. The job keeps running/polling in the
+                  background. Distinct from Cancel above, which stops the job
+                  itself, kept as its own small "x" so the two actions (stop the
+                  job vs. stop watching it) stay visually and functionally
+                  separate. */}
               <button
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); hideChip(j.jobId) }}
                 aria-label="Hide"
                 title="Hide (keeps running in the background)"
-                className="p-1 -m-1 rounded-md text-gray-300 hover:text-gray-600 hover:bg-gray-50 flex-shrink-0"
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-paper)] flex-shrink-0"
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                Hide
               </button>
             </>
           )
-          const cls = 'pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border border-gray-200 bg-white max-w-sm'
+          const cls = 'pointer-events-auto flex items-center gap-3 p-4 bg-[var(--color-ink)] text-[var(--color-paper)] border-l-[5px] border-[var(--color-neutral-600)] max-w-sm m-anim-slab'
           // Clicking the chip itself (not the hide "x") takes you back to the
           // page that owns this job, so you can see full progress, failures
           // so far, and the real Cancel button inside its modal/panel.
@@ -428,25 +427,14 @@ export function ActiveJobsProvider({ children, interruptedJobs = [] }: { childre
         })}
         {toasts.map(t => (
           <div key={t.id} className="pointer-events-auto max-w-sm">
-            <div className={`flex items-start gap-3 p-4 rounded-xl shadow-lg border bg-white ${t.ok ? 'border-mint/30' : 'border-red-200'}`}>
-              {t.ok ? (
-                <svg className="w-5 h-5 text-mint flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              )}
-              <p className="text-sm text-navy flex-1">{t.message}</p>
+            <div className={`flex items-start gap-3 p-4 bg-[var(--color-ink)] text-[var(--color-paper)] border-l-[5px] m-anim-slab ${t.ok ? 'border-[var(--color-paper)]' : 'border-[var(--color-signal)]'}`}>
+              <p className="text-sm flex-1 m-num">{t.message}</p>
               <button
                 onClick={() => dismissToast(t.id)}
                 aria-label="Dismiss"
-                className="p-1.5 -m-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 flex-shrink-0"
+                className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-400)] hover:text-[var(--color-paper)] flex-shrink-0"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                Dismiss
               </button>
             </div>
           </div>

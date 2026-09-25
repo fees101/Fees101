@@ -7,25 +7,7 @@ import { AUDIT_LOG_GROUPS, groupForAction } from '@/lib/audit/auditLogGroups'
 import { actionLabel } from '@/lib/audit/auditLogLabels'
 import { formatDate, formatDateTime } from '@/lib/format/date'
 
-const PAGE_SIZE_OPTIONS = [50, 100, 200]
-
-// Colour-coded pill per module — one hue each so a row's area of the app reads
-// at a glance. Keys match AUDIT_LOG_GROUPS labels; classes are safelisted in
-// globals.css (the JIT can't see them here). 'Other' catches anything unmapped.
-const MODULE_STYLES: Record<string, string> = {
-  'Staff': 'bg-blue-100 text-blue-700',
-  'Roles': 'bg-indigo-100 text-indigo-700',
-  'Discounts': 'bg-amber-100 text-amber-700',
-  'Invoices': 'bg-sky-100 text-sky-700',
-  'Students': 'bg-rose-100 text-rose-700',
-  'Families': 'bg-pink-100 text-pink-700',
-  'Classes & sections': 'bg-teal-100 text-teal-700',
-  'Sessions & terms': 'bg-cyan-100 text-cyan-700',
-  'Fee structure': 'bg-violet-100 text-violet-700',
-  'Settings': 'bg-slate-100 text-slate-700',
-  'Reports': 'bg-gray-100 text-gray-700',
-  'Other': 'bg-gray-100 text-gray-700',
-}
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 
 function getPageNumbers(currentPage: number, totalPages: number): (number | '...')[] {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
@@ -87,21 +69,28 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
     )
   }, [events, search])
 
-  const selectClass =
-    'rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm text-navy focus:border-mint focus:outline-none'
-
   const totalPages = Math.max(1, Math.ceil(total / perPage))
   const rangeStart = total === 0 ? 0 : (page - 1) * perPage + 1
   const rangeEnd = Math.min(page * perPage, total)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200">
-      <div className="p-5 flex items-center justify-between gap-4 flex-wrap border-b border-gray-100">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-          {total === 0 ? '0 events' : `${rangeStart}–${rangeEnd} of ${total} events`}
+    <div>
+      <div style={{ borderTop: '2px solid var(--color-ink)', paddingTop: 18 }}>
+        <h2 className="text-2xl font-extrabold tracking-[-0.015em] text-[var(--color-ink)]" style={{ margin: 0 }}>
+          Audit log
         </h2>
+        <p className="text-[13px] text-[var(--color-neutral-800)]" style={{ maxWidth: '74ch', marginTop: 8 }}>
+          Every staff action that changed money, access or a student record. Payments and messages live in Today →
+          Record; this is the trail for who did what.
+        </p>
+      </div>
+
+      <div className="pt-6 pb-4 mb-4 border-b border-[var(--color-neutral-300)] flex items-center justify-between gap-4 flex-wrap">
+        <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--color-neutral-700)]">
+          {total === 0 ? '0 events' : <>{rangeStart}-{rangeEnd} of <span className="m-num">{total}</span> events</>}
+        </p>
         <div className="flex items-center gap-3 flex-wrap">
-          <select value={group} onChange={(e) => navigate({ group: e.target.value, page: '1' })} className={selectClass}>
+          <select value={group} onChange={(e) => navigate({ group: e.target.value, page: '1' })} className="m-select w-auto min-h-0 py-1.5">
             <option value="all">All types</option>
             {AUDIT_LOG_GROUPS.map((g) => (
               <option key={g.label} value={g.label}>{g.label}</option>
@@ -113,20 +102,20 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
               value={from}
               onChange={(e) => navigate({ from: e.target.value, page: '1' })}
               aria-label="From date"
-              className={selectClass}
+              className="m-input w-auto min-h-0 py-1.5"
             />
-            <span className="text-gray-400 text-sm">–</span>
+            <span className="text-[var(--color-neutral-500)] text-sm">-</span>
             <input
               type="date"
               value={to}
               onChange={(e) => navigate({ to: e.target.value, page: '1' })}
               aria-label="To date"
-              className={selectClass}
+              className="m-input w-auto min-h-0 py-1.5"
             />
             {(from || to) && (
               <button
                 onClick={() => navigate({ from: '', to: '', page: '1' })}
-                className="text-xs text-gray-400 hover:text-navy px-1"
+                className="text-xs text-[var(--color-neutral-500)] hover:text-[var(--color-ink)] px-1"
               >
                 Clear
               </button>
@@ -137,29 +126,29 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search this page by summary or staff name"
-            className="px-3 py-1.5 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-mint/40 w-72"
+            className="m-input min-h-0 py-1.5 w-72"
           />
         </div>
       </div>
 
       {total === 0 ? (
-        <p className="p-5 text-sm text-gray-500">
+        <p className="text-sm text-[var(--color-neutral-700)] text-center py-16">
           {group === 'all' && !from && !to
             ? 'Nothing has happened yet — actions like role changes and discount approvals will show up here.'
             : 'No events match this filter.'}
         </p>
       ) : filtered.length === 0 ? (
-        <p className="p-5 text-sm text-gray-500">No events on this page match your search.</p>
+        <p className="text-sm text-[var(--color-neutral-700)] text-center py-16">No events on this page match your search.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="m-table">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-100">
-                <th className="px-5 py-3 font-medium whitespace-nowrap">When</th>
-                <th className="px-5 py-3 font-medium whitespace-nowrap">Who</th>
-                <th className="px-5 py-3 font-medium whitespace-nowrap">Action</th>
-                <th className="px-5 py-3 font-medium">Details</th>
-                <th className="px-5 py-3 font-medium whitespace-nowrap">Module</th>
+              <tr>
+                <th className="whitespace-nowrap">When</th>
+                <th className="whitespace-nowrap">Who</th>
+                <th className="whitespace-nowrap">Action</th>
+                <th>Details</th>
+                <th className="whitespace-nowrap text-right">Module</th>
               </tr>
             </thead>
             <tbody>
@@ -167,26 +156,24 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
                 const module = groupForAction(e.action)
                 const isSystem = e.actorName === 'System'
                 return (
-                  <tr key={e.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
-                    <td className="px-5 py-3.5 align-top text-gray-500 whitespace-nowrap" title={formatDateTime(e.createdAt)}>
+                  <tr key={e.id}>
+                    <td className="align-top text-[var(--color-neutral-700)] whitespace-nowrap m-num" title={formatDateTime(e.createdAt)}>
                       {timeAgo(e.createdAt)}
                     </td>
-                    <td className="px-5 py-3.5 align-top whitespace-nowrap">
+                    <td className="align-top whitespace-nowrap">
                       {isSystem ? (
-                        <span className="inline-flex items-center gap-1.5 text-gray-500">
-                          <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+                        <span className="inline-flex items-center gap-1.5 text-[var(--color-neutral-700)]">
+                          <span aria-hidden className="w-1.5 h-1.5 bg-[var(--color-neutral-400)]" />
                           Automated
                         </span>
                       ) : (
-                        <span className="text-navy">{e.actorName}</span>
+                        <span className="text-[var(--color-ink)]">{e.actorName}</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 align-top text-navy font-medium whitespace-nowrap">{actionLabel(e.action)}</td>
-                    <td className="px-5 py-3.5 align-top text-gray-600">{e.summary}</td>
-                    <td className="px-5 py-3.5 align-top whitespace-nowrap">
-                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${MODULE_STYLES[module] || MODULE_STYLES['Other']}`}>
-                        {module}
-                      </span>
+                    <td className="align-top text-[var(--color-ink)] font-semibold whitespace-nowrap">{actionLabel(e.action)}</td>
+                    <td className="align-top text-[var(--color-neutral-700)]">{e.summary}</td>
+                    <td className="align-top whitespace-nowrap text-right">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-neutral-500)]">{module}</span>
                     </td>
                   </tr>
                 )
@@ -197,41 +184,48 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
       )}
 
       {total > 0 && (
-        <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500">
-              Showing {rangeStart}-{rangeEnd} of {total} events
-            </span>
-            <label className="flex items-center gap-1.5 text-sm text-gray-500">
-              Per page
-              <select
-                value={perPage}
-                onChange={(e) => navigate({ perPage: e.target.value, page: '1' })}
-                className={selectClass}
-              >
+        <div className="pt-4 mt-1 border-t border-[var(--color-neutral-300)] flex flex-col sm:flex-row items-center gap-3 justify-between text-sm">
+          <div className="flex items-center gap-4">
+            <p className="text-[var(--color-neutral-700)]">
+              Showing <span className="m-num">{rangeStart}-{rangeEnd}</span> of <span className="m-num">{total}</span> events
+            </p>
+            <label className="flex items-center gap-2 text-[var(--color-neutral-700)]">
+              <span className="hidden sm:inline">Show</span>
+              <span className="flex items-center gap-2.5">
                 {PAGE_SIZE_OPTIONS.map((n) => (
-                  <option key={n} value={n}>{n}</option>
+                  <button
+                    key={n}
+                    onClick={() => navigate({ perPage: String(n), page: '1' })}
+                    className="m-num"
+                    style={{
+                      background: 'none', border: 0, padding: 0, cursor: 'pointer',
+                      fontWeight: perPage === n ? 700 : 400,
+                      color: perPage === n ? 'var(--color-ink)' : 'var(--color-neutral-700)',
+                    }}
+                  >
+                    {n}
+                  </button>
                 ))}
-              </select>
+              </span>
             </label>
           </div>
           <div className="flex items-center gap-1">
             <button
               onClick={() => navigate({ page: String(page - 1) })}
               disabled={page <= 1}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-navy disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              className="m-btn m-btn-sm hover:bg-[color-mix(in_srgb,var(--color-ink)_8%,transparent)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Previous
+              ← Previous
             </button>
             {getPageNumbers(page, totalPages).map((p, i) =>
               p === '...' ? (
-                <span key={`ellipsis-${i}`} className="px-2 text-sm text-gray-400">...</span>
+                <span key={`ellipsis-${i}`} className="px-2 text-[var(--color-neutral-500)]">...</span>
               ) : (
                 <button
                   key={p}
                   onClick={() => navigate({ page: String(p) })}
-                  className={`min-w-[2.25rem] px-2.5 py-1.5 rounded-lg text-sm ${
-                    p === page ? 'bg-navy text-white font-medium' : 'text-gray-700 hover:bg-gray-50'
+                  className={`min-w-[32px] px-2 py-1 text-sm m-num ${
+                    p === page ? 'bg-[var(--color-ink)] text-[var(--color-paper)] font-semibold' : 'text-[var(--color-neutral-700)] hover:text-[var(--color-ink)]'
                   }`}
                 >
                   {p}
@@ -241,9 +235,9 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
             <button
               onClick={() => navigate({ page: String(page + 1) })}
               disabled={page >= totalPages}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-navy disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              className="m-btn m-btn-sm hover:bg-[color-mix(in_srgb,var(--color-ink)_8%,transparent)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Next
+              Next →
             </button>
           </div>
         </div>
