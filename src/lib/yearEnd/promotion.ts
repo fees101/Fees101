@@ -33,7 +33,7 @@ export async function getPromotionPreview(supabase: any, schoolId: string): Prom
     .eq('school_id', schoolId)
     .order('display_order', { ascending: true })
 
-  const classById: Record<string, { id: string; name: string; next_class_id: string | null }> = {}
+  const classById: Record<string, { id: string; name: string; next_class_id: string | null; display_order: number }> = {}
   ;(classes || []).forEach((c: any) => { classById[c.id] = c })
 
   const { data: students } = await supabase
@@ -68,7 +68,11 @@ export async function getPromotionPreview(supabase: any, schoolId: string): Prom
     groups[currentClass.id].students.push(row)
   }
 
-  return Object.values(groups).sort((a, b) => a.className.localeCompare(b.className))
+  return Object.values(groups).sort((a, b) => {
+    const oa = classById[a.classId]?.display_order ?? 9999
+    const ob = classById[b.classId]?.display_order ?? 9999
+    return oa - ob
+  })
 }
 
 export interface PromotionDecision {

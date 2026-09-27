@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import BulkSendInvoicesPanel from '@/components/invoices/BulkSendInvoicesPanel'
+import GenerateInvoicesPanel from '@/components/fees/GenerateInvoicesPanel'
+import BulkDVAPanel from '@/components/students/BulkDVAPanel'
 import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
 
 export interface NeedsYouItem {
@@ -16,6 +18,14 @@ export interface NeedsYouItem {
   // link into a "Resend now or review?" choice, so clearing the backlog
   // doesn't require a detour through the invoices list at all.
   resendCount?: number
+  // Present only on the "invoices not generated" row — same "review or act"
+  // choice as resend, but opens GenerateInvoicesPanel for this term.
+  generateCycleId?: string
+  generateCount?: number
+  // Present only on the "no payment account" row — skips the choice modal
+  // and opens BulkDVAPanel directly, since that panel already has its own
+  // "This will create N accounts — Cancel / Create N" confirm step.
+  dvaCount?: number
 }
 
 interface Props {
@@ -31,8 +41,9 @@ const ROW_CLASSES = 'm-row grid items-baseline gap-4 py-3.5 hover:bg-[var(--colo
 const ROW_STYLE = { gridTemplateColumns: 'minmax(0,1fr) auto auto' } as const
 
 export default function NeedsYouList({ items, showFinancials }: Props) {
-  const [choice, setChoice] = useState<{ count: number; href: string } | null>(null)
-  const [resending, setResending] = useState(false)
+  const [choice, setChoice] = useState<{ count: number; href: string; kind: 'resend' | 'generate'; cycleId?: string } | null>(null)
+  const [acting, setActing] = useState(false)
+  const [dva, setDva] = useState<{ count: number; href: string } | null>(null)
   const { findRunningJob } = useActiveJobs()
   // A bulk_send job started here or from the invoices list both surface on
   // this row — startBulkSendInvoicesJob dedupes to one running job at a
@@ -92,12 +103,38 @@ export default function NeedsYouList({ items, showFinancials }: Props) {
                   // invoices list) — reopen its progress panel directly
                   // rather than asking "resend now or review?" again.
                   if (sending && sendJob) {
-                    setChoice({ count: sendJob.total || item.resendCount!, href: item.href })
-                    setResending(true)
+                    setChoice({ count: sendJob.total || item.resendCount!, href: item.href, kind: 'resend' })
+                    setActing(true)
                     return
                   }
-                  setChoice({ count: item.resendCount!, href: item.href })
+                  setChoice({ count: item.resendCount!, href: item.href, kind: 'resend' })
                 }}
+                className={ROW_CLASSES}
+                style={ROW_STYLE}
+              >
+                {content}
+              </button>
+            )
+          }
+          if (item.generateCycleId) {
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setChoice({ count: item.generateCount ?? 0, href: item.href, kind: 'generate', cycleId: item.generateCycleId })}
+                className={ROW_CLASSES}
+                style={ROW_STYLE}
+              >
+                {content}
+              </button>
+            )
+          }
+          if (item.dvaCount) {
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setDva({ count: item.dvaCount!, href: item.href })}
                 className={ROW_CLASSES}
                 style={ROW_STYLE}
               >
@@ -113,12 +150,14 @@ export default function NeedsYouList({ items, showFinancials }: Props) {
         })}
       </div>
 
-      {choice && !resending && (
+      {choice && !acting && (
         <div className="fixed inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)] z-[70] flex items-center justify-center p-4 m-anim-fade">
           <div className="bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-md w-full m-anim-scale">
             <div className="p-5 border-b-2 border-[var(--color-ink)] flex items-center justify-between">
               <h3 className="text-xl font-extrabold tracking-[-0.015em] text-[var(--color-ink)]">
-                {choice.count} changed invoice{choice.count === 1 ? '' : 's'}
+                {choice.kind === 'resend'
+                  ? `${choice.count} changed invoice${choice.count === 1 ? '' : 's'}`
+                  : 'Generate invoices?'}
               </h3>
               <button onClick={() => setChoice(null)} aria-label="Close" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-ink)]">
                 Close
@@ -126,23 +165,43 @@ export default function NeedsYouList({ items, showFinancials }: Props) {
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-[var(--color-neutral-700)]">
-                Their parents still hold the old figures. Resend them now, or review the invoices first.
+                {choice.kind === 'resend'
+                  ? 'Their parents still hold the old figures. Resend them now, or review the invoices first.'
+                  : `${choice.count} active student${choice.count === 1 ? '' : 's'} ready to be invoiced. Generate now, or review the term first.`}
               </p>
               <div className="flex justify-end gap-2">
                 <Link href={choice.href} className="m-btn m-btn-outline">Review</Link>
-                <button onClick={() => setResending(true)} className="m-btn m-btn-primary">Resend now</button>
+                <button onClick={() => setActing(true)} className="m-btn m-btn-primary">
+                  {choice.kind === 'resend' ? 'Resend now' : 'Generate now'}
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {resending && choice && (
+      {acting && choice?.kind === 'resend' && (
         <BulkSendInvoicesPanel
           count={choice.count}
           onlyNeedsResend
           skipConfirm
-          onClose={() => { setResending(false); setChoice(null) }}
+          onClose={() => { setActing(false); setChoice(null) }}
+        />
+      )}
+
+      {acting && choice?.kind === 'generate' && choice.cycleId && (
+        <GenerateInvoicesPanel
+          cycleId={choice.cycleId}
+          onClose={() => { setActing(false); setChoice(null) }}
+          onSuccess={() => { setActing(false); setChoice(null) }}
+        />
+      )}
+
+      {dva && (
+        <BulkDVAPanel
+          count={dva.count}
+          href={dva.href}
+          onClose={() => setDva(null)}
         />
       )}
     </>

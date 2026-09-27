@@ -7,6 +7,7 @@ import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 import { reconcileSchool } from '@/lib/payments/reconcile'
 import { isProviderDownError, providerDownMessage } from '@/lib/payments/providerErrors'
 import { logAuditEvent } from '@/lib/audit/logAudit'
+import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 
 // Providers wired into getProvider(). Guard against anything else so we never
 // save a provider the engine can't actually use.
@@ -151,7 +152,13 @@ export async function runReconciliationNow() {
 
   let result
   try {
-    result = await reconcileSchool(schoolId, supabase)
+    // processed_provider_transactions has RLS enabled with zero policies —
+    // it's only ever meant to be touched server-to-server (see
+    // db/webhook_and_provider_tables.sql), same as the webhook and cron
+    // reconciliation paths. schoolId is already authorized above via
+    // requirePermission, so handing reconcileSchool the service-role client
+    // here is safe and matches those other callers.
+    result = await reconcileSchool(schoolId, createServiceRoleClient())
   } catch (err: any) {
     if (isProviderDownError(err)) return { error: providerDownMessage(null) }
     return { error: err?.message || 'Reconciliation failed to run.' }

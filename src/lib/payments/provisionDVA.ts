@@ -70,6 +70,61 @@ export async function provisionStudentDVA(
   return { accountNumber: dva.accountNumber, bankName: dva.bankName }
 }
 
+// Family-level counterpart to provisionStudentDVA (ROADMAP.md, 2026-09-27):
+// creates ONE shared DVA for a family, keyed by familyId instead of a
+// student id, and persists it on `families` instead of `students`. Every
+// per-student DVA the siblings already have is left untouched — the two
+// account types coexist, a parent can still pay one child directly.
+export async function provisionFamilyDVA(
+  supabase: any,
+  schoolId: string,
+  provider: PaymentProvider,
+  familyId: string,
+  parentName: string
+): Promise<{ accountNumber: string; bankName: string }> {
+  const params = {
+    reference: familyId,
+    accountName: `${parentName} Family`,
+    // Same reasoning as the per-student synthetic address: a real,
+    // owned-domain TLD Paystack/Monnify will accept, never actually mailed.
+    customerEmail: `family-${familyId}@students.fees101.com`,
+    customerName: `${parentName} Family`,
+  }
+
+  let dva
+  try {
+    dva = await provider.createDVA(params)
+  } catch (firstErr: any) {
+    await new Promise(r => setTimeout(r, 1200))
+    try {
+      dva = await provider.createDVA(params)
+    } catch (secondErr: any) {
+      const existing = await provider.getDVA(familyId).catch(() => null)
+      if (existing) {
+        dva = existing
+      } else {
+        throw new Error(`Could not create payment account: ${secondErr?.message || firstErr?.message || 'unknown error'}`)
+      }
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from('families')
+    .update({
+      provider_dva_reference: dva.reference,
+      provider_dva_bank_code: dva.bankCode,
+      provider_dva_account_number: dva.accountNumber,
+      provider_dva_bank_name: dva.bankName,
+      provider_dva_created_at: new Date().toISOString(),
+    })
+    .eq('id', familyId)
+    .eq('school_id', schoolId)
+
+  if (updateError) throw new Error(`Payment account created but failed to save: ${updateError.message}`)
+
+  return { accountNumber: dva.accountNumber, bankName: dva.bankName }
+}
+
 // Starts (or finds the already-running) bulk_dva job for a school. Shared by
 // the Settings page's button (src/app/(app)/students/[id]/actions.ts) and
 // CSV import's phase-2 chain (advanceCsvImport in advanceJob.ts) — the latter

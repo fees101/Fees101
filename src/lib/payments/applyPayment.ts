@@ -105,6 +105,19 @@ export async function applyProviderPayment(
   const paymentIds: string[] = []
   const appliedInvoices: AppliedInvoicePayment[] = []
 
+  // The real fee this transaction cost, attributed once — to whichever
+  // payment row (invoice or credit-balance) gets created first below. A
+  // transfer that spans multiple invoices produces several `payments` rows
+  // from one real transaction; attributing the fee to every row would double
+  // (or triple) it when the fee-buffer dashboard sums this column.
+  const totalProviderFee = Math.max(0, amountPaid - settlementAmount)
+  let feeAttributed = false
+  const nextProviderFee = () => {
+    if (feeAttributed) return null
+    feeAttributed = true
+    return totalProviderFee
+  }
+
   // Payment-confirmation message is best-effort — a student/school lookup
   // miss or a delivery failure should never break payment processing itself.
   let notifyInfo: {
@@ -162,6 +175,7 @@ export async function applyProviderPayment(
         p_provider_transaction_id: providerTransactionId,
         p_paid_at: paidAt,
         p_notes: notes, // cryptographically verified — no manual review needed
+        p_provider_fee: nextProviderFee(),
       })
       .single()
 
@@ -264,6 +278,7 @@ export async function applyProviderPayment(
       p_provider_transaction_id: providerTransactionId,
       p_paid_at: paidAt,
       p_notes: `${notes}; overpayment applied to student credit balance`,
+      p_provider_fee: nextProviderFee(),
     })
 
     if (error) throw new Error(`Failed to record credit-balance payment: ${error.message}`)

@@ -35,6 +35,7 @@ export default async function Dashboard() {
   const canManageInvoices = can(authCtx, 'manage-invoices')
   const canSeeInvoices = can(authCtx, 'see-invoices')
   const canSeeStudents = can(authCtx, 'see-students')
+  const canManagePaymentConfig = can(authCtx, 'manage-payment-config')
   // Whether this viewer holds any permission that can put a row in "Needs you".
   // Drives the empty-state copy: someone who carries queue actions but has a
   // clear queue reads "Nothing is waiting on you", while someone whose role
@@ -100,7 +101,19 @@ export default async function Dashboard() {
       href: '/discounts',
     })
   }
-  if (canSeeStudents && kpis.unbilledCount > 0) {
+  if (canManageInvoices && kpis.cycleNeverInvoiced && kpis.currentCycleId) {
+    needsYou.push({
+      key: 'not-generated',
+      title: `Invoices not generated for ${kpis.currentCycleName}`,
+      subtitle: 'Generation has not run yet — students are ready to be invoiced.',
+      amount: null,
+      status: 'Not generated',
+      href: `/fees/cycles/${kpis.currentCycleId}`,
+      generateCycleId: kpis.currentCycleId,
+      generateCount: kpis.studentsCount,
+    })
+  }
+  if (canSeeStudents && !kpis.cycleNeverInvoiced && kpis.unbilledCount > 0) {
     needsYou.push({
       key: 'unbilled',
       title: `${plural(kpis.unbilledCount, 'student')} with no invoice this term`,
@@ -108,6 +121,17 @@ export default async function Dashboard() {
       amount: null,
       status: 'Not billed',
       href: '/students',
+    })
+  }
+  if (canManagePaymentConfig && kpis.studentsWithoutDvaCount > 0) {
+    needsYou.push({
+      key: 'no-dva',
+      title: `${plural(kpis.studentsWithoutDvaCount, 'student')} with no payment account`,
+      subtitle: "Can't receive a transfer until an account exists.",
+      amount: null,
+      status: 'No account',
+      href: '/students/payment-accounts',
+      dvaCount: kpis.studentsWithoutDvaCount,
     })
   }
 

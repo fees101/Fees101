@@ -19,6 +19,7 @@ export async function getDashboardKPIs() {
     { count: myPendingRequestsCount },
     { data: needsResendRows },
     { data: overdueRows },
+    { count: studentsWithoutDvaCount },
   ] = await Promise.all([
     supabase
       .from('billing_cycles')
@@ -71,6 +72,17 @@ export async function getDashboardKPIs() {
       .neq('status', 'cancelled')
       .gt('outstanding_amount', 0)
       .lt('billing_cycles.due_date', cutoff14),
+    // Active students with no provider DVA yet — school-wide, term-independent.
+    // Mirrors the count already shown on /students/payment-accounts
+    // (getPaymentSettings, src/lib/queries/payments.ts) so the two never
+    // disagree; surfaced here too since that page is otherwise the only place
+    // this ever shows and a school has no reason to visit it unprompted.
+    supabase
+      .from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .is('provider_dva_reference', null),
   ])
 
   // invoices + collected both depend on currentCycle, so they run after it.
@@ -119,6 +131,11 @@ export async function getDashboardKPIs() {
   )
   const studentsBilled = billedStudentIds.size
   const unbilledCount = Math.max(0, (studentsCount || 0) - studentsBilled)
+  // Distinguishes "generation was never run for this term" (a Cycles-page
+  // action) from "some students slipped through a generation that did run"
+  // (a Students-page data gap) — same NONE/MISSING split CyclesLayout already
+  // renders, reused here so the two surfaces never disagree.
+  const cycleNeverInvoiced = Boolean(currentCycle) && invoicesIssued === 0 && (studentsCount || 0) > 0
 
   // needs-resend: count + the naira still owed on those invoices.
   const needsResendCount = (needsResendRows || []).length
@@ -159,6 +176,7 @@ export async function getDashboardKPIs() {
 
   return {
     currentCycleName: currentCycle?.name || null,
+    currentCycleId: currentCycle?.id || null,
     studentsCount: studentsCount || 0,
     totalExpected,
     totalCollected,
@@ -171,6 +189,8 @@ export async function getDashboardKPIs() {
     invoicesIssued,
     studentsBilled,
     unbilledCount,
+    cycleNeverInvoiced,
+    studentsWithoutDvaCount: studentsWithoutDvaCount || 0,
     needsResendCount,
     needsResendAmount,
     overdue14Count,
@@ -315,11 +335,17 @@ export async function getRecentActivity(limit: number = 7, showFinancials: boole
   const paymentEvents: ActivityEvent[] = (payments || []).map((p) => {
     // @ts-expect-error — joined object
     const parentName = p.students?.families?.primary_parent_name || 'Family'
+    // @ts-expect-error — joined object
+    const studentName = `${p.students?.first_name || ''} ${p.students?.last_name || ''}`.trim()
+    // A parent can have several children on the same account — name the child
+    // the transfer paid for, same "type · detail" grammar as the invoice line
+    // below, so a reader never has to open the row to know who it was for.
+    const forChild = studentName ? ` · for ${studentName}` : ''
     return {
       id: p.id,
       type: 'payment' as const,
       name: parentName,
-      line: showFinancials ? `₦${Number(p.amount).toLocaleString('en-NG')} received` : 'Payment received',
+      line: (showFinancials ? `₦${Number(p.amount).toLocaleString('en-NG')} received` : 'Payment received') + forChild,
       tone: 'ledger' as const,
       timestamp: p.paid_at,
     }

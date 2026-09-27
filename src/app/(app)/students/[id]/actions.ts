@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { requirePermission, getAuthContext, can } from '@/lib/auth/permissions'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
-import { provisionStudentDVA, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
+import { provisionStudentDVA, provisionFamilyDVA, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
 import { isProviderDownError, providerDownMessage } from '@/lib/payments/providerErrors'
 import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
 import { MessageChannel } from '@/lib/messaging/types'
@@ -1135,6 +1135,82 @@ export async function createStudentDVA(studentId: string): Promise<CreateDVAResu
     if (isProviderDownError(err)) return { error: providerDownMessage(provider.name) }
     return { error: err?.message || 'Could not create payment account' }
   }
+}
+
+// ============ FAMILY DVA ============
+// Family-level DVA is an opt-in-per-family feature (ROADMAP.md, 2026-09-27):
+// a school can choose to give a specific family ONE shared account instead of
+// separate per-child ones. Gated on manage-students, same permission that
+// already covers per-student DVA creation above. Turning it ON provisions a
+// real account at the provider (Phase 2); turning it OFF just clears the
+// flag — the account itself is left alone (no de-provisioning API exists at
+// either provider), so re-enabling later reuses it instead of creating a
+// second one.
+type ToggleFamilyDvaResult =
+  | { error: string }
+  | { success: true; enabled: boolean; accountNumber?: string; bankName?: string }
+
+export async function toggleFamilyDva(familyId: string, enabled: boolean): Promise<ToggleFamilyDvaResult> {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  const { data: family } = await supabase
+    .from('families')
+    .select('id, primary_parent_name, provider_dva_reference, provider_dva_account_number, provider_dva_bank_name')
+    .eq('id', familyId)
+    .eq('school_id', schoolId)
+    .single()
+  if (!family) return { error: 'Family not found' }
+
+  const { data: siblings } = await supabase
+    .from('students')
+    .select('id')
+    .eq('family_id', familyId)
+    .eq('school_id', schoolId)
+
+  let accountNumber = family.provider_dva_account_number || undefined
+  let bankName = family.provider_dva_bank_name || undefined
+
+  if (enabled && !family.provider_dva_reference) {
+    const provider = await getPaymentProviderForSchool(schoolId, supabase)
+    if (!provider) return { error: 'This school has no payment provider configured yet.' }
+    try {
+      const dva = await provisionFamilyDVA(supabase, schoolId, provider, familyId, family.primary_parent_name)
+      accountNumber = dva.accountNumber
+      bankName = dva.bankName
+    } catch (err: any) {
+      if (isProviderDownError(err)) return { error: providerDownMessage(provider.name) }
+      return { error: err?.message || 'Could not create payment account' }
+    }
+  }
+
+  const { error } = await supabase
+    .from('families')
+    .update({
+      dva_enabled: enabled,
+      dva_enabled_at: enabled ? new Date().toISOString() : null,
+      dva_enabled_by: enabled ? userId : null,
+    })
+    .eq('id', familyId)
+    .eq('school_id', schoolId)
+
+  if (error) return { error: error.message }
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'family.dva_toggled',
+    targetType: 'family',
+    targetId: familyId,
+    summary: `${enabled ? 'Enabled' : 'Disabled'} shared family payment account for ${family.primary_parent_name}`,
+    metadata: { enabled, accountNumber, bankName },
+  })
+
+  for (const sibling of siblings ?? []) {
+    revalidatePath(`/students/${sibling.id}`)
+  }
+  return { success: true, enabled, accountNumber, bankName }
 }
 
 export async function startBulkDVAJob() {

@@ -255,7 +255,9 @@ export async function getStudents(options: GetStudentsOptions = {}) {
       const oa = a.display_order ?? 9999
       const ob = b.display_order ?? 9999
       if (oa !== ob) return oa - ob
-      return String(a.name).localeCompare(String(b.name), undefined, { numeric: true })
+      // Both orders tie (data issue) — fall back to id for a stable, deterministic
+      // order rather than sorting by name (which breaks on "JSS 10" vs "JSS 2").
+      return String(a.id).localeCompare(String(b.id))
     })
     .map((c: any) => ({ id: c.id as string, name: c.name as string }))
 
@@ -479,7 +481,12 @@ export async function getStudentById(studentId: string) {
           secondary_parent_name,
           secondary_parent_phone,
           secondary_parent_email,
-          notes
+          notes,
+          dva_enabled,
+          dva_enabled_at,
+          provider_dva_reference,
+          provider_dva_account_number,
+          provider_dva_bank_name
         )
       `)
       .eq('id', studentId)
@@ -691,6 +698,14 @@ export async function getStudentById(studentId: string) {
       secondaryParentEmail: student.families?.secondary_parent_email || '',
       // @ts-expect-error — joined object
       notes: student.families?.notes || '',
+      // @ts-expect-error — joined object
+      dvaEnabled: student.families?.dva_enabled || false,
+      // @ts-expect-error — joined object
+      dvaEnabledAt: student.families?.dva_enabled_at || null,
+      // @ts-expect-error — joined object
+      dvaAccountNumber: student.families?.provider_dva_account_number || null,
+      // @ts-expect-error — joined object
+      dvaBankName: student.families?.provider_dva_bank_name || null,
     },
     virtualAccount: {
       providerConfigured: !!schoolRow?.payment_provider,

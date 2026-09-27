@@ -6,6 +6,7 @@ import GenerateInvoiceButton from '@/components/students/GenerateInvoiceButton'
 import EditRecordDrawer from '@/components/students/EditRecordDrawer'
 import StudentFeesTab from '@/components/students/StudentFeesTab'
 import HeaderVirtualAccount from '@/components/students/HeaderVirtualAccount'
+import FamilyDvaToggle from '@/components/students/FamilyDvaToggle'
 import SendReminderButton from '@/components/students/SendReminderButton'
 import ApplyDiscountButton from '@/components/students/ApplyDiscountButton'
 import StudentRealtimeRefresh from '@/components/students/StudentRealtimeRefresh'
@@ -434,6 +435,15 @@ export default async function StudentDetailPage({ params }: PageProps) {
                 )}
                 </div>
               </div>
+            )}
+
+            {student.siblings.length > 0 && (
+              <FamilyDvaToggle
+                familyId={student.family.id}
+                dvaEnabled={student.family.dvaEnabled}
+                accountNumber={student.family.dvaAccountNumber}
+                bankName={student.family.dvaBankName}
+              />
             )}
           </div>
 

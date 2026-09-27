@@ -68,13 +68,16 @@ async function resolveCycleIds(
 // implicit-relationship names (which are brittle on this untyped client).
 async function loadMaps(supabase: any, schoolId: string) {
   const [{ data: classes }, { data: sections }, { data: families }, { data: cycles }] = await Promise.all([
-    supabase.from('classes').select('id, name').eq('school_id', schoolId),
+    supabase.from('classes').select('id, name, display_order').eq('school_id', schoolId).order('display_order'),
     supabase.from('sections').select('id, name').eq('school_id', schoolId),
     supabase.from('families').select('id, primary_parent_name, primary_parent_phone, primary_parent_email').eq('school_id', schoolId),
     supabase.from('billing_cycles').select('id, name, start_date, session_id').eq('school_id', schoolId),
   ])
   return {
     className: new Map<string, string>((classes || []).map((c: any) => [c.id, c.name])),
+    // Order classes appear in, when a report lists them as rows — the school's
+    // own configured display_order, not an alphabetical or metric sort.
+    classDisplayOrder: new Map<string, number>((classes || []).map((c: any, i: number) => [c.id, c.display_order ?? i])),
     sectionName: new Map<string, string>((sections || []).map((s: any) => [s.id, s.name])),
     family: new Map<string, any>((families || []).map((f: any) => [f.id, f])),
     cycleName: new Map<string, string>((cycles || []).map((c: any) => [c.id, c.name])),
@@ -173,7 +176,7 @@ async function buildCollections(supabase: any, schoolId: string, p: ReportParams
 // Per-class summary — billed/collected/outstanding grouped by class.
 // =====================================================================
 async function buildClassSummary(supabase: any, schoolId: string, p: ReportParams): Promise<BuiltReport> {
-  const [{ className }, { map: students }, cycleIds] = await Promise.all([
+  const [{ className, classDisplayOrder }, { map: students }, cycleIds] = await Promise.all([
     loadMaps(supabase, schoolId),
     loadStudents(supabase, schoolId),
     resolveCycleIds(supabase, schoolId, p),
@@ -185,24 +188,34 @@ async function buildClassSummary(supabase: any, schoolId: string, p: ReportParam
   if (cycleIds) q = q.in('billing_cycle_id', cycleIds)
   const { data: invoices } = await q
 
+  // Keyed by class id (not name) so ties/renames can't collide, and so rows
+  // can be ordered by the school's own display_order below.
+  const UNASSIGNED = '__unassigned__'
   const agg = new Map<string, { students: number; billed: number; collected: number; outstanding: number }>()
   for (const inv of invoices || []) {
     const s = students.get(inv.student_id)
-    const cls = className.get(s?.class_id) ?? 'Unassigned'
-    const e = agg.get(cls) || { students: 0, billed: 0, collected: 0, outstanding: 0 }
+    const clsId = s?.class_id ?? UNASSIGNED
+    const e = agg.get(clsId) || { students: 0, billed: 0, collected: 0, outstanding: 0 }
     e.students += 1
     e.billed += n(inv.total_amount)
     e.collected += n(inv.paid_amount)
     e.outstanding += n(inv.outstanding_amount)
-    agg.set(cls, e)
+    agg.set(clsId, e)
   }
 
   const rows: CsvValue[][] = Array.from(agg.entries())
-    .map(([cls, a]) => [
-      cls, a.students, money(a.billed), money(a.collected), money(a.outstanding),
+    // The school's configured class order — not a metric sort — with
+    // "Unassigned" always last since it isn't a real class.
+    .sort((a, b) => {
+      if (a[0] === UNASSIGNED) return 1
+      if (b[0] === UNASSIGNED) return -1
+      return (classDisplayOrder.get(a[0]) ?? Infinity) - (classDisplayOrder.get(b[0]) ?? Infinity)
+    })
+    .map(([clsId, a]) => [
+      clsId === UNASSIGNED ? 'Unassigned' : (className.get(clsId) ?? 'Unassigned'),
+      a.students, money(a.billed), money(a.collected), money(a.outstanding),
       a.billed > 0 ? Math.round((a.collected / a.billed) * 100) : 0,
     ])
-    .sort((a, b) => n(b[2]) - n(a[2]))
   return {
     name: 'class-summary',
     headers: ['Class', 'Invoices', 'Billed', 'Collected', 'Outstanding', 'Collection rate %'],

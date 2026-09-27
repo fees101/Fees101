@@ -306,7 +306,9 @@ export async function getFeeStructure(billingCycleId?: string) {
         const oa = a.display_order ?? 9999
         const ob = b.display_order ?? 9999
         if (oa !== ob) return oa - ob
-        return String(a.name).localeCompare(String(b.name), undefined, { numeric: true })
+        // Both orders tie (data issue) — fall back to id for a stable,
+        // deterministic order rather than sorting by name.
+        return String(a.id).localeCompare(String(b.id))
       })
       .map(c => ({
         id: c.id,

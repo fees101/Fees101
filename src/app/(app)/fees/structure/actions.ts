@@ -132,7 +132,7 @@ export async function addFeeItem(cycleId: string, form: {
     if (error) return { error: error.message }
     insertedIds = (inserted || []).map(r => r.id)
 
-    const { data: classRows } = await supabase.from('classes').select('name').in('id', form.classIds)
+    const { data: classRows } = await supabase.from('classes').select('name').in('id', form.classIds).order('display_order')
     scopeSummary = (classRows || []).map((c: { name: string }) => c.name).join(', ') || `${form.classIds.length} class(es)`
   }
 
@@ -281,7 +281,7 @@ export async function addPerClassFeeItem(cycleId: string, form: {
   const { error } = await supabase.from('fee_items').insert(rows)
   if (error) return { error: error.message }
 
-  const { data: classRows } = await supabase.from('classes').select('name').in('id', form.classIds)
+  const { data: classRows } = await supabase.from('classes').select('name').in('id', form.classIds).order('display_order')
   const scopeSummary = (classRows || []).map((c: { name: string }) => c.name).join(', ') || `${form.classIds.length} class(es)`
 
   await logAuditEvent(supabase, {
