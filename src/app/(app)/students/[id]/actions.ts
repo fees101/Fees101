@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { requirePermission, getAuthContext, can } from '@/lib/auth/permissions'
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
-import { provisionStudentDVA, provisionFamilyDVA, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
+import { provisionStudentDVA, provisionFamilyDVA, deactivateFamilyDVA, ensureBulkDVAJob } from '@/lib/payments/provisionDVA'
 import { isProviderDownError, providerDownMessage } from '@/lib/payments/providerErrors'
 import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
 import { MessageChannel } from '@/lib/messaging/types'
@@ -1142,10 +1142,10 @@ export async function createStudentDVA(studentId: string): Promise<CreateDVAResu
 // a school can choose to give a specific family ONE shared account instead of
 // separate per-child ones. Gated on manage-students, same permission that
 // already covers per-student DVA creation above. Turning it ON provisions a
-// real account at the provider (Phase 2); turning it OFF just clears the
-// flag — the account itself is left alone (no de-provisioning API exists at
-// either provider), so re-enabling later reuses it instead of creating a
-// second one.
+// real account at the provider; turning it OFF actually closes that account
+// at the provider (deactivateFamilyDVA) so it stops accepting transfers —
+// this is not reversible, so turning it back on later always provisions a
+// brand new account with a different number.
 type ToggleFamilyDvaResult =
   | { error: string }
   | { success: true; enabled: boolean; accountNumber?: string; bankName?: string }
@@ -1172,6 +1172,7 @@ export async function toggleFamilyDva(familyId: string, enabled: boolean): Promi
   let accountNumber = family.provider_dva_account_number || undefined
   let bankName = family.provider_dva_bank_name || undefined
 
+  let freshlyProvisioned = false
   if (enabled && !family.provider_dva_reference) {
     const provider = await getPaymentProviderForSchool(schoolId, supabase)
     if (!provider) return { error: 'This school has no payment provider configured yet.' }
@@ -1179,9 +1180,37 @@ export async function toggleFamilyDva(familyId: string, enabled: boolean): Promi
       const dva = await provisionFamilyDVA(supabase, schoolId, provider, familyId, family.primary_parent_name)
       accountNumber = dva.accountNumber
       bankName = dva.bankName
+      freshlyProvisioned = true
     } catch (err: any) {
       if (isProviderDownError(err)) return { error: providerDownMessage(provider.name) }
       return { error: err?.message || 'Could not create payment account' }
+    }
+  }
+
+  // Actually close the account at the provider so it stops accepting
+  // transfers — if this fails, the account is still live, so the flag must
+  // not flip off underneath the admin (they'd think it's safe when it isn't).
+  // The number/bank get captured into closedAccountNumber/closedBankName
+  // BEFORE they're cleared below, so the audit log entry for this event is
+  // the one permanent record of what the account was — deactivateFamilyDVA
+  // nulls it on the families row itself, and the account is genuinely closed
+  // at the provider, so this is the only place a support agent can later
+  // confirm "yes, that number was this family's account" if a parent disputes
+  // a transfer sent to it before closure.
+  let closedAccountNumber: string | undefined
+  let closedBankName: string | undefined
+  if (!enabled && family.provider_dva_reference) {
+    const provider = await getPaymentProviderForSchool(schoolId, supabase)
+    if (!provider) return { error: 'This school has no payment provider configured yet.' }
+    try {
+      closedAccountNumber = family.provider_dva_account_number || undefined
+      closedBankName = family.provider_dva_bank_name || undefined
+      await deactivateFamilyDVA(supabase, schoolId, provider, familyId, family.provider_dva_reference)
+      accountNumber = undefined
+      bankName = undefined
+    } catch (err: any) {
+      if (isProviderDownError(err)) return { error: providerDownMessage(provider.name) }
+      return { error: err?.message || 'Could not close the account at the provider' }
     }
   }
 
@@ -1197,6 +1226,21 @@ export async function toggleFamilyDva(familyId: string, enabled: boolean): Promi
 
   if (error) return { error: error.message }
 
+  // A fresh account (first time enabling, or re-enabling after a prior close)
+  // means any already-sent, unpaid invoice for this family's students still
+  // quotes the old account number (or none at all) to the parent — nothing
+  // pushes the new number to them proactively otherwise, so flag these for
+  // resend the same way a content change does (discounts/apply.ts).
+  if (freshlyProvisioned && siblings?.length) {
+    await supabase
+      .from('invoices')
+      .update({ needs_resend: true })
+      .eq('school_id', schoolId)
+      .in('student_id', siblings.map((s: any) => s.id))
+      .not('sent_at', 'is', null)
+      .neq('status', 'paid')
+  }
+
   await logAuditEvent(supabase, {
     schoolId,
     actorId: userId,
@@ -1204,13 +1248,81 @@ export async function toggleFamilyDva(familyId: string, enabled: boolean): Promi
     targetType: 'family',
     targetId: familyId,
     summary: `${enabled ? 'Enabled' : 'Disabled'} shared family payment account for ${family.primary_parent_name}`,
-    metadata: { enabled, accountNumber, bankName },
+    metadata: {
+      enabled,
+      accountNumber,
+      bankName,
+      ...(closedAccountNumber ? { closedAccountNumber, closedBankName } : {}),
+    },
   })
 
   for (const sibling of siblings ?? []) {
     revalidatePath(`/students/${sibling.id}`)
   }
   return { success: true, enabled, accountNumber, bankName }
+}
+
+// ============ FAMILY CREDIT REALLOCATION ============
+// A family DVA payment's overflow (past every open invoice) lands on a
+// single deterministic student — reasonable most of the time, but a family
+// occasionally intended it for a different sibling. This moves unapplied
+// credit_balance from one sibling to another, same family only, via one
+// atomic DB function (db/transfer_family_credit.sql) so a crash mid-transfer
+// can never leave the money debited from one child without landing on the
+// other. Gated on manage-students, same as the rest of this file's money
+// actions on a student record.
+type ReallocateFamilyCreditResult =
+  | { error: string }
+  | { success: true }
+
+export async function reallocateFamilyCredit(
+  fromStudentId: string,
+  toStudentId: string,
+  amount: number
+): Promise<ReallocateFamilyCreditResult> {
+  const ctx = await getStudentFeeContext()
+  if (!ctx) return { error: 'Not authenticated' }
+  const { supabase, schoolId, userId } = ctx
+
+  if (!(amount > 0)) return { error: 'Enter an amount greater than zero.' }
+
+  const { data: students } = await supabase
+    .from('students')
+    .select('id, first_name, last_name, family_id')
+    .eq('school_id', schoolId)
+    .in('id', [fromStudentId, toStudentId])
+
+  const fromStudent = students?.find((s: any) => s.id === fromStudentId)
+  const toStudent = students?.find((s: any) => s.id === toStudentId)
+  if (!fromStudent || !toStudent) return { error: 'Student not found' }
+  if (!fromStudent.family_id || fromStudent.family_id !== toStudent.family_id) {
+    return { error: 'Both students must belong to the same family' }
+  }
+
+  const { error } = await supabase.rpc('transfer_family_credit_balance', {
+    p_school_id: schoolId,
+    p_from_student_id: fromStudentId,
+    p_to_student_id: toStudentId,
+    p_amount: amount,
+  })
+  if (error) return { error: error.message || 'Could not move the credit' }
+
+  const fromName = `${fromStudent.first_name} ${fromStudent.last_name}`.trim()
+  const toName = `${toStudent.first_name} ${toStudent.last_name}`.trim()
+
+  await logAuditEvent(supabase, {
+    schoolId,
+    actorId: userId,
+    action: 'student.family_credit_reallocated',
+    targetType: 'student',
+    targetId: fromStudentId,
+    summary: `Moved ₦${amount.toLocaleString()} credit from ${fromName} to ${toName}`,
+    metadata: { fromStudentId, toStudentId, familyId: fromStudent.family_id, amount },
+  })
+
+  revalidatePath(`/students/${fromStudentId}`)
+  revalidatePath(`/students/${toStudentId}`)
+  return { success: true }
 }
 
 export async function startBulkDVAJob() {

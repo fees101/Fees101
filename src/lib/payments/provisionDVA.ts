@@ -131,6 +131,37 @@ export async function provisionFamilyDVA(
   return { accountNumber: dva.accountNumber, bankName: dva.bankName }
 }
 
+// Counterpart to provisionFamilyDVA: actually closes the account at the
+// provider (Paystack's DELETE /dedicated_account/:id, Monnify's reserved-
+// account deallocation) instead of just clearing a local flag — the account
+// number stops accepting transfers at the bank. This is provider-side and
+// not reversible, so turning the family account back on later
+// (provisionFamilyDVA, since the reference is cleared below) always creates
+// a brand new account with a different number; the old one never comes back.
+export async function deactivateFamilyDVA(
+  supabase: any,
+  schoolId: string,
+  provider: PaymentProvider,
+  familyId: string,
+  reference: string
+): Promise<void> {
+  await provider.deleteDVA(reference)
+
+  const { error } = await supabase
+    .from('families')
+    .update({
+      provider_dva_reference: null,
+      provider_dva_bank_code: null,
+      provider_dva_account_number: null,
+      provider_dva_bank_name: null,
+      provider_dva_created_at: null,
+    })
+    .eq('id', familyId)
+    .eq('school_id', schoolId)
+
+  if (error) throw new Error(`Account closed at the provider but failed to update our records: ${error.message}`)
+}
+
 // Starts (or finds the already-running) bulk_dva job for a school. Shared by
 // the Settings page's button (src/app/(app)/students/[id]/actions.ts) and
 // CSV import's phase-2 chain (advanceCsvImport in advanceJob.ts) — the latter

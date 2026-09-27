@@ -113,7 +113,18 @@ export default async function Dashboard() {
       generateCount: kpis.studentsCount,
     })
   }
-  if (canSeeStudents && !kpis.cycleNeverInvoiced && kpis.unbilledCount > 0) {
+  if (canManageInvoices && !kpis.cycleNeverInvoiced && kpis.unbilledCount > 0 && kpis.currentCycleId) {
+    needsYou.push({
+      key: 'unbilled',
+      title: `${plural(kpis.unbilledCount, 'student')} with no invoice this term`,
+      subtitle: 'Not billed in the current term.',
+      amount: null,
+      status: 'Not billed',
+      href: `/fees/cycles/${kpis.currentCycleId}`,
+      generateCycleId: kpis.currentCycleId,
+      generateCount: kpis.unbilledCount,
+    })
+  } else if (canSeeStudents && !canManageInvoices && !kpis.cycleNeverInvoiced && kpis.unbilledCount > 0) {
     needsYou.push({
       key: 'unbilled',
       title: `${plural(kpis.unbilledCount, 'student')} with no invoice this term`,

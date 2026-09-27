@@ -451,8 +451,13 @@ export default function StudentFeesTab({ data }: Props) {
                 </div>
                 {!isInvoiceUpToDate && (
                   <p className={`text-xs mt-2 ${isLocked ? 'text-[var(--color-neutral-700)]' : 'text-[var(--color-ochre-text)]'}`}>
-                    Adjustments have been made. Current invoice ({formatNaira(existingInvoice.totalAmount)})
-                    differs from expected ({formatNaira(data.expectedBill)}).
+                    {existingInvoice.totalAmount !== data.expectedBill ? (
+                      <>Adjustments have been made. Current invoice ({formatNaira(existingInvoice.totalAmount)}) differs from expected ({formatNaira(data.expectedBill)}).</>
+                    ) : (
+                      // Totals happen to coincide (a fee change was absorbed by credit balance) -
+                      // comparing totalAmount alone would hide this, so name the actual difference.
+                      <>Fees changed since this invoice was generated. The total still comes to {formatNaira(data.expectedBill)}, but credit balance applied would be {formatNaira(data.expectedCreditApplied)} instead of {formatNaira(existingInvoice.creditApplied)}.</>
+                    )}
                     {isLocked
                       ? ' Applying this would drop the invoice below what’s already been paid, which needs a manual refund/credit reconciliation. (A new fee opt-in still applies to this invoice instantly.)'
                       : ' Click "Update invoice" to apply.'}

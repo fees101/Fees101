@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toggleFamilyDva } from '@/app/(app)/students/[id]/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 
 interface Props {
   familyId: string
@@ -16,24 +17,28 @@ interface Props {
 // family, alongside — not instead of — each sibling's own account. Every
 // sibling's page renders this identically since it's the same family_id
 // underneath. Turning it on provisions a real account at the provider;
-// turning it off only clears the flag, the account itself stays reusable.
+// turning it off actually closes that account at the provider so it stops
+// accepting transfers — not reversible, so it's confirmed the same way a
+// student withdrawal is (see WithdrawConfirmModal / DestructiveConfirmModal).
 export default function FamilyDvaToggle({ familyId, dvaEnabled, accountNumber, bankName }: Props) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [confirmingOff, setConfirmingOff] = useState(false)
   const canManage = useCan('manage-students')
 
-  async function handleToggle() {
+  async function handleToggle(next: boolean) {
     if (saving) return
     setSaving(true)
     setError(null)
-    const result = await toggleFamilyDva(familyId, !dvaEnabled)
+    const result = await toggleFamilyDva(familyId, next)
     setSaving(false)
     if ('error' in result) {
       setError(result.error)
       return
     }
+    setConfirmingOff(false)
     router.refresh()
   }
 
@@ -57,11 +62,11 @@ export default function FamilyDvaToggle({ familyId, dvaEnabled, accountNumber, b
         </span>
         {canManage ? (
           <button
-            onClick={handleToggle}
+            onClick={() => (dvaEnabled ? setConfirmingOff(true) : handleToggle(true))}
             disabled={saving}
             className="m-btn m-btn-outline m-btn-sm whitespace-nowrap"
           >
-            {saving ? (dvaEnabled ? 'Turning off...' : 'Setting up...') : dvaEnabled ? 'Turn off' : 'Turn on'}
+            {saving && !dvaEnabled ? 'Setting up...' : dvaEnabled ? 'Turn off' : 'Turn on'}
           </button>
         ) : (
           <span className="text-[13px] text-[var(--color-neutral-700)]">Ask an admin to change this.</span>
@@ -86,6 +91,29 @@ export default function FamilyDvaToggle({ familyId, dvaEnabled, accountNumber, b
 
       {error && (
         <p className="text-[13px] text-[var(--color-signal-text)] pt-2.5">{error}</p>
+      )}
+
+      {confirmingOff && (
+        <DestructiveConfirmModal
+          eyebrow="This closes the account"
+          title="Turn off the family account"
+          description="The account is closed at the bank, not just hidden here - it stops accepting transfers immediately. Any payment already made through it stays on record."
+          rows={[
+            { label: 'Account number', value: accountNumber || '—' },
+            {
+              label: 'After this',
+              value: 'Transfers to it will fail',
+              valueClassName: 'text-sm font-semibold m-num text-[var(--color-signal-text)]',
+              emphasize: true,
+            },
+          ]}
+          note="Turning it back on later creates a new account with a different number - this one doesn't come back."
+          error={error}
+          actions={[
+            { label: 'Cancel', onClick: () => setConfirmingOff(false), variant: 'outline', disabled: saving },
+            { label: saving ? 'Closing...' : 'Turn off', onClick: () => handleToggle(false), variant: 'danger', disabled: saving },
+          ]}
+        />
       )}
     </div>
   )

@@ -280,6 +280,120 @@ export function composeReminderSMS(p: ReminderMessageParams): string {
   )
 }
 
+export interface FamilyInvoiceChild {
+  studentName: string
+  className?: string
+  amountDue: number
+  accountNumber: string
+  bankName: string
+}
+
+export interface FamilyInvoiceMessageParams {
+  parentName?: string
+  schoolName: string
+  termName: string
+  dueDate: string
+  familyAccountNumber: string
+  familyBankName: string
+  children: FamilyInvoiceChild[]
+  logoUrl?: string | null
+}
+
+// A term-start invoice sent one-per-child costs one GSM-7 segment per child,
+// even though nothing about the content requires that: an SMS provider bills
+// a longer, concatenated message in ~153-char segments after the first, so
+// one message covering a 4-child family (well under 3 segments even with
+// long names) still undercuts 4 separate single-segment sends. This is a
+// safety ceiling, not a target the way MAX_SMS_CHARS is for a single-child
+// message — going over it is fine as long as the resulting segment count
+// stays below the number of children it's replacing.
+const MAX_FAMILY_SMS_CHARS = 320
+
+function capFamilySmsLength(text: string): string {
+  return text.length > MAX_FAMILY_SMS_CHARS ? text.slice(0, MAX_FAMILY_SMS_CHARS - 3) + '...' : text
+}
+
+// One message per family for the whole term-start invoicing run, not one per
+// sibling — mirrors composeFamilyPaymentSMS/Email's reasoning, but for the
+// invoice side rather than the payment side. Lists each child's own amount
+// AND own account inline (not just a reference to "their own account") so a
+// parent who only has SMS on file — no email — can still pay per-child, not
+// just via the family account. Falls back to a shorter summary-only form
+// (still naming the amounts, but not the accounts — those are always in the
+// email/PDF) if a big enough family would otherwise blow well past the
+// segment count it's meant to be cheaper than.
+export function composeFamilyInvoiceSMS(p: FamilyInvoiceMessageParams): string {
+  const total = p.children.reduce((sum, c) => sum + c.amountDue, 0)
+  const detailedList = p.children
+    .map((c) => `${firstName(c.studentName)} NGN ${amount(c.amountDue)} (${c.accountNumber})`)
+    .join(', ')
+  const detailed =
+    `${safeSchoolName(p.schoolName)}: ${p.termName} fees due ${smsDate(p.dueDate)} - ${detailedList}. ` +
+    `Total NGN ${amount(total)}, or pay all at once via family account ${p.familyAccountNumber}.`
+  if (detailed.length <= MAX_FAMILY_SMS_CHARS) return detailed
+
+  const names = p.children.map((c) => firstName(c.studentName)).join(', ')
+  const summary =
+    `${safeSchoolName(p.schoolName)}: ${p.termName} fees for ${names} total NGN ${amount(total)}, due ${smsDate(p.dueDate)}. ` +
+    `Pay each child's own account (see email), or all at once via family account ${p.familyAccountNumber}.`
+  return capFamilySmsLength(summary)
+}
+
+export function composeFamilyInvoiceEmail(p: FamilyInvoiceMessageParams): EmailBody {
+  const total = p.children.reduce((sum, c) => sum + c.amountDue, 0)
+  const dueLine = emailDueLine(p.dueDate)
+  const countdown = countdownPhrase(daysUntil(p.dueDate))
+  const subject = `${p.termName} fees for ${p.children.length} children: ${nairaAmount(total)} due ${dateNoYear(p.dueDate)}`
+
+  const text =
+    `${p.schoolName}\n${p.termName.toUpperCase()} · FAMILY FEES INVOICE\n\n` +
+    `Total due across ${p.children.length} children: ${nairaAmount(total)}\n` +
+    `By ${dueLine} (${countdown})\n\n` +
+    `Per child:\n${p.children.map((c) => `  ${c.studentName}${c.className ? ` (${c.className})` : ''}: ${nairaAmount(c.amountDue)}, pay to ${spacedAccountNumber(c.accountNumber)} (${c.bankName})`).join('\n')}\n\n` +
+    `Or pay everyone at once via the family account: ${spacedAccountNumber(p.familyAccountNumber)}, ${p.familyBankName}\n` +
+    `A transfer there is applied automatically to whichever child's fees are outstanding, oldest term first, and any leftover carries to the next.\n\n` +
+    `Each child's individual invoice is attached below as a separate PDF. Already paid? Ignore this, it crossed in the post.\n\n` +
+    `Sent by ${p.schoolName} through Fees101. Not expecting this? Contact the school office.`
+
+  // One row per child, amount and own account together — no separate "per
+  // child" and "accounts" tables repeating the same names underneath each
+  // other, which read like the same information twice.
+  const childRows = p.children.map((c) =>
+    twoValueRow(
+      `${c.studentName}${c.className ? ` — ${c.className}` : ''}`,
+      nairaAmount(c.amountDue),
+      `${spacedAccountNumber(c.accountNumber)} · ${bankFirstWord(c.bankName)}`
+    )
+  ).join('')
+
+  const html = emailShell(
+    INK,
+    headerRow(p.schoolName, `${p.termName.toUpperCase()} · FAMILY FEES INVOICE`, INK, p.logoUrl) +
+    `<tr><td style="padding:26px 28px 22px;">` +
+    `<p style="margin:0 0 6px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">TOTAL DUE ACROSS ${p.children.length} CHILDREN</p>` +
+    `<p style="margin:0 0 4px; color:${INK}; font-size:36px; font-weight:bold; letter-spacing:-0.02em; ${EMAIL_FONT}">${nairaAmount(total)}</p>` +
+    `<p style="margin:0; color:${OCHRE}; font-size:14px; font-weight:bold; ${EMAIL_FONT}">By ${dueLine} · ${countdown}</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:20px 28px 4px;">` +
+    `<p style="margin:0 0 4px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">PER CHILD — AMOUNT AND OWN ACCOUNT</p>` +
+    `<p style="margin:0 0 12px; color:${SECONDARY}; font-size:12px; ${EMAIL_FONT}">Each child can still be paid for individually, into their own account below.</p>` +
+    ledgerTable(childRows) +
+    `</td></tr>` +
+    `<tr><td style="border-top:2px solid ${INK}; border-bottom:2px solid ${INK}; background-color:${PAPER}; padding:20px 28px;">` +
+    `<p style="margin:0 0 6px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">OR PAY EVERYONE AT ONCE</p>` +
+    `<p style="margin:0 0 2px; color:${INK}; font-size:22px; font-weight:bold; letter-spacing:0.02em; ${EMAIL_FONT}">${spacedAccountNumber(p.familyAccountNumber)}</p>` +
+    `<p style="margin:0; color:${BODY_TEXT}; font-size:14px; ${EMAIL_FONT}">${p.familyBankName} — family account, shared across all your children at ${p.schoolName}</p>` +
+    `<p style="margin:10px 0 0; color:${SECONDARY}; font-size:13px; line-height:1.5; ${EMAIL_FONT}">A transfer here is applied automatically to whichever child's fees are outstanding, oldest term first, and any leftover is applied to the next.</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:22px 28px;">` +
+    noteParagraph('Each child’s individual invoice is attached below as a separate PDF, so you have the full breakdown for each one. Already paid? Ignore this, it crossed in the post.') +
+    `</td></tr>` +
+    footerRow(p.schoolName)
+  )
+
+  return { subject, html, text }
+}
+
 export function composeOverdueSMS(p: ReminderMessageParams): string {
   const overdueDays = Math.max(1, -daysUntil(p.dueDate))
   return capSmsLength(
@@ -367,6 +481,22 @@ function ledgerRow(label: string, value: string, valueColor: string = INK): stri
 
 function ledgerTable(rowsHtml: string): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rowsHtml}</table>`
+}
+
+// A row with a name/label on the left and two right-aligned stacked values —
+// used where a single ledger column isn't enough (a child's amount due next
+// to the specific account to pay it into, on the same line, so the reader
+// never has to cross-reference two separate tables by name).
+function twoValueRow(label: string, primaryValue: string, secondaryValue: string): string {
+  return (
+    `<tr>` +
+    `<td style="padding:11px 0; border-bottom:1px solid ${RULE}; color:${INK}; font-size:14px; font-weight:bold; ${EMAIL_FONT}">${label}</td>` +
+    `<td style="padding:11px 0; border-bottom:1px solid ${RULE}; text-align:right; ${EMAIL_FONT}">` +
+    `<div style="color:${INK}; font-size:14px; font-weight:bold;">${primaryValue}</div>` +
+    `<div style="color:${SECONDARY}; font-size:12px; margin-top:2px;">${secondaryValue}</div>` +
+    `</td>` +
+    `</tr>`
+  )
 }
 
 function noteParagraph(text: string): string {
@@ -482,6 +612,105 @@ export function composeFullPaymentEmail(p: FullPaymentMessageParams): EmailBody 
       (p.reference ? ledgerRow('Reference', p.reference) : '')
     ) +
     noteParagraph('The stamped receipt is attached as a PDF. Keep it, schools ask for it at re-registration.') +
+    `</td></tr>` +
+    footerRow(p.schoolName)
+  )
+
+  return { subject, html, text }
+}
+
+export interface FamilyPaymentChildResult {
+  studentName: string
+  termName: string
+  amountApplied: number
+  isFull: boolean
+  newOutstanding: number
+}
+
+export interface FamilyPaymentMessageParams {
+  parentName?: string
+  schoolName: string
+  amountPaid: number
+  accountNumber: string
+  children: FamilyPaymentChildResult[]
+  logoUrl?: string | null
+  paidAt?: string
+  reference?: string
+}
+
+// One message per family transaction, not one per sibling — a shared DVA
+// payment splits across every open invoice it touches (ROADMAP.md, Phase 4:
+// family payment messaging, 2026-09-27), and a parent who paid once should
+// hear about it once, not get N near-identical texts back to back.
+export function composeFamilyPaymentSMS(p: FamilyPaymentMessageParams): string {
+  const names = p.children.map((c) => firstName(c.studentName)).join(', ')
+  const stillOwing = p.children.filter((c) => !c.isFull)
+  const status = stillOwing.length === 0
+    ? 'All fees for these children are now fully paid.'
+    : stillOwing.length === 1
+      ? `${firstName(stillOwing[0].studentName)} still has NGN ${amount(stillOwing[0].newOutstanding)} to pay.`
+      : `${stillOwing.length} of them still have a balance.`
+  return capSmsLength(
+    `${safeSchoolName(p.schoolName)}: NGN ${amount(p.amountPaid)} received for ${names}, thank you. ${status} Pay to ${p.accountNumber}.`
+  )
+}
+
+export function composeFamilyPaymentEmail(p: FamilyPaymentMessageParams): EmailBody {
+  const allFull = p.children.every((c) => c.isFull)
+  const subject = allFull
+    ? `Family payment received: ${nairaAmount(p.amountPaid)} across ${p.children.length} ${p.children.length === 1 ? 'child' : 'children'}`
+    : `Family payment received: ${nairaAmount(p.amountPaid)} applied, balance remains`
+
+  const childLines = p.children.map((c) =>
+    `${c.studentName} (${c.termName}): ${nairaAmount(c.amountApplied)} applied` +
+    (c.isFull ? ', fully paid' : `, NGN ${amount(c.newOutstanding)} still to pay`)
+  )
+
+  // One stamped receipt PDF per child covered by this transaction is attached
+  // below (applyPayment.ts) rather than a single combined document — this
+  // line is the only thing that needs to say so; the ledger table already
+  // carries the per-child breakdown itself.
+  const receiptNote = p.children.length === 1
+    ? `${firstName(p.children[0].studentName)}'s receipt is attached as a PDF.`
+    : `Each child's receipt is attached as a separate PDF.`
+
+  const text =
+    `${p.schoolName}\nFAMILY PAYMENT RECEIVED\n\n` +
+    `Received with thanks: ${nairaAmount(p.amountPaid)}\n` +
+    `Paid into the family account: ${spacedAccountNumber(p.accountNumber)}\n\n` +
+    childLines.join('\n') + '\n\n' +
+    (p.paidAt ? `Paid on: ${emailDateTime(p.paidAt)}\n` : '') +
+    (p.reference ? `Reference: ${p.reference}\n` : '') +
+    `\n${receiptNote}\n\n` +
+    `Sent by ${p.schoolName} through Fees101.`
+
+  const html = emailShell(
+    allFull ? GREEN : INK,
+    headerRow(p.schoolName, 'FAMILY PAYMENT RECEIVED', allFull ? GREEN : INK, p.logoUrl) +
+    `<tr><td style="padding:26px 28px 22px;">` +
+    `<p style="margin:0 0 6px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">RECEIVED WITH THANKS</p>` +
+    `<p style="margin:0 0 6px; color:${allFull ? GREEN : INK}; font-size:36px; font-weight:bold; letter-spacing:-0.02em; ${EMAIL_FONT}">${nairaAmount(p.amountPaid)}</p>` +
+    `<p style="margin:0; color:${SECONDARY}; font-size:14px; ${EMAIL_FONT}">Paid into the family account: ${spacedAccountNumber(p.accountNumber)}</p>` +
+    `</td></tr>` +
+    `<tr><td style="border-top:2px solid ${RULE}; padding:20px 28px;">` +
+    ledgerTable(
+      p.children.map((c) =>
+        ledgerRow(
+          `${c.studentName} — ${c.termName}`,
+          c.isFull ? `${nairaAmount(c.amountApplied)} (fully paid)` : `${nairaAmount(c.amountApplied)} applied`,
+          c.isFull ? GREEN : INK
+        )
+      ).join('') +
+      (p.children.some((c) => !c.isFull)
+        ? p.children.filter((c) => !c.isFull).map((c) =>
+            ledgerRow(`${c.studentName} — balance remaining`, `NGN ${amount(c.newOutstanding)}`, OCHRE)
+          ).join('')
+        : '')
+    ) +
+    noteParagraph(
+      `${receiptNote}` +
+      (p.paidAt ? ` Paid on ${emailDateTime(p.paidAt)}${p.reference ? `. Reference: ${p.reference}` : ''}.` : '')
+    ) +
     `</td></tr>` +
     footerRow(p.schoolName)
   )

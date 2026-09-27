@@ -47,26 +47,24 @@ export default async function ReportsPage({ searchParams }: PageProps) {
     <>
       <WorkspaceHeader workspaceKey="money" title="Reports" />
       <div className="px-4 sm:px-7 py-7">
-        <div className="max-w-5xl mx-auto">
-          {ctx?.schoolId && (
-            // The downloads list grows as reports finish generating (async) or
-            // another staff member generates one.
-            <RealtimeRefresh subscriptions={[{ table: 'report_downloads', filter: `school_id=eq.${ctx.schoolId}` }]} />
-          )}
-          <ReportsLayout
-            sessions={sessions}
-            cycles={cycles}
-            recentDownloads={recentDownloads}
-            history={history.rows}
-            historyTotal={history.total}
-            page={page}
-            perPage={perPage}
-            reportType={reportType}
-            showFinancials={showFinancials}
-            showReports={showReports}
-            showAuditLog={showAuditLog}
-          />
-        </div>
+        {ctx?.schoolId && (
+          // The downloads list grows as reports finish generating (async) or
+          // another staff member generates one.
+          <RealtimeRefresh subscriptions={[{ table: 'report_downloads', filter: `school_id=eq.${ctx.schoolId}` }]} />
+        )}
+        <ReportsLayout
+          sessions={sessions}
+          cycles={cycles}
+          recentDownloads={recentDownloads}
+          history={history.rows}
+          historyTotal={history.total}
+          page={page}
+          perPage={perPage}
+          reportType={reportType}
+          showFinancials={showFinancials}
+          showReports={showReports}
+          showAuditLog={showAuditLog}
+        />
       </div>
     </>
   )

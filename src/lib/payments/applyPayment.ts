@@ -5,7 +5,10 @@
 // this function assumes it will run exactly once per real-world transaction.
 
 import { sendMultiChannel } from '@/lib/messaging/sendMessage'
-import { composePartialPaymentSMS, composeFullPaymentSMS, composeFullPaymentEmail } from '@/lib/messaging/composeInvoice'
+import {
+  composePartialPaymentSMS, composeFullPaymentSMS, composeFullPaymentEmail,
+  composeFamilyPaymentSMS, composeFamilyPaymentEmail, FamilyPaymentChildResult,
+} from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 import { getInvoiceByIdForSchool } from '@/lib/queries/fees'
 import { renderReceiptPdfBuffer } from '@/lib/pdf/renderReceiptPdf'
@@ -239,6 +242,13 @@ export async function applyProviderPayment(
   // beyond every open invoice has somewhere deterministic to land.
   let lastTouchedStudentId: string | null = null
 
+  // A family payment fans across every sibling's invoices in this same loop
+  // — accumulated here instead of messaged per-invoice, so one transfer
+  // produces one message to the parent (below the loop) instead of one per
+  // child/invoice it happened to touch.
+  const familyChildResults: FamilyPaymentChildResult[] = []
+  const familyPdfAttachments: { filename: string; content: Buffer; contentType: string }[] = []
+
   for (const invoice of sorted) {
     if (remaining <= 0) break
 
@@ -286,6 +296,36 @@ export async function applyProviderPayment(
     const notifyInfo = notifyByStudent.get(invoice.student_id) ?? null
     if (notifyInfo) {
       const termName = (invoice.billing_cycles as any)?.name || ''
+
+      if (familyId) {
+        // Defer the actual send — one message goes out after the loop for
+        // the whole transaction, not one per invoice it happened to touch.
+        familyChildResults.push({
+          studentName: notifyInfo.studentName,
+          termName,
+          amountApplied: applyAmount,
+          isFull,
+          newOutstanding,
+        })
+        // A receipt PDF confirms this specific payment against this specific
+        // child's invoice regardless of whether it clears the balance
+        // (ReceiptPDF.tsx already renders a "balance remaining" line for a
+        // partial one) — every sibling touched gets their own attached to
+        // the one family email, not just whoever ended up fully paid.
+        const invoiceDetail = await getInvoiceByIdForSchool(supabase, schoolId, invoice.id)
+        const pdfBuffer = invoiceDetail
+          ? await renderReceiptPdfBuffer(invoiceDetail, invoiceDetail.schoolLogoUrl, applyResult.payment_id)
+          : null
+        if (pdfBuffer) {
+          familyPdfAttachments.push({
+            filename: `receipt-${notifyInfo.studentName.trim().split(/\s+/)[0].toLowerCase()}.pdf`,
+            content: pdfBuffer,
+            contentType: 'application/pdf',
+          })
+        }
+        continue
+      }
+
       const dueDate: string | undefined = (invoice.billing_cycles as any)?.due_date || undefined
       // Prefer the provider's own reference (what a parent would see on their
       // bank statement); fall back to the payment row's id when there isn't
@@ -345,6 +385,43 @@ export async function applyProviderPayment(
       )
     }
   }
+
+  // One message for the whole family transaction, covering every sibling's
+  // invoice it touched — not one per child (ROADMAP.md, Phase 4, 2026-09-27).
+  if (familyId && familyChildResults.length > 0) {
+    const anyNotifyInfo = [...notifyByStudent.values()][0]
+    if (anyNotifyInfo) {
+      const paymentReference = providerReference || paymentIds[paymentIds.length - 1]
+      const smsText = composeFamilyPaymentSMS({
+        parentName: anyNotifyInfo.parentName,
+        schoolName: anyNotifyInfo.schoolName,
+        amountPaid: amountPaid - remaining,
+        accountNumber: anyNotifyInfo.accountNumber,
+        children: familyChildResults,
+      })
+      const emailContent = anyNotifyInfo.email
+        ? {
+            ...composeFamilyPaymentEmail({
+              parentName: anyNotifyInfo.parentName,
+              schoolName: anyNotifyInfo.schoolFullName,
+              amountPaid: amountPaid - remaining,
+              accountNumber: anyNotifyInfo.accountNumber,
+              children: familyChildResults,
+              paidAt,
+              reference: paymentReference,
+            }),
+            attachments: familyPdfAttachments.length > 0 ? familyPdfAttachments : undefined,
+          }
+        : undefined
+
+      await sendMultiChannel(
+        { supabase, schoolId, messageType: 'receipt', studentId: lastTouchedStudentId || undefined },
+        { phone: anyNotifyInfo.phone, email: anyNotifyInfo.email },
+        { sms: smsText, email: emailContent }
+      )
+    }
+  }
+
 
   let creditBalanceAmount = 0
 
