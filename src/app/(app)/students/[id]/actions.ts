@@ -16,6 +16,7 @@ import { logAuditEvent } from '@/lib/audit/logAudit'
 import { applyOptInAdditionToLiveInvoice } from '@/lib/invoicing/addOptInLine'
 import { propagateAdjustmentForward, retractPropagatedAdjustment } from '@/lib/fees/propagateAdjustment'
 import { regenerateInvoice } from '@/app/(app)/fees/cycles/actions'
+import { sendInvoiceUpdateNotice } from '@/app/(app)/money/invoices/actions'
 
 // Shared by both "bring a cancelled current-term invoice back to life" paths:
 // updateStudentStatus when the target is 'active' (reactivating a withdrawn
@@ -1332,7 +1333,15 @@ export async function reallocateFamilyCredit(
       .maybeSingle()
 
     if (recipientInvoice) {
-      await regenerateInvoice(recipientInvoice.id)
+      const regenerated = await regenerateInvoice(recipientInvoice.id)
+      // regenerateInvoice flags needs_resend when the invoice had already
+      // gone out to the parent, since its numbers just changed. Moving credit
+      // this way already tells the parent their new balance via this notice,
+      // so send it immediately rather than leaving it sitting as a manual
+      // "needs resend" someone has to remember to click later.
+      if (!('error' in regenerated)) {
+        await sendInvoiceUpdateNotice(recipientInvoice.id)
+      }
     }
   }
 
