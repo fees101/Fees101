@@ -28,6 +28,7 @@
 // verification outright.
 
 import { MessagingProvider, SendParams, SendResult } from './types'
+import { fetchWithRateLimitRetry } from '@/lib/http/rateLimitedFetch'
 
 function config() {
   return {
@@ -67,7 +68,7 @@ export class SendchampProvider implements MessagingProvider {
     }
 
     try {
-      const res = await fetch(`${baseUrl}/sms/send`, {
+      const res = await fetchWithRateLimitRetry(`${baseUrl}/sms/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

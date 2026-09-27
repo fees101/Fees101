@@ -18,6 +18,7 @@
 import crypto from 'crypto'
 import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction, DVATransactionSummary } from './types'
 import { isProviderDownError } from './providerErrors'
+import { fetchWithRateLimitRetry } from '@/lib/http/rateLimitedFetch'
 
 const BASE_URL = 'https://api.paystack.co'
 // Parents recognize Wema by name (same reasoning as Monnify's 035 default).
@@ -30,7 +31,13 @@ async function paystackRequest(
   path: string,
   body?: unknown
 ): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  // fetchWithRateLimitRetry rides out short 429 bursts (Paystack throttles the
+  // write endpoints — POST /customer, POST /dedicated_account — far tighter than
+  // reads, and test mode uses the low standard limit). A 429 that survives the
+  // retries comes back here as status 429 with a "Rate limit exceeded" body, so
+  // createDVA's throw carries that message and isRateLimitError can pause the
+  // bulk loop instead of burning the rest of the batch.
+  const res = await fetchWithRateLimitRetry(`${BASE_URL}${path}`, {
     method,
     headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,

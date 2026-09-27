@@ -4,8 +4,14 @@
 
 import { getPaymentProviderForSchool } from './getProvider'
 import { PaymentProvider } from './types'
-import { isProviderDownError, providerDownMessage } from './providerErrors'
+import { isProviderDownError, providerDownMessage, isRateLimitError } from './providerErrors'
 import { createJob, findRunningJob } from '@/lib/jobs/backgroundJobs'
+
+// Gap between successive account-creation calls in a bulk run, so we pace under
+// the provider's write rate limit instead of firing a burst straight into it
+// (Paystack's POST /customer + /dedicated_account are throttled tightly, esp. in
+// test mode). ~2.5 calls/sec — the transport's 429 backoff covers anything left.
+const PROVISION_THROTTLE_MS = 400
 
 // Core: create the DVA at the provider (with a retry + lost-response recovery)
 // and persist it on the student row. Assumes the student has no DVA yet and the
@@ -176,6 +182,10 @@ export interface BulkDVAChunkResult {
   created: number
   failed: number
   failures: { label: string; error: string }[]
+  // Students the run stopped short of (provider rate-limited us mid-slice).
+  // These are NOT failures — the caller keeps them in the job cursor and retries
+  // once the window resets, instead of crossing them off as failed.
+  unprocessed: string[]
 }
 
 // One batch of the bulk-provision loop, driven by the background-job worker
@@ -194,7 +204,7 @@ export async function processBulkDVAChunk(
   provider: PaymentProvider,
   studentIds: string[]
 ): Promise<BulkDVAChunkResult> {
-  if (studentIds.length === 0) return { created: 0, failed: 0, failures: [] }
+  if (studentIds.length === 0) return { created: 0, failed: 0, failures: [], unprocessed: [] }
 
   const { data: students } = await supabase
     .from('students')
@@ -204,9 +214,11 @@ export async function processBulkDVAChunk(
     .is('provider_dva_reference', null)
     .in('id', studentIds)
 
+  const list = students || []
   let created = 0
   const failures: { label: string; error: string }[] = []
-  for (const s of students || []) {
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i]
     const fullName = `${s.first_name} ${s.last_name}`.trim()
     try {
       await provisionStudentDVA(supabase, schoolId, provider, s.id, fullName)
@@ -215,18 +227,29 @@ export async function processBulkDVAChunk(
       if (isProviderDownError(err)) {
         // The provider itself is unreachable, not rejecting this specific
         // student — retrying the rest of the chunk against a dead endpoint
-        // just produces N identical noisy failures. Stop here and leave the
-        // untried students unprocessed (not failed) so the job's own
-        // resume-from-N+1 logic picks them back up once the outage clears,
-        // instead of permanently marking them as errors.
+        // just produces N identical noisy failures. Stop here and hand back the
+        // untried students (this one included) as unprocessed so the job keeps
+        // them in its cursor and retries once the outage clears — never marked
+        // failed.
         failures.push({ label: 'Provider outage', error: providerDownMessage(provider.name) })
-        break
+        return { created, failed: failures.length, failures, unprocessed: list.slice(i).map((x: any) => x.id) }
       }
+      if (isRateLimitError(err)) {
+        // Still throttled after the transport's own 429 retries. Pause: return
+        // this student + the rest as unprocessed (NOT failed) so they stay in
+        // the cursor and get retried once the rate window resets, instead of
+        // being burned off the checklist (the old behaviour — which is exactly
+        // why re-clicking "Create N accounts" never finished the batch).
+        return { created, failed: failures.length, failures, unprocessed: list.slice(i).map((x: any) => x.id) }
+      }
+      // A genuine per-student rejection (bad data, etc.) — record and move on.
       failures.push({ label: fullName || s.id, error: err?.message || 'unknown error' })
     }
+    // Pace the calls so we don't burst into the provider's write rate limit.
+    if (i < list.length - 1) await new Promise((r) => setTimeout(r, PROVISION_THROTTLE_MS))
   }
 
-  return { created, failed: failures.length, failures }
+  return { created, failed: failures.length, failures, unprocessed: [] }
 }
 
 // Best-effort auto-create for the student-add path. Resolves the provider

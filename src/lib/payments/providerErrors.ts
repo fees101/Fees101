@@ -24,6 +24,20 @@ export function isProviderDownError(err: unknown): boolean {
   return false
 }
 
+// A provider throttling us (HTTP 429 / "Rate limit exceeded") is NOT the same
+// as a real failure or an outage — the request would succeed if retried once
+// the window resets. Bulk loops treat this like isProviderDownError: pause and
+// leave the untried items for the next run, rather than marking them failed and
+// crossing them off (which permanently burns them). The provider transports
+// (paystack.ts / monnify.ts) already retry a 429 a few times via
+// fetchWithRateLimitRetry; this catches the case where it's *still* limiting
+// after those retries, which surfaces as a thrown Error carrying the message.
+export function isRateLimitError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const m = err.message.toLowerCase()
+  return m.includes('rate limit') || m.includes('too many request') || m.includes(' 429')
+}
+
 const PROVIDER_LABELS: Record<string, string> = {
   monnify: 'Monnify',
   paystack: 'Paystack',
@@ -36,4 +50,9 @@ export function providerDisplayName(provider: string | null | undefined): string
 export function providerDownMessage(provider: string | null | undefined): string {
   const name = providerDisplayName(provider)
   return `${name} is not responding right now. Payments already made are safe and will reconcile once the connection returns — only creating new payment accounts is blocked. Try again shortly.`
+}
+
+export function rateLimitMessage(provider: string | null | undefined): string {
+  const name = providerDisplayName(provider)
+  return `${name} is temporarily limiting how fast new payment accounts can be created. The remaining accounts will keep provisioning automatically in the background — nothing was lost.`
 }

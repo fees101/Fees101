@@ -207,8 +207,19 @@ async function advanceBulkDVA(supabase: any, job: BackgroundJob, started: number
     processed += result.created
     failed += result.failed
     failures.push(...result.failures)
-    studentIds = rest
 
+    if (result.unprocessed.length > 0) {
+      // The provider rate-limited (or went down) mid-slice. Keep the untried
+      // students in the cursor — prepended so they run first next time — and
+      // stop this run rather than hammering the throttled endpoint. The client
+      // driver's next poll and the daily job-sweep both resume it, and by then
+      // the rate window has usually reset. Nothing is crossed off as failed.
+      studentIds = [...result.unprocessed, ...rest]
+      await updateJobProgress(job.id, { cursor: { studentIds }, processed, failed, failures })
+      return
+    }
+
+    studentIds = rest
     if (!(await updateJobProgress(job.id, { cursor: { studentIds }, processed, failed, failures }))) return
   }
 

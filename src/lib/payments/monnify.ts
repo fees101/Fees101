@@ -10,6 +10,7 @@
 import crypto from 'crypto'
 import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction, DVATransactionSummary } from './types'
 import { isProviderDownError } from './providerErrors'
+import { fetchWithRateLimitRetry } from '@/lib/http/rateLimitedFetch'
 
 const DEFAULT_BASE_URL = 'https://sandbox.monnify.com'
 // Refresh well before the real ~60-minute expiry, not right at it.
@@ -33,7 +34,9 @@ async function monnifyRequest(
   path: string,
   init: RequestInit = {}
 ): Promise<{ status: number, json: any }> {
-  const res = await fetch(`${baseUrl}${path}`, init)
+  // Same rate-limit resilience as Paystack: ride out short 429 bursts so bulk
+  // reserved-account creation doesn't fail hard when Monnify throttles.
+  const res = await fetchWithRateLimitRetry(`${baseUrl}${path}`, init)
   const json = await res.json().catch(() => ({}))
   return { status: res.status, json }
 }

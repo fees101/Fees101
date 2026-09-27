@@ -9,6 +9,7 @@
 //   live  → real send via BREVO_API_KEY.
 
 import { EmailProvider, EmailSendParams, SendResult } from './types'
+import { fetchWithRateLimitRetry } from '@/lib/http/rateLimitedFetch'
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
@@ -44,7 +45,7 @@ export class BrevoProvider implements EmailProvider {
     if (!apiKey) return { ok: false, error: 'BREVO_API_KEY is not configured' }
 
     try {
-      const res = await fetch(BREVO_API_URL, {
+      const res = await fetchWithRateLimitRetry(BREVO_API_URL, {
         method: 'POST',
         headers: {
           'accept': 'application/json',
