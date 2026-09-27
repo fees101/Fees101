@@ -187,9 +187,19 @@ async function advanceCsvImport(supabase: any, job: BackgroundJob, started: numb
 async function advanceBulkDVA(supabase: any, job: BackgroundJob, started: number) {
   const schoolId = job.school_id
   let studentIds = (job.cursor.studentIds as string[]) || []
-  let processed = job.processed
   let failed = job.failed
   const failures = [...job.failures]
+  // Original checklist size — fixed for the life of the job.
+  const total = job.total
+
+  // `processed` is DERIVED from the cursor (the authoritative checklist), not
+  // accumulated: how many of the original targets are no longer pending and
+  // didn't genuinely fail. Deriving it self-corrects if the client driver fires
+  // overlapping /api/jobs/process calls on the same job — with the new throttle
+  // each run takes longer, widening that overlap, and an accumulated counter
+  // would drift (that's why a fully-provisioned batch reported "6/11"). At
+  // completion the cursor is empty, so processed == total - failed exactly.
+  const derivedProcessed = () => Math.max(0, total - studentIds.length - failed)
 
   // Resolve the provider once for the whole run rather than per chunk. If it's
   // gone (removed after the job was queued) there's nothing to provision —
@@ -204,7 +214,6 @@ async function advanceBulkDVA(supabase: any, job: BackgroundJob, started: number
     const rest = studentIds.slice(CHUNK_SIZE)
 
     const result = await processBulkDVAChunk(supabase, schoolId, provider, slice)
-    processed += result.created
     failed += result.failed
     failures.push(...result.failures)
 
@@ -215,13 +224,15 @@ async function advanceBulkDVA(supabase: any, job: BackgroundJob, started: number
       // driver's next poll and the daily job-sweep both resume it, and by then
       // the rate window has usually reset. Nothing is crossed off as failed.
       studentIds = [...result.unprocessed, ...rest]
-      await updateJobProgress(job.id, { cursor: { studentIds }, processed, failed, failures })
+      await updateJobProgress(job.id, { cursor: { studentIds }, processed: derivedProcessed(), failed, failures })
       return
     }
 
     studentIds = rest
-    if (!(await updateJobProgress(job.id, { cursor: { studentIds }, processed, failed, failures }))) return
+    if (!(await updateJobProgress(job.id, { cursor: { studentIds }, processed: derivedProcessed(), failed, failures }))) return
   }
+
+  const processed = derivedProcessed()
 
   if (studentIds.length === 0) {
     await logAuditEvent(supabase, {
