@@ -1,11 +1,11 @@
 // Handles an inbound Monnify webhook end to end: save raw payload, verify
-// signature, parse, dedupe, and cascade the payment across the student's
+// signature, parse, dedupe, and cascade the payment across the owner's
 // outstanding invoices. Kept separate from route.ts so the route itself
 // stays a thin adapter between Next.js and this.
 
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getPaymentProviderForSchool } from './getProvider'
-import { applyProviderPayment } from './applyPayment'
+import { applyProviderPayment, resolveDvaOwner } from './applyPayment'
 
 interface ProcessResult {
   status: number
@@ -108,19 +108,14 @@ export async function processMonnifyWebhook(
     return { status: 200, body: { message: 'Captured, missing required fields' } }
   }
 
-  const { data: student } = await supabase
-    .from('students')
-    .select('id')
-    .eq('provider_dva_reference', dvaReference)
-    .eq('school_id', schoolId)
-    .maybeSingle()
+  const owner = await resolveDvaOwner(supabase, schoolId, dvaReference)
 
-  if (!student) {
+  if (!owner) {
     await updateWebhookEvent(supabase, eventId, {
       status: 'error',
-      error_message: `No student found for DVA reference "${dvaReference}"`,
+      error_message: `No student or family found for DVA reference "${dvaReference}"`,
     })
-    return { status: 200, body: { message: 'Captured, no matching student' } }
+    return { status: 200, body: { message: 'Captured, no matching student or family' } }
   }
 
   const amountPaid = Number(eventData.amountPaid || 0)
@@ -155,7 +150,7 @@ export async function processMonnifyWebhook(
     const { paymentIds, appliedInvoices, creditBalanceAmount } = await applyProviderPayment({
       supabase,
       schoolId,
-      studentId: student.id,
+      ...owner,
       amountPaid,
       settlementAmount,
       provider: 'monnify',

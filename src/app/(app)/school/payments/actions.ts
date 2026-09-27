@@ -174,9 +174,9 @@ export async function runReconciliationNow() {
     targetType: 'school',
     targetId: schoolId,
     summary: `Ran reconciliation manually — applied ${result.applied} payment${result.applied === 1 ? '' : 's'}`,
-    metadata: { applied: result.applied, studentsChecked: result.studentsChecked },
+    metadata: { applied: result.applied, studentsChecked: result.studentsChecked, familiesChecked: result.familiesChecked },
   })
 
   revalidatePath('/school/payments')
-  return { success: true, applied: result.applied, studentsChecked: result.studentsChecked }
+  return { success: true, applied: result.applied, studentsChecked: result.studentsChecked, familiesChecked: result.familiesChecked }
 }

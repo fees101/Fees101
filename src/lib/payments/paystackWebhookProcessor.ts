@@ -1,12 +1,13 @@
 // Handles an inbound Paystack webhook end to end: save raw payload, verify
-// signature, parse, dedupe, and cascade the payment across the student's
+// signature, parse, dedupe, and cascade the payment across the owner's
 // outstanding invoices. Mirror of processMonnifyWebhook — same persistence and
 // idempotency guarantees — but parses Paystack's charge.success shape and
-// matches the student by customer_code (which we store as provider_dva_reference).
+// matches the owner (a student, or a family DVA) by customer_code (which we
+// store as provider_dva_reference on whichever row created the account).
 
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getPaymentProviderForSchool } from './getProvider'
-import { applyProviderPayment } from './applyPayment'
+import { applyProviderPayment, resolveDvaOwner } from './applyPayment'
 
 interface ProcessResult {
   status: number
@@ -113,19 +114,14 @@ export async function processPaystackWebhook(
     return { status: 200, body: { message: 'Captured, missing required fields' } }
   }
 
-  const { data: student } = await supabase
-    .from('students')
-    .select('id')
-    .eq('provider_dva_reference', customerCode)
-    .eq('school_id', schoolId)
-    .maybeSingle()
+  const owner = await resolveDvaOwner(supabase, schoolId, customerCode)
 
-  if (!student) {
+  if (!owner) {
     await updateWebhookEvent(supabase, eventId, {
       status: 'error',
-      error_message: `No student found for customer code "${customerCode}"`,
+      error_message: `No student or family found for customer code "${customerCode}"`,
     })
-    return { status: 200, body: { message: 'Captured, no matching student' } }
+    return { status: 200, body: { message: 'Captured, no matching student or family' } }
   }
 
   // Paystack amounts are in kobo. settlementAmount is amount minus Paystack's
@@ -158,7 +154,7 @@ export async function processPaystackWebhook(
     const { paymentIds, appliedInvoices, creditBalanceAmount } = await applyProviderPayment({
       supabase,
       schoolId,
-      studentId: student.id,
+      ...owner,
       amountPaid,
       settlementAmount,
       provider: 'paystack',

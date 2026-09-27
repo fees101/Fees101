@@ -1,10 +1,10 @@
-// Backup to webhooks: polls Monnify directly for each student's DVA
-// transaction history and applies anything that never arrived as a webhook
-// (delivery failure, misconfigured URL, an outage on either side). Reuses
-// the exact same claim-then-cascade path the webhook uses — reconciliation's
-// only real job is discovering what was missed, not reprocessing
-// differently. Safe to run repeatedly: already-applied transactions are
-// skipped via the same processed_provider_transactions claim.
+// Backup to webhooks: polls the provider directly for each student's (and
+// each family's) DVA transaction history and applies anything that never
+// arrived as a webhook (delivery failure, misconfigured URL, an outage on
+// either side). Reuses the exact same claim-then-cascade path the webhook
+// uses — reconciliation's only real job is discovering what was missed, not
+// reprocessing differently. Safe to run repeatedly: already-applied
+// transactions are skipped via the same processed_provider_transactions claim.
 
 import { getPaymentProviderForSchool } from './getProvider'
 import { applyProviderPayment } from './applyPayment'
@@ -12,13 +12,14 @@ import { applyProviderPayment } from './applyPayment'
 export interface ReconcileResult {
   schoolId: string
   studentsChecked: number
+  familiesChecked: number
   transactionsChecked: number
   applied: number
   errors: string[]
 }
 
 export async function reconcileSchool(schoolId: string, supabase: any): Promise<ReconcileResult> {
-  const result: ReconcileResult = { schoolId, studentsChecked: 0, transactionsChecked: 0, applied: 0, errors: [] }
+  const result: ReconcileResult = { schoolId, studentsChecked: 0, familiesChecked: 0, transactionsChecked: 0, applied: 0, errors: [] }
 
   const provider = await getPaymentProviderForSchool(schoolId, supabase)
   if (!provider) {
@@ -67,6 +68,56 @@ export async function reconcileSchool(schoolId: string, supabase: any): Promise<
           supabase,
           schoolId,
           studentId: student.id,
+          amountPaid: verified.amountPaid,
+          settlementAmount: verified.settlementAmount,
+          provider: provider.name,
+          providerReference: verified.paymentReference,
+          providerTransactionId: verified.transactionReference,
+          paidAt: verified.paidOn.includes('T') ? verified.paidOn : new Date(verified.paidOn.replace(' ', 'T')).toISOString(),
+        })
+        result.applied++
+      } catch (err: any) {
+        result.errors.push(`apply failed for ${tx.transactionReference}: ${err?.message || 'unknown error'}`)
+      }
+    }
+  }
+
+  const { data: families } = await supabase
+    .from('families')
+    .select('id, provider_dva_reference')
+    .eq('school_id', schoolId)
+    .not('provider_dva_reference', 'is', null)
+
+  for (const family of families || []) {
+    result.familiesChecked++
+
+    const transactions = await provider.listDVATransactions(family.provider_dva_reference)
+
+    for (const tx of transactions) {
+      result.transactionsChecked++
+      if (tx.paymentStatus !== 'PAID') continue
+
+      const { error: claimError } = await supabase
+        .from('processed_provider_transactions')
+        .insert({ school_id: schoolId, provider: provider.name, provider_transaction_id: tx.transactionReference })
+
+      if (claimError) {
+        if (claimError.code === '23505') continue
+        result.errors.push(`claim failed for ${tx.transactionReference}: ${claimError.message}`)
+        continue
+      }
+
+      const verified = await provider.verifyTransaction(tx.transactionReference)
+      if (!verified) {
+        result.errors.push(`could not verify ${tx.transactionReference} after claiming it`)
+        continue
+      }
+
+      try {
+        await applyProviderPayment({
+          supabase,
+          schoolId,
+          familyId: family.id,
           amountPaid: verified.amountPaid,
           settlementAmount: verified.settlementAmount,
           provider: provider.name,
