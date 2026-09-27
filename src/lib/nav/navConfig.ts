@@ -214,6 +214,7 @@ export const workspaces: Workspace[] = [
       { href: '/students', label: 'Roster', perm: 'see-students', exact: true },
       { href: '/students/import', label: 'Import', perm: 'manage-students' },
       { href: '/students/payment-accounts', label: 'Payment accounts', perm: 'manage-payment-config' },
+      { href: '/students/family-accounts', label: 'Family accounts', perm: 'manage-payment-config' },
     ],
   },
   {

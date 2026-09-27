@@ -7,6 +7,7 @@ import EditRecordDrawer from '@/components/students/EditRecordDrawer'
 import StudentFeesTab from '@/components/students/StudentFeesTab'
 import HeaderVirtualAccount from '@/components/students/HeaderVirtualAccount'
 import FamilyDvaToggle from '@/components/students/FamilyDvaToggle'
+import MoveFamilyCredit from '@/components/students/MoveFamilyCredit'
 import SendReminderButton from '@/components/students/SendReminderButton'
 import ApplyDiscountButton from '@/components/students/ApplyDiscountButton'
 import StudentRealtimeRefresh from '@/components/students/StudentRealtimeRefresh'
@@ -344,7 +345,17 @@ export default async function StudentDetailPage({ params }: PageProps) {
                 Manage what this student is billed, and generate or update the invoice.
               </p>
               {feesData ? (
-                <StudentFeesTab data={feesData} />
+                <StudentFeesTab
+                  data={feesData}
+                  moveCreditSlot={student.siblings.length > 0 ? (
+                    <MoveFamilyCredit
+                      studentId={student.id}
+                      studentName={`${student.firstName} ${student.lastName}`}
+                      studentCreditBalance={creditBalance}
+                      siblings={student.siblings.map(s => ({ id: s.id, firstName: s.firstName, lastName: s.lastName, creditBalance: s.creditBalance }))}
+                    />
+                  ) : undefined}
+                />
               ) : (
                 <p className="text-[14px] text-[var(--color-signal-text)]">
                   Couldn't load this student's fees. Refresh the page — if it keeps happening, contact support.

@@ -533,6 +533,7 @@ export async function getStudentById(studentId: string) {
         id,
         first_name,
         last_name,
+        credit_balance,
         classes!inner(name)
       `)
       .eq('school_id', schoolId)
@@ -651,6 +652,7 @@ export async function getStudentById(studentId: string) {
     lastName: string
     className: string
     invoiceStatus: string
+    creditBalance: number
   }> = []
 
   if (siblings && currentCycle) {
@@ -664,6 +666,7 @@ export async function getStudentById(studentId: string) {
         // @ts-expect-error — joined object
         className: sib.classes?.name || '',
         invoiceStatus: invoice?.status || 'no_invoice',
+        creditBalance: Number(sib.credit_balance || 0),
       }
     })
   }

@@ -15,6 +15,7 @@ import { revokeActiveDiscount, type RevokeDiscountResult } from '@/lib/discounts
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { applyOptInAdditionToLiveInvoice } from '@/lib/invoicing/addOptInLine'
 import { propagateAdjustmentForward, retractPropagatedAdjustment } from '@/lib/fees/propagateAdjustment'
+import { regenerateInvoice } from '@/app/(app)/fees/cycles/actions'
 
 // Shared by both "bring a cancelled current-term invoice back to life" paths:
 // updateStudentStatus when the target is 'active' (reactivating a withdrawn
@@ -1306,6 +1307,34 @@ export async function reallocateFamilyCredit(
     p_amount: amount,
   })
   if (error) return { error: error.message || 'Could not move the credit' }
+
+  // The RPC above only moves the raw credit_balance figure. If the recipient
+  // has an open invoice this term, apply the new credit against it the same
+  // way any other credit-balance change would (regenerateInvoice recomputes
+  // from the student's current credit_balance) — otherwise the whole point of
+  // moving credit "to clear what they owe" silently doesn't happen and the
+  // invoice sits PARTIAL with unapplied credit sitting beside it.
+  const { data: activeCycle } = await supabase
+    .from('billing_cycles')
+    .select('id')
+    .eq('school_id', schoolId)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+
+  if (activeCycle) {
+    const { data: recipientInvoice } = await supabase
+      .from('invoices')
+      .select('id')
+      .eq('student_id', toStudentId)
+      .eq('billing_cycle_id', activeCycle.id)
+      .eq('school_id', schoolId)
+      .maybeSingle()
+
+    if (recipientInvoice) {
+      await regenerateInvoice(recipientInvoice.id)
+    }
+  }
 
   const fromName = `${fromStudent.first_name} ${fromStudent.last_name}`.trim()
   const toName = `${toStudent.first_name} ${toStudent.last_name}`.trim()

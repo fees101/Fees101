@@ -22,16 +22,21 @@ import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 import Toast from '@/components/ui/Toast'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { formatDate } from '@/lib/format/date'
+import type { ReactNode } from 'react'
 
 interface Props {
   data: StudentFeesData
+  // Rendered right beside the credit-on-file line below, so the "move it to
+  // a sibling" action sits exactly where staff notice there's credit to move
+  // — not detached at the bottom of the panel where it's easy to miss.
+  moveCreditSlot?: ReactNode
 }
 
 function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
-export default function StudentFeesTab({ data }: Props) {
+export default function StudentFeesTab({ data, moveCreditSlot }: Props) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
@@ -290,10 +295,15 @@ export default function StudentFeesTab({ data }: Props) {
           </div>
         )}
 
-        {data.student.creditBalance > 0 && (
-          <p className="text-xs font-semibold m-num" style={{ color: 'var(--color-ledger)' }}>
-            {formatNaira(data.student.creditBalance)} credit on file — applies to their next invoice
-          </p>
+        {(data.student.creditBalance > 0 || moveCreditSlot) && (
+          <div className="flex items-center gap-3 flex-wrap">
+            {data.student.creditBalance > 0 && (
+              <p className="text-xs font-semibold m-num" style={{ color: 'var(--color-ledger)' }}>
+                {formatNaira(data.student.creditBalance)} credit on file — applies to their next invoice
+              </p>
+            )}
+            {moveCreditSlot}
+          </div>
         )}
 
         {data.unresolvedCredits.length > 0 && (
