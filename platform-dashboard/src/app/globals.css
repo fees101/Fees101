@@ -1,0 +1,134 @@
+@import "tailwindcss";
+/* Archivo is loaded via a <link> in src/app/layout.tsx (a CSS @import after
+   Tailwind's inlined import is invalid — @import must precede all other rules). */
+
+/* Fees101 PLATFORM console — deliberately its own surface: a dark "control-room"
+   ground with a single electric-indigo accent, so it never reads as a school's
+   own (light, red-orange) app. Shares the school app's TYPE + flat/architectural
+   language (Archivo, zero radius, strong rules, flush-left labels, Lucide icons)
+   for family resemblance. See docs/platform-dashboard-architecture.md §3. */
+:root {
+  --bg: #0a0b0d;          /* near-black ground */
+  --panel: #131519;       /* surface */
+  --panel-2: #1a1d23;     /* raised surface / row hover */
+  --border: #262a31;      /* hairlines */
+  --rule: #333842;        /* stronger 2px section rules */
+  --ink: #f4f5f7;
+  --muted: #9aa1ab;
+  --faint: #6b727c;
+  --accent: #635bff;      /* electric indigo — the console's identity */
+  --accent-600: #4f46e5;  /* pressed */
+  --accent-tint: color-mix(in srgb, #635bff 16%, transparent);
+  --good: #35c98a;
+  --good-tint: color-mix(in srgb, #35c98a 15%, transparent);
+  --warn: #e0a63e;
+  --warn-tint: color-mix(in srgb, #e0a63e 15%, transparent);
+  --bad: #e0524a;
+  --bad-tint: color-mix(in srgb, #e0524a 15%, transparent);
+  --font: 'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 { font-family: var(--font); font-weight: 800; letter-spacing: -0.01em; margin: 0; }
+
+a { color: inherit; text-decoration: none; }
+
+/* Zero radius everywhere — flat/architectural. */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.kicker {
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+}
+
+/* Buttons — flush-left label, zero radius, accent primary. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 0;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink);
+  transition: background .12s, border-color .12s;
+}
+.btn:hover { background: var(--panel-2); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-600); border-color: var(--accent-600); }
+.btn-ghost { border-color: transparent; color: var(--muted); }
+.btn-ghost:hover { color: var(--ink); background: var(--panel-2); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Status/label tags — small, flat, tinted. */
+.tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px; font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border); border-radius: 0; color: var(--muted);
+}
+.tag-good { color: var(--good); background: var(--good-tint); border-color: transparent; }
+.tag-warn { color: var(--warn); background: var(--warn-tint); border-color: transparent; }
+.tag-bad  { color: var(--bad);  background: var(--bad-tint);  border-color: transparent; }
+.tag-accent { color: var(--accent); background: var(--accent-tint); border-color: transparent; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+
+/* KPI tiles. */
+.kpi { padding: 18px 18px 16px; }
+.kpi-value { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; margin-top: 6px; }
+.kpi-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+/* Tables — flat, ruled. */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; padding: 10px 14px; color: var(--muted);
+  font-weight: 600; text-transform: uppercase; font-size: 10.5px;
+  letter-spacing: 0.06em; border-bottom: 2px solid var(--rule);
+}
+td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+tbody tr:hover { background: var(--panel-2); }
+
+/* App shell. */
+.shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+.rail { background: #0c0e11; border-right: 1px solid var(--border); padding: 0; position: sticky; top: 0; height: 100vh; }
+.rail-brand { padding: 18px 18px 16px; border-bottom: 2px solid var(--rule); }
+.rail-nav { padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 12px; font-size: 13.5px; font-weight: 500; color: var(--muted);
+  border-left: 2px solid transparent;
+}
+.nav-item:hover { color: var(--ink); background: var(--panel-2); }
+.nav-item.active { color: var(--ink); background: var(--accent-tint); border-left-color: var(--accent); font-weight: 600; }
+.nav-section { padding: 14px 14px 6px; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 26px; height: 56px; border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 70%, transparent); position: sticky; top: 0; backdrop-filter: blur(6px); z-index: 5;
+}
+.content { padding: 26px; max-width: 1180px; }
+.env-chip {
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 3px 8px; border: 1px solid var(--warn); color: var(--warn);
+}
+.env-chip.live { border-color: var(--good); color: var(--good); }
