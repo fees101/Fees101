@@ -619,6 +619,80 @@ export function composeFullPaymentEmail(p: FullPaymentMessageParams): EmailBody 
   return { subject, html, text }
 }
 
+export interface CreditReceiptMessageParams {
+  schoolName: string
+  parentName?: string
+  studentName: string
+  amountPaid: number
+  accountNumber: string
+  // The student's resulting credit balance after this payment landed. Optional
+  // — the credit-balance RPC returns the payment id, not the new balance, so
+  // the caller may not have it. When absent, the "now NGN X" clause is dropped.
+  newCreditBalance?: number
+  // Email/PDF room only. Kept off the SMS, which stays a one-line thank-you.
+  paidAt?: string
+  reference?: string
+  logoUrl?: string | null
+}
+
+// Money landed with no outstanding invoice to apply against — the whole amount
+// went to the student's credit balance. Without this the parent hears nothing
+// at all after transferring money, since the receipt/consolidated paths only
+// fire when at least one invoice is paid.
+export function composeCreditReceiptSMS(p: CreditReceiptMessageParams): string {
+  const balanceClause = p.newCreditBalance !== undefined
+    ? ` (now NGN ${amount(p.newCreditBalance)})`
+    : ''
+  return capSmsLength(
+    `${safeSchoolName(p.schoolName)}: NGN ${amount(p.amountPaid)} received, thank you. ` +
+    `Added to your account balance${balanceClause}. Pay to ${p.accountNumber}.`
+  )
+}
+
+export function composeCreditReceiptEmail(p: CreditReceiptMessageParams): EmailBody {
+  const student = firstName(p.studentName)
+  const subject = `Payment received: ${nairaAmount(p.amountPaid)} added to your account balance`
+  const balanceLine = p.newCreditBalance !== undefined
+    ? `Your account credit balance is now ${nairaAmount(p.newCreditBalance)}.`
+    : `It has been added to your account credit balance.`
+
+  const text =
+    `${p.schoolName}\nPAYMENT RECEIVED\n\n` +
+    `Received with thanks: ${nairaAmount(p.amountPaid)}\n` +
+    `There was no outstanding invoice, so this payment has been added to your ` +
+    `account balance and will be used automatically against ${student}'s future fees.\n` +
+    `${balanceLine}\n\n` +
+    `Student: ${p.studentName}\n` +
+    (p.paidAt ? `Paid on: ${emailDateTime(p.paidAt)}\n` : '') +
+    (p.accountNumber ? `Account: ${spacedAccountNumber(p.accountNumber)}\n` : '') +
+    (p.reference ? `Reference: ${p.reference}\n` : '') +
+    `\nSent by ${p.schoolName} through Fees101.`
+
+  const html = emailShell(
+    GREEN,
+    headerRow(p.schoolName, 'PAYMENT RECEIVED', GREEN, p.logoUrl) +
+    `<tr><td style="padding:26px 28px 22px;">` +
+    `<p style="margin:0 0 6px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">RECEIVED WITH THANKS</p>` +
+    `<p style="margin:0 0 6px; color:${GREEN}; font-size:36px; font-weight:bold; letter-spacing:-0.02em; ${EMAIL_FONT}">${nairaAmount(p.amountPaid)}</p>` +
+    `<p style="margin:0; color:${INK}; font-size:15px; font-weight:bold; ${EMAIL_FONT}">Added to your account balance.</p>` +
+    `<p style="margin:6px 0 0; color:${SECONDARY}; font-size:14px; ${EMAIL_FONT}">There was no outstanding invoice, so this will be used automatically against ${student}'s future fees.</p>` +
+    `</td></tr>` +
+    `<tr><td style="border-top:2px solid ${RULE}; padding:20px 28px;">` +
+    ledgerTable(
+      ledgerRow('Student', p.studentName) +
+      (p.newCreditBalance !== undefined ? ledgerRow('Account credit balance', nairaAmount(p.newCreditBalance), GREEN) : '') +
+      (p.paidAt ? ledgerRow('Paid on', emailDateTime(p.paidAt)) : '') +
+      (p.accountNumber ? ledgerRow('Account', spacedAccountNumber(p.accountNumber)) : '') +
+      (p.reference ? ledgerRow('Reference', p.reference) : '')
+    ) +
+    noteParagraph('This credit will be applied automatically the next time fees are due, so there is nothing further to do right now.') +
+    `</td></tr>` +
+    footerRow(p.schoolName)
+  )
+
+  return { subject, html, text }
+}
+
 export interface FamilyPaymentChildResult {
   studentName: string
   termName: string

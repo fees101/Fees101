@@ -8,6 +8,7 @@ import { sendMultiChannel } from '@/lib/messaging/sendMessage'
 import {
   composePartialPaymentSMS, composeFullPaymentSMS, composeFullPaymentEmail,
   composeFamilyPaymentSMS, composeFamilyPaymentEmail, FamilyPaymentChildResult,
+  composeCreditReceiptSMS, composeCreditReceiptEmail,
 } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
 import { getInvoiceByIdForSchool } from '@/lib/queries/fees'
@@ -197,7 +198,7 @@ export async function applyProviderPayment(
     accountNumber: string
   }
   const notifyByStudent = new Map<string, NotifyInfo>()
-  if (sorted.length > 0) {
+  if (studentIds.length > 0) {
     const [{ data: studentsData }, { data: school }] = await Promise.all([
       supabase
         .from('students')
@@ -466,6 +467,43 @@ export async function applyProviderPayment(
           .eq('id', familyId)
       } catch {
         // best-effort bookkeeping only
+      }
+    }
+
+    // The silent-overflow case: the whole transfer landed on the credit
+    // balance with no invoice paid this transaction, so neither the per-invoice
+    // receipt nor the family consolidated message fired. Without this the parent
+    // hears nothing at all after transferring money. Best-effort like every
+    // other send here — sendMultiChannel never throws in a way that would undo
+    // the already-recorded credit-balance payment above.
+    if (appliedInvoices.length === 0 && creditBalanceAmount > 0) {
+      const notifyInfo = notifyByStudent.get(creditTargetStudentId) ?? null
+      if (notifyInfo) {
+        const paymentReference = providerReference || creditPaymentId
+        const smsText = composeCreditReceiptSMS({
+          schoolName: notifyInfo.schoolName,
+          parentName: notifyInfo.parentName,
+          studentName: notifyInfo.studentName,
+          amountPaid: creditBalanceAmount,
+          accountNumber: notifyInfo.accountNumber,
+        })
+        const emailContent = notifyInfo.email
+          ? composeCreditReceiptEmail({
+              schoolName: notifyInfo.schoolFullName,
+              parentName: notifyInfo.parentName,
+              studentName: notifyInfo.studentName,
+              amountPaid: creditBalanceAmount,
+              accountNumber: notifyInfo.accountNumber,
+              paidAt,
+              reference: paymentReference,
+            })
+          : undefined
+
+        await sendMultiChannel(
+          { supabase, schoolId, messageType: 'receipt', studentId: creditTargetStudentId },
+          { phone: notifyInfo.phone, email: notifyInfo.email },
+          { sms: smsText, email: emailContent }
+        )
       }
     }
   }

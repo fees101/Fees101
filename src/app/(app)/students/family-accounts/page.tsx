@@ -17,11 +17,11 @@ interface PageProps {
 export default async function FamilyAccountsPage({ searchParams }: PageProps) {
   const ctx = await getAuthContext()
   if (!ctx) redirect('/login')
-  if (!can(ctx, 'manage-payment-config')) {
+  if (!can(ctx, 'manage-students')) {
     return (
       <>
         <WorkspaceHeader workspaceKey="students" title="Students" />
-        <AccessDenied ctx={ctx} permissionKey="manage-payment-config" />
+        <AccessDenied ctx={ctx} permissionKey="manage-students" />
       </>
     )
   }

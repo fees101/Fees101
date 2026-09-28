@@ -17,7 +17,7 @@ type GetFamilyChildrenResult = { children: FamilyChildRow[] } | { error: string 
 // query, since the roster itself only needs a count for the table rows.
 export async function getFamilyChildren(familyId: string): Promise<GetFamilyChildrenResult> {
   const ctx = await getAuthContext()
-  if (!ctx || !can(ctx, 'manage-payment-config')) return { error: 'Not authorized' }
+  if (!ctx || !can(ctx, 'manage-students')) return { error: 'Not authorized' }
   if (!ctx.schoolId) return { error: 'No school on this account' }
 
   const supabase = await createClient()
