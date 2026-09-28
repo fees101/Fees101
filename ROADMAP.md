@@ -371,6 +371,20 @@ simply a higher `maxDuration` on the route), not a separate server.
 ## 🏢 Platform / owner (multi-tenant) — your admin side
 
 > 📐 **Architecture & information-architecture plan: [`docs/platform-dashboard-architecture.md`](docs/platform-dashboard-architecture.md)** — the thorough structure/IA/visual-direction plan for the platform console (where everything goes, distinct-but-related visual identity, build sequencing, acquisition-readiness). Written 2026-09-29 per owner direction to plan it as a serious, company-worth product. Build against that, not the raw scaffold layout.
+>
+> **Status 2026-09-29:** foundation built + running on :3100 — own visual identity (flat Archivo, dark control-room ground + indigo accent, distinct from the school app's red), app shell (nav rail + top bar), Home = overview (not the raw list), school-detail leads with the new billing panels. Section pages below are structured placeholders. Owner: "okay for now, we'll edit/add as we build."
+>
+> **Deployment/org (owner, 2026-09-29):** the console will eventually get its **own Vercel project** and likely its **own `main` branch** (separate deploy target from the school app), so it isn't the same deployment. For now it's built in-repo on `dev`. The **Test/Live env chip is provisional** — owner expects it'll be **live-only** in practice; revisit how test/live is handled when the separate Vercel project + preview link are set up.
+
+- [ ] **Platform console — per-page/tab build ideas (2026-09-29, extends the architecture doc).** Concrete features to build into each section (owner: think of more as we go):
+  - **Home / Overview:** revenue KPIs (MRR = active students × ₦500, this-cycle expected, collected vs outstanding), a schools+students growth trend/sparkline, the needs-attention queue (built), a recent platform-audit activity feed, quick action to onboard a school, a "collections this week" mini-chart.
+  - **Schools directory:** filters (billing status, size, provider, onboarding phase), sortable columns, inline health flags (webhook broken / DVA missing / free-window ending), search, CSV export.
+  - **School detail → tabs:** *Overview* (contacts, plan, onboarding date + cycle phase, student count, quick actions: suspend/reactivate, impersonate); *Billing* (accrual + collection panels [built] + period history, manual waiver/adjustment with reason→audit, next-bill preview); *Usage* (students-over-time, invoices generated, SMS/email volume + cost trend → margin); *Payments health* (provider, DVA coverage X/Y, webhook health, last parent payment, reconciliation state, family-DVA adoption); *Activity* (this school's platform-audit slice).
+  - **Billing (cross-school):** revenue this cycle, outstanding by school, upcoming bills, failed/overdue collections queue, per-school margin table (platform revenue vs their messaging/infra cost), monthly revenue trend, aging of outstanding, finance CSV exports.
+  - **Payments & health:** webhook delivery per provider (success/fail, last event), `background_jobs` queue (running/failed/stuck), provider credential validity per school, DVA provisioning failures + rate-limit backoffs, reconciliation cron last-run + drift, alerting.
+  - **Onboarding:** new-school wizard (name, contacts, plan, onboarding date = cycle anchor, seed default roles, provision the Fees101 billing DVA, optionally bulk-provision student DVAs), a setup checklist with completion state, invite the school's first admin.
+  - **Audit log:** cross-tenant platform actions, filter by actor/action/school/date, highlight financial-impact actions (billing edits, suspensions, DVA clears, impersonation), export.
+  - **Settings:** platform admins CRUD + roles (v2), platform Paystack config (Fees101 account key + webhook URL + billing-DVA settings), billing defaults (price/student, 65/300 cycle, suspension day-counts, grace), school-facing message templates.
 
 No owner-facing product surface exists yet. Schools are created directly in the DB; signup makes everyone a `super_admin`.
 
