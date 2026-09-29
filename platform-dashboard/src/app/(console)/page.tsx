@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { getSchoolsOverview } from '@/lib/queries'
-import { AlertTriangle, Building2, Users, ArrowRight } from 'lucide-react'
+import { AlertTriangle, Building2, Users, ArrowRight } from '@/lib/icons'
 
 // The operator's morning screen — overview, never a raw list. See
 // docs/platform-dashboard-architecture.md §4.1. Revenue/collection KPIs will

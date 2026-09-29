@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Building2, Receipt, Activity,
   UserPlus, ScrollText, Settings,
-} from 'lucide-react'
+} from '@/lib/icons'
 
 // Left nav for the platform console. Order = the IA priority in
 // docs/platform-dashboard-architecture.md §4. Home is the overview, not the
