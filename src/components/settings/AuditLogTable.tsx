@@ -5,7 +5,8 @@ import { useRouter, usePathname } from 'next/navigation'
 import type { AuditLogRow } from '@/lib/audit/auditLog'
 import { AUDIT_LOG_GROUPS, groupForAction } from '@/lib/audit/auditLogGroups'
 import { actionLabel } from '@/lib/audit/auditLogLabels'
-import { formatDate, formatDateTime } from '@/lib/format/date'
+import { formatDateTime } from '@/lib/format/date'
+import RelativeTime from '@/components/activity/RelativeTime'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 
@@ -16,20 +17,6 @@ function getPageNumbers(currentPage: number, totalPages: number): (number | '...
     return [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages]
   }
   return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages]
-}
-
-// Relative time for at-a-glance scanning; the exact time lives in the tooltip.
-function timeAgo(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diffMs / 60000)
-  const hours = Math.floor(mins / 60)
-  const days = Math.floor(hours / 24)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  if (hours < 24) return `${hours}h ago`
-  if (days === 1) return 'Yesterday'
-  if (days < 7) return `${days}d ago`
-  return formatDate(iso)
 }
 
 interface Props {
@@ -158,7 +145,7 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
                 return (
                   <tr key={e.id}>
                     <td className="align-top text-[var(--color-neutral-700)] whitespace-nowrap m-num" title={formatDateTime(e.createdAt)}>
-                      {timeAgo(e.createdAt)}
+                      <RelativeTime iso={e.createdAt} />
                     </td>
                     <td className="align-top whitespace-nowrap">
                       {isSystem ? (

@@ -74,10 +74,10 @@ export default function FamilyAccountDrawer({ family, canManage, onClose }: Prop
 
   return (
     <>
-      <div onClick={onClose} className="fixed inset-0 z-[60] m-anim-fade" style={{ background: 'color-mix(in srgb, var(--color-ink) 45%, transparent)' }} />
+      <div onClick={onClose} className="fixed inset-0 m-anim-fade" style={{ zIndex: 60, background: 'color-mix(in srgb, var(--color-ink) 45%, transparent)' }} />
       <div
-        className="fixed top-0 right-0 bottom-0 z-[61] bg-[var(--color-paper)] border-l-2 border-[var(--color-ink)] overflow-y-auto"
-        style={{ width: 'min(420px, 100vw)' }}
+        className="fixed top-0 right-0 bottom-0 bg-[var(--color-paper)] border-l-2 border-[var(--color-ink)] overflow-y-auto"
+        style={{ zIndex: 61, width: 'min(420px, 100vw)' }}
       >
         <div className="p-6 border-b-2 border-[var(--color-ink)] flex items-start justify-between gap-3">
           <div style={{ minWidth: 0 }}>

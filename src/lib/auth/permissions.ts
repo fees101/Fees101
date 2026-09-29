@@ -33,7 +33,28 @@ async function loadAuthContext(): Promise<AuthContext | null> {
   // Validate the JWT locally (getClaims) rather than a network round-trip to
   // the Auth server (getUser) — the middleware already gates access, and with
   // asymmetric signing keys this is signature-only. `claims.sub` is the user id.
-  const { data: claimsData } = await supabase.auth.getClaims()
+  //
+  // getClaims() still does its own key-fetch/verification work that can hit the
+  // corporate proxy's flakiness (same issue the profile lookup below already
+  // retries around) — a TRANSIENT error here must not be mistaken for "no
+  // session" either, or a validly-authenticated user gets bounced to /login,
+  // which middleware's own (separate, possibly-successful) getClaims() check
+  // bounces straight back, producing the ERR_TOO_MANY_REDIRECTS loop.
+  let claimsData: Awaited<ReturnType<typeof supabase.auth.getClaims>>['data'] = null
+  let claimsError: { message?: string } | null = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { data, error } = await supabase.auth.getClaims()
+    if (!error) {
+      claimsData = data
+      claimsError = null
+      break
+    }
+    claimsError = error
+    await new Promise((r) => setTimeout(r, 150 * (attempt + 1)))
+  }
+  if (claimsError) {
+    throw new Error(`getAuthContext: getClaims failed after retries: ${claimsError.message ?? 'unknown error'}`)
+  }
   const userId = claimsData?.claims?.sub
   // No valid JWT → genuinely unauthenticated. This is the ONLY condition that
   // legitimately sends the caller down its `if (!ctx) redirect('/login')` path.

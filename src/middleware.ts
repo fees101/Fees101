@@ -50,7 +50,19 @@ export async function middleware(request: NextRequest) {
   // no network; it still refreshes an expired token via the cookie adapter.
   // This is the scalable pattern — a per-request auth-server call doesn't hold
   // up under load. `claims.sub` is the user id when signed in; null otherwise.
-  const { data: claimsData } = await supabase.auth.getClaims()
+  //
+  // A couple of quick retries on an actual error (not just "no session") —
+  // under corporate-proxy flakiness this call can transiently fail even for a
+  // validly signed-in user; without a retry that reads as "signed out",
+  // bouncing to /login while the page's own auth check (permissions.ts,
+  // which does retry) succeeds a beat later — the two disagreeing is exactly
+  // what produces an ERR_TOO_MANY_REDIRECTS loop between /login and /today.
+  let claimsData: Awaited<ReturnType<typeof supabase.auth.getClaims>>['data'] = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase.auth.getClaims()
+    if (!error) { claimsData = data; break }
+    if (attempt < 1) await new Promise((r) => setTimeout(r, 100))
+  }
   const user = claimsData?.claims ?? null
 
   // Force a sign-out once a signed-in session has gone untouched for 8 hours.

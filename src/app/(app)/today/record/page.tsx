@@ -19,9 +19,11 @@ interface PageProps {
 }
 
 function isoDaysAgo(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() - days)
-  return d.toISOString().slice(0, 10)
+  // Lagos-anchored, not the server's local TZ — keeps this in sync with the
+  // client-side label in ActivityFeed.tsx (same helper, same fix, see there).
+  const lagosNow = new Date(Date.now() + 60 * 60 * 1000)
+  lagosNow.setUTCDate(lagosNow.getUTCDate() - days)
+  return lagosNow.toISOString().slice(0, 10)
 }
 
 export default async function ActivityPage({ searchParams }: PageProps) {

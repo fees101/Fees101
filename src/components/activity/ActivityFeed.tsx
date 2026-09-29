@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import type { ActivityRow, ActivityAggregate } from '@/lib/queries/activity'
 import { ACTIVITY_CATEGORIES, ACTIVITY_PAGE_SIZE_OPTIONS, type ActivityCategory } from '@/lib/activity/activityMeta'
-import { formatDateTime } from '@/lib/format/date'
+import { formatDateTime, formatDateShort } from '@/lib/format/date'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import { exportActivityCsv } from '@/app/(app)/today/record/actions'
 
@@ -49,14 +49,16 @@ function dayKey(iso: string): string {
   return new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ })
 }
 
-function fmtShort(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: TZ })
-}
-
 function isoDaysAgo(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() - days)
-  return d.toISOString().slice(0, 10)
+  // Pure UTC arithmetic with a fixed +1h Lagos offset (no DST there, so this
+  // never drifts) — unlike the other helpers above, this can't take a
+  // `timeZone` option since there's no Date to format yet, only one to build.
+  // Using the runtime's local TZ here (via getDate/setDate) reads a different
+  // calendar day on the server than in the browser, which is what caused the
+  // "22 Sept – 30 Sept" vs "21 Sept – 30 Sept" hydration mismatch.
+  const lagosNow = new Date(Date.now() + 60 * 60 * 1000)
+  lagosNow.setUTCDate(lagosNow.getUTCDate() - days)
+  return lagosNow.toISOString().slice(0, 10)
 }
 
 function dayLabel(iso: string, todayKey: string, yesterdayKey: string): string {
@@ -154,8 +156,8 @@ export default function ActivityFeed({
   const rangeLabel = range === 'all'
     ? 'All time'
     : range === 'term'
-      ? (termFrom ? `Since ${fmtShort(`${termFrom}T00:00:00`)}` : 'This term')
-      : `${fmtShort(`${isoDaysAgo(7)}T00:00:00`)} – ${fmtShort(new Date().toISOString())}`
+      ? (termFrom ? `Since ${formatDateShort(termFrom)}` : 'This term')
+      : `${formatDateShort(isoDaysAgo(7))} – ${formatDateShort(new Date().toISOString())}`
 
   // Group the page's rows into calendar days (school time).
   const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: TZ })
