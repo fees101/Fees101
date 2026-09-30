@@ -29,7 +29,7 @@ export default function LoginPage() {
   const [bounceDetail, setBounceDetail] = useState<BounceDetail>({})
   const [loading, setLoading] = useState(false)
   // Set when a sign-out (manual, from UserMenu, or the 8-hour idle timeout
-  // in src/middleware.ts) landed here because a bulk_send job was still
+  // in src/proxy.ts) landed here because a bulk_send job was still
   // running at that moment — see SignedOutNotice below. Null means no such
   // notice; a plain sign-out with nothing in flight never sets this.
   const [signedOutJobs, setSignedOutJobs] = useState<number | null>(null)
@@ -286,7 +286,7 @@ function BounceNotice({
 }
 
 // Lands here after a sign-out — manual (UserMenu → src/app/logout/route.ts)
-// or the 8-hour idle timeout (src/middleware.ts) — that found the school's
+// or the 8-hour idle timeout (src/proxy.ts) — that found the school's
 // bulk_send job still running. Presentation only: sign-out never touches the
 // job itself, which keeps advancing via the worker route's service-role
 // client while a tab is open and the GitHub Actions sweep once it isn't (see

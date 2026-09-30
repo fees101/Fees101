@@ -20,7 +20,7 @@ const IDLE_TIMEOUT_MS = 8 * 60 * 60 * 1000
 const IDLE_COOKIE_REFRESH_MS = 5 * 60 * 1000
 const IDLE_COOKIE_NAME = 'f101_last_seen'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })

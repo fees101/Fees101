@@ -103,7 +103,7 @@ export async function findRunningJob(schoolId: string, jobType: JobType, payload
 }
 
 // How many invoices are still going out right now — used by sign-out
-// (src/app/logout/route.ts) and the 8-hour idle timeout (src/middleware.ts)
+// (src/app/logout/route.ts) and the 8-hour idle timeout (src/proxy.ts)
 // to tell someone "N invoices were still sending" instead of leaving it
 // unclear whether ending the session just cancelled a send to hundreds of
 // parents. It never does: 'bulk_send' is the only job type that emails/SMSes
