@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/modernist-999121b8-27f1-406b-988e-740794f31b97/styles.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+<script src="_ds/modernist-999121b8-27f1-406b-988e-740794f31b97/_ds_bundle.js"></script>
+<style>html{scroll-behavior:smooth}body{margin:0;background:#f3f2f2}a{color:var(--color-accent-700);text-decoration-color:#5ad8a6}a:hover{color:var(--color-accent-800)}button{font-family:inherit}input::placeholder{color:var(--color-neutral-600)}</style>
+</helmet>
+<div style="--font-mono:'JetBrains Mono',ui-monospace,monospace;min-height:100vh;display:flex;flex-direction:column;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);font-size:17px;line-height:1.6" lang="en">
+
+<!-- ═════════ SHELL: masthead (persistent) ═════════ -->
+<header data-screen-label="Masthead" style="position:sticky;top:0;z-index:20;background:var(--color-bg);border-bottom:1px solid var(--color-divider)">
+  <div style="max-width:1280px;margin:0 auto;padding:14px clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 32px">
+    <a href="#/" style="text-decoration:none;color:var(--color-text);font-family:var(--font-heading);font-size:26px;line-height:1;letter-spacing:-.01em;font-weight:600">Fees<span style="font-weight:400;color:var(--color-accent-700)">101</span></a>
+    <nav style="display:flex;flex-wrap:wrap;gap:6px 28px;align-items:center">
+      <sc-for list="{{ nav }}" as="n" hint-placeholder-count="5">
+        <a href="{{ n.href }}" style="{{ n.style }}"><span style="font-feature-settings:'tnum';font-size:11px;letter-spacing:.1em;color:var(--color-accent-700);margin-right:6px">{{ n.num }}</span>{{ n.label }}</a>
+      </sc-for>
+    </nav>
+    <a class="btn btn-primary" href="mailto:support@fees101.com">Talk to us</a>
+  </div>
+</header>
+
+<main style="flex:1">
+
+<!-- ═════════ 00 HOME ═════════ -->
+<sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+<div data-screen-label="Home">
+  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(32px,4.8vw,70px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr));gap:clamp(29px,4.0vw,64px);align-items:center">
+    <div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">Revenue operations platform · Nigeria</div>
+      <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(35px,5.7vw,84px);line-height:.9;letter-spacing:-.03em;margin:0 0 32px">Revenue, <span style="color:var(--color-accent-700)">reconciled</span> in real time.</h1>
+      <p style="max-width:34em;margin:0 0 36px;font-size:18px;line-height:1.65;text-wrap:pretty">Fees101 is a revenue operations platform for Nigerian schools: invoicing, collections and automatic reconciliation on one ledger — every payment matched to its invoice the moment it lands.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px">
+        <a class="btn btn-primary" href="mailto:support@fees101.com">Talk to us</a>
+        <a class="btn btn-secondary" href="#/how-it-works">See how it works</a>
+      </div>
+    </div>
+    <!-- Hero specimen: live reconciliation terminal -->
+    <div style="background:#201e1d;color:#e8f8f1;font-family:var(--font-mono);font-size:13px;border:2px solid var(--color-text)">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;padding:12px 18px;border-bottom:1px solid rgba(232,248,241,.25);color:#a4e6cb"><span>ledger / jss-1 / term-2</span><span style="color:#5ad8a6">● live · illustrative data</span></div>
+      <div style="padding:6px 18px 4px">
+        <sc-for list="{{ ledger }}" as="r" hint-placeholder-count="6">
+          <div style="{{ r.style }}">
+            <span style="font-size:12px;color:rgba(232,248,241,.55)">{{ r.inv }}</span>
+            <span style="font-family:var(--font-body);font-size:16px;font-weight:600">{{ r.name }}</span>
+            <span style="{{ r.statusStyle }}">{{ r.status }}</span>
+            <span style="text-align:right;font-feature-settings:'tnum'">{{ r.amount }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px 24px;padding:18px;border-top:1px solid rgba(232,248,241,.25)">
+        <div><div style="font-size:11px;letter-spacing:.12em;color:rgba(232,248,241,.55)">COLLECTED</div><div style="font-family:var(--font-heading);font-weight:800;font-size:24px;line-height:1.1;color:#5ad8a6;font-feature-settings:'tnum'">{{ collected }}</div></div>
+        <div style="text-align:right"><div style="font-size:11px;letter-spacing:.12em;color:rgba(232,248,241,.55)">OUTSTANDING</div><div style="font-family:var(--font-heading);font-weight:800;font-size:24px;line-height:1.1;font-feature-settings:'tnum'">{{ outstanding }}</div></div>
+      </div>
+      <div style="padding:12px 18px;border-top:1px solid rgba(232,248,241,.25);color:#5ad8a6;background:rgba(90,216,166,.08)">{{ logLine }}</div>
+    </div>
+  </section>
+
+  <!-- stress test / numbers -->
+  <section style="border-top:1px solid var(--color-divider)">
+    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
+      <div style="display:flex;flex-wrap:wrap;gap:24px 64px;justify-content:space-between;align-items:end;margin-bottom:56px">
+        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0;max-width:14em">We stress-test this before a school ever sees it.</h2>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700)">Figures from load testing</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));border-top:2px solid var(--color-text)">
+        <sc-for list="{{ stats }}" as="s" hint-placeholder-count="3">
+          <div style="padding:28px 28px 8px 0;border-right:1px solid var(--color-divider);margin-right:0">
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:clamp(49px,6.1vw,95px);line-height:.95;letter-spacing:-.03em;font-feature-settings:'tnum'">{{ s.n }}<span style="color:var(--color-accent-700);">{{ s.u }}</span></div>
+            <p style="max-width:16em;margin:12px 0 24px;font-size:15px;color:var(--color-neutral-800)">{{ s.label }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <!-- before / after -->
+  <section style="border-top:1px solid var(--color-divider);background:var(--color-surface)">
+    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:16px">Sound familiar?</div>
+      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0 0 48px;max-width:12em">Revenue ops shouldn’t run on screenshots.</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:0 56px;border-top:2px solid var(--color-text);padding-top:12px;font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">
+        <div style="padding:6px 0">Before</div><div style="padding:6px 0;color:var(--color-accent-700)">With Fees101</div>
+      </div>
+      <sc-for list="{{ pains }}" as="p" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:8px 56px;padding:22px 0;border-top:1px solid var(--color-divider)">
+          <p style="margin:0;color:var(--color-neutral-700);text-decoration:line-through;text-decoration-color:var(--color-neutral-400);font-size:16px">{{ p.before }}</p>
+          <p style="margin:0;font-family:var(--font-heading);font-size:24px;line-height:1.25;font-weight:600">{{ p.after }}</p>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <!-- what we do: index -->
+  <section style="border-top:1px solid var(--color-divider)">
+    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
+      <div style="display:flex;flex-wrap:wrap;gap:24px 64px;justify-content:space-between;align-items:end;margin-bottom:48px">
+        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0;max-width:12em">The whole revenue cycle, on one ledger.</h2>
+        <a class="btn btn-secondary" href="#/features">Explore all features</a>
+      </div>
+      <sc-for list="{{ highlights }}" as="h" hint-placeholder-count="6">
+        <div style="display:flex;flex-wrap:wrap;gap:8px 32px;padding:26px 0;border-top:1px solid var(--color-divider);align-items:baseline">
+          <span style="flex:0 0 48px;font-size:13px;color:var(--color-accent-700);font-feature-settings:'tnum';letter-spacing:.08em">{{ h.num }}</span>
+          <h3 style="flex:1 1 300px;margin:0;font-family:var(--font-heading);font-weight:600;font-size:clamp(26px,3vw,38px);line-height:1.05">{{ h.title }}</h3>
+          <p style="flex:1 1 320px;margin:0;max-width:34em;color:var(--color-neutral-800);text-wrap:pretty">{{ h.body }}</p>
+        </div>
+      </sc-for>
+      <div style="border-top:1px solid var(--color-divider)"></div>
+    </div>
+  </section>
+
+  <!-- built in nigeria (colophon) -->
+  <section style="background:#201e1d;color:var(--color-neutral-200)">
+    <div style="max-width:1280px;margin:0 auto;padding:clamp(44px,6.1vw,87px) clamp(16px,3.2vw,45px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:56px 80px">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:24px">Where we operate</div>
+        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(32px,4.5vw,67px);line-height:.95;letter-spacing:-.02em;margin:0 0 28px;color:#f3f2f2">Built in Nigeria, for <span style="color:var(--color-accent-700)">Nigerian</span> schools.</h2>
+        <p style="margin:0;max-width:32em;font-size:18px;text-wrap:pretty">Every part of Fees101 — the payment rails, the messaging, the compliance groundwork — is built around how Nigerian schools actually collect fees today, not a generic template borrowed from elsewhere.</p>
+      </div>
+      <dl style="margin:0;align-self:end;border-top:1px solid rgba(243,242,242,.3)">
+        <sc-for list="{{ facts }}" as="f" hint-placeholder-count="5">
+          <div style="display:flex;justify-content:space-between;gap:24px;padding:16px 0;border-bottom:1px solid rgba(243,242,242,.3)">
+            <dt style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-400);padding-top:4px">{{ f.k }}</dt>
+            <dd style="margin:0;text-align:right;font-family:var(--font-heading);font-size:24px;line-height:1.2;color:#f3f2f2">{{ f.v }}</dd>
+          </div>
+        </sc-for>
+      </dl>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ═════════ 01 FEATURES ═════════ -->
+<sc-if value="{{ isFeatures }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Features">
+  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(32px,4.0vw,58px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">Features</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(33px,5.0vw,73px);line-height:.92;letter-spacing:-.03em;margin:0 0 32px;max-width:11em">The full revenue cycle, <span style="color:var(--color-accent-700)">end to end.</span></h1>
+    <p style="max-width:36em;margin:0;font-size:18px;text-wrap:pretty">Not a spreadsheet replacement — a revenue operations system, from setting the fee schedule to knowing the money actually landed.</p>
+  </section>
+
+  <section style="border-top:2px solid var(--color-text)">
+    <div style="max-width:1280px;margin:0 auto;padding:0 clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap">
+      <div style="flex:1 1 280px;border-right:1px solid var(--color-divider);padding:16px 0 32px;display:flex;flex-direction:column">
+        <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+          <button onClick="{{ t.go }}" style="{{ t.style }}"><span style="font-size:12px;font-feature-settings:'tnum';letter-spacing:.08em;color:var(--color-accent-700);flex:0 0 28px">{{ t.num }}</span>{{ t.label }}</button>
+        </sc-for>
+      </div>
+      <div style="flex:2 1 460px;padding:clamp(22px,3.2vw,45px) 0 clamp(22px,3.2vw,45px) clamp(0px,3.2vw,51px)">
+        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(26px,3.2vw,45px);line-height:1;letter-spacing:-.015em;margin:0 0 20px;max-width:14em">{{ tab.title }}</h2>
+        <p style="margin:0 0 32px;max-width:36em">{{ tab.body }}</p>
+        <ul style="list-style:none;margin:0;padding:0;border-top:1px solid var(--color-divider)">
+          <sc-for list="{{ tab.points }}" as="pt" hint-placeholder-count="3">
+            <li style="display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700);font-family:var(--font-heading);font-size:20px;line-height:1.4">→</span><span>{{ pt }}</span></li>
+          </sc-for>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section style="border-top:1px solid var(--color-divider);background:var(--color-surface)">
+    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
+      <div style="display:flex;flex-wrap:wrap;gap:24px 64px;justify-content:space-between;align-items:end;margin-bottom:48px">
+        <div>
+          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:16px">Under the hood</div>
+          <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0;max-width:12em">The hard-to-see decisions that make this work.</h2>
+        </div>
+        <p style="max-width:24em;margin:0;color:var(--color-neutral-800)">Software for money and school records has to be boring in the right way. Here’s some of the thinking behind it.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));column-gap:64px;border-top:2px solid var(--color-text)">
+        <sc-for list="{{ engineering }}" as="e" hint-placeholder-count="6">
+          <div style="display:flex;gap:20px;padding:28px 0;border-bottom:1px solid var(--color-divider)">
+            <span style="flex:0 0 32px;font-size:13px;font-feature-settings:'tnum';color:var(--color-accent-700);padding-top:6px">{{ e.num }}</span>
+            <div><h3 style="margin:0 0 8px;font-family:var(--font-heading);font-weight:600;font-size:27px;line-height:1.1">{{ e.title }}</h3><p style="margin:0;color:var(--color-neutral-800);font-size:16px;text-wrap:pretty">{{ e.body }}</p></div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <section style="border-top:1px solid var(--color-divider)">
+    <div style="max-width:1280px;margin:0 auto;padding:clamp(32px,4.0vw,58px) clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap;gap:32px 64px;align-items:center">
+      <div style="flex:1 1 320px">
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:12px">Integrations</div>
+        <h2 style="font-family:var(--font-heading);font-weight:600;font-size:27px;line-height:1.05;margin:0 0 10px">Built to connect with what you already use.</h2>
+        <p style="margin:0;color:var(--color-neutral-800)">We integrate with trusted payment and messaging providers to keep your workflow smooth and stress-free.</p>
+      </div>
+      <div style="flex:1.2 1 380px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border-top:2px solid var(--color-text)">
+        <sc-for list="{{ integrations }}" as="i" hint-placeholder-count="3">
+          <div style="padding:18px 16px 18px 0"><div style="font-family:var(--font-heading);font-size:26px;line-height:1;font-weight:600">{{ i.name }}</div><div style="font-size:13px;color:var(--color-neutral-700);margin-top:4px">{{ i.note }}</div></div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ═════════ 02 HOW IT WORKS ═════════ -->
+<sc-if value="{{ isHow }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="How it works">
+  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(32px,4.0vw,58px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">How it works</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(33px,5.0vw,73px);line-height:.92;letter-spacing:-.03em;margin:0 0 32px;max-width:11em">From fee structure to <span style="color:var(--color-accent-700)">reconciled</span> payment.</h1>
+    <p style="max-width:36em;margin:0;font-size:18px">Six steps. No spreadsheets in between.</p>
+  </section>
+  <div style="max-width:1280px;margin:0 auto;padding:0 clamp(16px,3.2vw,45px)">
+    <sc-for list="{{ steps }}" as="s" hint-placeholder-count="6">
+      <section style="border-top:2px solid var(--color-text);padding:clamp(26px,4.0vw,58px) 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));gap:40px clamp(26px,4.8vw,77px);align-items:center">
+        <div style="{{ s.textStyle }}">
+          <div style="font-family:var(--font-heading);font-weight:800;font-size:clamp(60px,7.5vw,114px);line-height:.85;color:var(--color-accent-500);font-feature-settings:'tnum';margin-bottom:8px">{{ s.num }}</div>
+          <h2 style="font-family:var(--font-heading);font-weight:600;font-size:clamp(24px,2.9vw,38px);line-height:1;margin:0 0 16px">{{ s.title }}</h2>
+          <p style="margin:0;max-width:30em;text-wrap:pretty">{{ s.body }}</p>
+        </div>
+        <div style="border:1px solid var(--color-divider);border-top:2px solid var(--color-text);background:#fff;padding:clamp(18px,2.4vw,32px)">
+          <div style="display:flex;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700)">{{ s.label }}</span><span style="font-size:12px;color:var(--color-neutral-700)">Specimen</span></div>
+          <sc-for list="{{ s.rows }}" as="r" hint-placeholder-count="4">
+            <div style="display:flex;justify-content:space-between;gap:24px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-neutral-700);font-size:15px">{{ r.k }}</span><span style="text-align:right;font-family:var(--font-mono);font-size:15px;font-feature-settings:'tnum'">{{ r.v }}</span></div>
+          </sc-for>
+        </div>
+      </section>
+    </sc-for>
+  </div>
+</div>
+</sc-if>
+
+<!-- ═════════ 03 ABOUT ═════════ -->
+<sc-if value="{{ isAbout }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="About">
+  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(38px,4.8vw,70px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:40px clamp(26px,4.8vw,77px)">
+    <div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">About</div>
+      <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(35px,5.1vw,77px);line-height:.94;letter-spacing:-.028em;margin:0">We got tired of revenue running on <span style="color:var(--color-accent-700)">memory</span> and spreadsheets.</h1>
+    </div>
+    <div style="align-self:end;display:flex;flex-direction:column;gap:20px;font-size:18px">
+      <p style="margin:0">Fees101 started with a simple frustration schools kept repeating: fees tracked in notebooks and spreadsheets, payments confirmed by word of mouth, and no clear picture of who still owes what.</p>
+      <p style="margin:0">We’re building the system we wished existed — one that sets fees once, invoices every student automatically, and matches every payment the moment it lands.</p>
+    </div>
+  </section>
+
+  <section style="border-top:1px solid var(--color-divider);background:var(--color-surface)">
+    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:16px">Trust &amp; compliance</div>
+      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0 0 48px;max-width:13em">Built for how Nigerian schools actually operate.</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));column-gap:64px;border-top:2px solid var(--color-text)">
+        <sc-for list="{{ trust }}" as="t" hint-placeholder-count="4">
+          <div style="padding:28px 0;border-bottom:1px solid var(--color-divider)"><h3 style="margin:0 0 10px;font-family:var(--font-heading);font-weight:600;font-size:24px;line-height:1.05">{{ t.title }}</h3><p style="margin:0;color:var(--color-neutral-800);text-wrap:pretty">{{ t.body }}</p></div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <section style="border-top:1px solid var(--color-divider)">
+    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:16px">Our story</div>
+      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0 0 48px;max-width:13em">Built out of a real problem, not a hunch.</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));border-top:2px solid var(--color-text)">
+        <sc-for list="{{ story }}" as="s" hint-placeholder-count="3">
+          <div style="padding:28px 32px 8px 0;border-right:1px solid var(--color-divider)">
+            <div style="font-family:var(--font-heading);font-size:64px;line-height:1;color:var(--color-accent-500)">{{ s.num }}</div>
+            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin:14px 0 8px">{{ s.tag }}</div>
+            <h3 style="margin:0 0 12px;font-family:var(--font-heading);font-weight:600;font-size:24px;line-height:1.05">{{ s.title }}</h3>
+            <p style="margin:0 0 24px;color:var(--color-neutral-800);text-wrap:pretty">{{ s.body }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <section style="background:#201e1d;color:#f3f2f2">
+    <div style="max-width:1000px;margin:0 auto;padding:clamp(44px,6.1vw,87px) clamp(16px,3.2vw,45px)">
+      <div style="font-family:var(--font-heading);font-size:96px;line-height:.5;color:#5ad8a6">“</div>
+      <p style="margin:0;font-family:var(--font-heading);font-weight:400;font-size:clamp(27px,4.0vw,54px);line-height:1.05;letter-spacing:-.01em">A school shouldn’t need a spreadsheet expert to know who has paid this term.</p>
+      <div style="margin-top:28px;font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6">Why Fees101 exists</div>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ═════════ 04 FAQ ═════════ -->
+<sc-if value="{{ isFaq }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="FAQ">
+  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(26px,3.2vw,45px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:36px clamp(26px,4.8vw,77px);align-items:end">
+    <div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">FAQ</div>
+      <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(33px,5.0vw,73px);line-height:.92;letter-spacing:-.03em;margin:0">Frequently asked <span style="color:var(--color-accent-700)">questions.</span></h1>
+    </div>
+    <div>
+      <p style="margin:0 0 24px;max-width:30em">Everything you need to know about Fees101. Can’t find the answer you’re looking for? Reach out and we’ll help directly.</p>
+      <input class="input" value="{{ query }}" onInput="{{ onQuery }}" placeholder="Search the questions…" style="width:100%;box-sizing:border-box">
+    </div>
+  </section>
+
+  <div style="border-top:2px solid var(--color-text);border-bottom:1px solid var(--color-divider);position:sticky;top:69px;background:var(--color-bg);z-index:10">
+    <div style="max-width:1280px;margin:0 auto;padding:0 clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap;gap:0 32px">
+      <sc-for list="{{ cats }}" as="c" hint-placeholder-count="5">
+        <button onClick="{{ c.go }}" style="{{ c.style }}">{{ c.label }}</button>
+      </sc-for>
+    </div>
+  </div>
+
+  <section style="max-width:900px;margin:0 auto;padding:clamp(26px,4.0vw,51px) clamp(16px,3.2vw,45px) clamp(38px,5.4vw,76px)">
+    <sc-if value="{{ searching }}" hint-placeholder-val="{{ false }}"><p style="margin:0 0 20px;color:var(--color-neutral-700)">{{ resultLine }}</p></sc-if>
+    <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}"><p style="margin:0;padding:24px 0;border-top:1px solid var(--color-divider)">No questions match that search — try another term or email support@fees101.com directly.</p></sc-if>
+    <sc-for list="{{ faqs }}" as="f" hint-placeholder-count="3">
+      <div style="border-top:1px solid var(--color-divider)">
+        <button onClick="{{ f.go }}" style="width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:24px;text-align:left;background:none;border:0;padding:24px 0;cursor:pointer;color:var(--color-text)">
+          <span style="font-family:var(--font-heading);font-weight:600;font-size:clamp(24px,2.6vw,32px);line-height:1.1">{{ f.q }}</span>
+          <span style="{{ f.iconStyle }}">+</span>
+        </button>
+        <sc-if value="{{ f.open }}" hint-placeholder-val="{{ false }}"><p style="margin:0 0 28px;max-width:38em">{{ f.a }}</p></sc-if>
+      </div>
+    </sc-for>
+    <div style="border-top:1px solid var(--color-divider)"></div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ═════════ 05 / 06 PRIVACY + TERMS ═════════ -->
+<sc-if value="{{ isLegal }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Legal">
+  <section style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.6vw,77px) clamp(16px,3.2vw,45px) clamp(26px,3.2vw,45px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:24px">Legal · Last updated {{ doc.updated }}</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(33px,4.8vw,71px);line-height:.92;letter-spacing:-.03em;margin:0">{{ doc.title }}</h1>
+  </section>
+  <section style="border-top:2px solid var(--color-text)">
+    <div style="max-width:1280px;margin:0 auto;padding:0 clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 clamp(26px,4.8vw,77px)">
+      <aside style="flex:1 1 240px;max-width:320px;position:sticky;top:96px;padding:32px 0">
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Contents</div>
+        <sc-for list="{{ doc.index }}" as="x" hint-placeholder-count="10">
+          <button onClick="{{ x.go }}" style="display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--color-divider);padding:8px 0;font-size:14px;cursor:pointer;color:var(--color-text)">{{ x.label }}</button>
+        </sc-for>
+      </aside>
+      <article style="flex:3 1 480px;max-width:760px;padding:32px 0 clamp(38px,5.4vw,76px)">
+        <p style="margin:0 0 40px;font-size:19px">{{ doc.intro }}</p>
+        <sc-for list="{{ doc.sections }}" as="sec" hint-placeholder-count="10">
+          <div id="{{ sec.id }}" style="border-top:1px solid var(--color-divider);padding:28px 0 12px">
+            <h2 style="font-family:var(--font-heading);font-weight:600;font-size:27px;line-height:1.05;margin:0 0 16px">{{ sec.h }}</h2>
+            <sc-for list="{{ sec.ps }}" as="p" hint-placeholder-count="1"><p style="margin:0 0 14px">{{ p }}</p></sc-for>
+            <ul style="margin:0 0 14px;padding-left:22px">
+              <sc-for list="{{ sec.bl }}" as="b" hint-placeholder-count="0"><li style="margin-bottom:8px"><strong style="font-weight:600">{{ b.b }}</strong>{{ b.t }}</li></sc-for>
+            </ul>
+            <sc-for list="{{ sec.tail }}" as="tl" hint-placeholder-count="0"><p style="margin:0 0 14px">{{ tl }}</p></sc-for>
+            <sc-for list="{{ sec.addr }}" as="a" hint-placeholder-count="0"><div style="font-family:var(--font-heading);font-size:22px;line-height:1.3">{{ a }}</div></sc-for>
+          </div>
+        </sc-for>
+      </article>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ═════════ SHELL: shared closing block ═════════ -->
+<sc-if value="{{ showCta }}" hint-placeholder-val="{{ true }}">
+<section data-screen-label="Closing CTA" style="border-top:2px solid var(--color-text)">
+  <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:36px clamp(26px,4.8vw,77px);align-items:end">
+    <div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:20px">Early access</div>
+      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(32px,4.5vw,67px);line-height:.95;letter-spacing:-.02em;margin:0">{{ cta.head }}</h2>
+    </div>
+    <div>
+      <p style="margin:0 0 24px;max-width:30em;font-size:18px">{{ cta.body }}</p>
+      <a href="mailto:support@fees101.com" style="font-family:var(--font-heading);font-size:clamp(28px,3.4vw,44px);line-height:1;color:var(--color-text);text-decoration:underline;text-decoration-color:var(--color-accent-500);text-decoration-thickness:2px;text-underline-offset:8px">support@fees101.com</a>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:28px;font-size:14px;color:var(--color-neutral-700)"><span>No spam — just a launch note</span><span>Be first to try it</span><span>Straight to our team</span></div>
+    </div>
+  </div>
+</section>
+</sc-if>
+</main>
+
+<!-- ═════════ SHELL: footer (persistent) ═════════ -->
+<footer data-screen-label="Footer" style="background:#201e1d;color:var(--color-neutral-300)">
+  <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,4.8vw,64px) clamp(16px,3.2vw,45px) 28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:40px">
+    <div style="grid-column:span 1">
+      <div style="font-family:var(--font-heading);font-size:35px;line-height:1;font-weight:600;color:#f3f2f2">Fees<span style="font-weight:400;color:#5ad8a6">101</span></div>
+      <p style="margin:14px 0 0;font-size:15px;max-width:16em">Revenue operations platform for Nigerian schools.</p>
+    </div>
+    <div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:14px">Product</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:15px"><a href="#/features" style="color:inherit">Features</a><a href="#/how-it-works" style="color:inherit">How it works</a><a href="#/about" style="color:inherit">About</a><a href="#/faq" style="color:inherit">FAQ</a></div>
+    </div>
+    <div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:14px">Legal &amp; contact</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:15px"><a href="#/privacy" style="color:inherit">Privacy Policy</a><a href="#/terms" style="color:inherit">Terms of Service</a><a href="mailto:support@fees101.com" style="color:inherit">support@fees101.com</a></div>
+    </div>
+    <div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:14px">Registered office</div>
+      <address style="font-style:normal;font-size:15px;line-height:1.6"><span style="color:#f3f2f2;font-family:var(--font-heading);font-size:22px;font-weight:600">FEES101 LTD</span><br>Plot L182, Ellicot Citi Street,<br>Kubwa Extension III, Bwari,<br>FCT, Nigeria<br>RC 9694725</address>
+    </div>
+  </div>
+  <div style="max-width:1280px;margin:0 auto;padding:18px clamp(16px,3.2vw,45px);border-top:1px solid rgba(243,242,242,.2);display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;font-size:13px;color:var(--color-neutral-400)"><span>© {{ year }} FEES101 LTD. All rights reserved.</span><span>RC 9694725 · Bwari, FCT, Nigeria</span></div>
+</footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;autoplay&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;initialRoute&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;home&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;features&quot;,&quot;how-it-works&quot;,&quot;about&quot;,&quot;faq&quot;,&quot;privacy&quot;,&quot;terms&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Behaviour&quot;}}">
+class Component extends DCLogic {
+  state = { route: "home", tab: "fees", cat: "getting-started", openQ: "What is Fees101?", query: "", matched: 3 };
+
+  componentDidMount() {
+    this.onHash = () => {
+      const r = (location.hash || "").replace(/^#\/?/, "") || (this.props.initialRoute || "home");
+      const ok = ["home", "features", "how-it-works", "about", "faq", "privacy", "terms"];
+      const route = ok.includes(r) ? r : "home";
+      if (route !== this.state.route) { this.setState({ route }); window.scrollTo(0, 0); }
+    };
+    window.addEventListener("hashchange", this.onHash);
+    this.onHash();
+    if (this.props.autoplay ?? true) {
+      this.timer = setInterval(() => this.setState(s => ({ matched: s.matched >= 6 ? 2 : s.matched + 1 })), 2400);
+    }
+  }
+  componentWillUnmount() { window.removeEventListener("hashchange", this.onHash); clearInterval(this.timer); }
+
+  // ── CONTENT (mirrors fees101-website repo copy) ──
+  data() {
+    return {
+      pages: [
+        { r: "features", n: "01", l: "Features" }, { r: "how-it-works", n: "02", l: "How it works" },
+        { r: "about", n: "03", l: "About" }, { r: "faq", n: "04", l: "FAQ" }
+      ],
+      students: [["Amara Okafor", 185000], ["Tunde Bello", 185000], ["Zainab Sani", 185000], ["Chidi Eze", 185000], ["Ngozi Adeyemi", 232500], ["Ibrahim Musa", 185000]],
+      stats: [
+        { n: "400", u: "+", label: "students onboarded in a single import during load testing" },
+        { n: "90", u: "s", label: "for that entire 400-student batch to fully provision" },
+        { n: "100", u: "%", label: "of student payments auto-reconciled — no spreadsheets" }
+      ],
+      pains: [
+        ["Payments confirmed by screenshot and WhatsApp messages", "Every payment auto-matched to the right student the moment it lands."],
+        ["No one knows who’s paid until someone checks manually", "A live dashboard shows exactly who’s paid and who’s outstanding."],
+        ["Reminding parents means calling or texting one by one", "Automatic SMS + WhatsApp reminders for every unpaid invoice."],
+        ["Fee structures re-entered by hand for every student", "Set it once per class — every student inherits it automatically."],
+        ["Spreadsheets that fall out of sync between staff", "One system, one source of truth, updated in real time."]
+      ],
+      highlights: [
+        ["Fee structures per term and class", "Set tuition and levies once per class and term, applied consistently to every student in it."],
+        ["Per-student invoicing", "Automatic invoices with any outstanding balance carried forward to the next term."],
+        ["Automated reconciliation", "Payments are matched to the right student and invoice the moment they land — no manual chasing."],
+        ["Collection dashboard", "A live view of what’s collected, what’s outstanding, and who needs a nudge."],
+        ["SMS + WhatsApp reminders", "Parents get notified the moment an invoice goes out or a payment is confirmed."],
+        ["Bulk student onboarding", "Import an entire school’s student list from a CSV in minutes, not one form at a time."]
+      ],
+      facts: [["Registered", "Bwari, FCT"], ["Company", "FEES101 LTD"], ["RC number", "9694725"], ["Data law", "NDPA 2023"], ["Next", "Pan-African expansion — coming soon"]],
+      tabs: [
+        { k: "fees", l: "Fee structures", title: "Set fees once, apply them everywhere.", body: "Define tuition and levies per class and per term. Every student in that class inherits the right structure automatically — no re-entering the same numbers for 40 students one at a time.", points: ["Per-term, per-class fee items (tuition, levies, PTA dues, etc.)", "Changes to a class’s structure apply to every student in it", "Historical terms stay untouched once invoiced"] },
+        { k: "invoicing", l: "Invoicing", title: "Every student, invoiced correctly, every time.", body: "Fees101 generates a per-student invoice from the class/term structure, and carries forward any unpaid balance into the next invoice automatically — nothing gets lost between terms.", points: ["One invoice per student per billing cycle", "Outstanding balances roll forward automatically", "Bulk invoice generation across an entire class or school"] },
+        { k: "payments", l: "Payments", title: "A dedicated bank account for every student.", body: "Each student gets their own virtual bank account, provisioned through licensed payment infrastructure. Parents pay by transfer like they always have — the difference is what happens next.", points: ["Dedicated virtual account per student — no shared or ambiguous accounts", "Parents keep paying exactly how they already do — a bank transfer, no new app to install", "Payments matched to the right student and invoice automatically", "Funds settle to the school’s own account — Fees101 never holds school funds"] },
+        { k: "notifications", l: "Notifications", title: "Parents know before you have to chase them.", body: "SMS (and soon WhatsApp) notifications go out automatically for new invoices and payment confirmations, so admin staff stop being the messenger.", points: ["Invoice-ready and payment-received alerts, sent automatically", "Built on a provider-agnostic messaging layer", "Fully tested in a safe mock environment before a single naira is spent on messaging"] },
+        { k: "admin", l: "Admin & scale", title: "Built for one class — and for one thousand students.", body: "A live collection dashboard shows what’s been collected and what’s outstanding. Bulk CSV import and automatic account provisioning mean onboarding a whole school doesn’t mean weeks of manual data entry.", points: ["CSV import for bulk student onboarding", "Automatic virtual-account provisioning, single or in bulk", "Paginated student directory that stays fast at hundreds of students", "Self-service payment settings — schools connect their own provider credentials"] }
+      ],
+      engineering: [
+        ["Batched by design, not by accident", "Bulk imports and account provisioning run in small chunks with progress feedback, specifically so onboarding a 300+ student school doesn’t hit a server timeout. We load-tested this with a real 400-student import."],
+        ["Safe to walk away from", "If an admin navigates away mid-import, the background work stops cleanly instead of silently continuing or corrupting data — a real bug we found and fixed during our own testing."],
+        ["Credentials encrypted at rest", "Every school’s own payment provider keys are stored encrypted (AES-256-GCM), never in plaintext, and never exposed to the browser."],
+        ["Provider-agnostic by architecture", "Payment and messaging providers sit behind stable internal interfaces, so swapping or adding a provider later doesn’t mean rewriting business logic."],
+        ["Tested before it costs money", "Our messaging pipeline has a full mock mode — every part of the compose-send-log flow is verified end to end before we spend a naira or need compliance sign-off to go live."],
+        ["Designed around Nigerian data law", "Data handling is built around the NDPA — schools stay the data controller for their students’ information, and we act strictly as a processor on their instruction."]
+      ],
+      integrations: [["Monnify", "Payments"], ["Termii", "SMS & WhatsApp"], ["More", "Coming soon"]],
+      steps: [
+        ["School onboards", "School setup", "An admin account is created and the school’s profile is set up — classes, terms, and staff access.", [["School", "Greenfield College"], ["Classes", "JSS 1 – SS 3"], ["Terms", "First · Second · Third"], ["Staff access", "3 administrators"]]],
+        ["Fee structure is configured", "Fee structure", "Tuition and levies are set per class and per term, once — every student in that class inherits it.", [["Tuition", "₦150,000"], ["Development levy", "₦20,000"], ["PTA dues", "₦15,000"], ["JSS 1 · Second term", "₦185,000"]]],
+        ["Invoices are generated", "Invoice", "Per-student invoices are created automatically, with any prior outstanding balance carried forward.", [["Student", "Ngozi Adeyemi"], ["Second term fees", "₦185,000"], ["Carried forward", "₦47,500"], ["Amount due", "₦232,500"]]],
+        ["Parent pays", "Payment", "Nothing changes for the parent — same bank app, same transfer they already do. It just lands in their child’s own dedicated account instead of a shared, unlabeled one.", [["Pay to", "Ngozi Adeyemi’s account"], ["Channel", "Bank transfer"], ["Amount", "₦232,500"], ["New app needed", "None"]]],
+        ["Payment is auto-reconciled", "Reconciliation", "The payment is matched to the right student and invoice the moment it lands. No spreadsheets, no manual matching.", [["Matched to", "Ngozi Adeyemi"], ["Invoice", "Second term"], ["Balance", "₦0"], ["Matched in", "Instantly"]]],
+        ["The dashboard updates, live", "Dashboard", "Admin staff see collections and outstanding balances update in real time, and know exactly who to remind.", [["Students paid", "4 of 6"], ["Collected", "₦787,500"], ["Outstanding", "₦370,000"], ["Reminders queued", "2"]]]
+      ],
+      trust: [
+        ["Registered Nigerian company", "FEES101 LTD, RC 9694725, registered and operating out of Bwari, FCT, Nigeria."],
+        ["Bank-grade payment rails", "Every student gets their own dedicated virtual bank account, powered by licensed payment infrastructure — not a shared, ambiguous account."],
+        ["Data handled on your terms", "Schools stay the data controller for their students’ information; we act strictly as a processor, on instruction. See our Privacy Policy."],
+        ["Nothing shipped untested", "Every workflow — bulk onboarding, payment reconciliation, notifications — is built with a test path that doesn’t touch real money or real parents until it’s proven."]
+      ],
+      story: [
+        ["The problem", "Revenue ran on memory", "Notebooks, WhatsApp messages, and bank alerts nobody can match to a student — it works, until a school passes a hundred students."],
+        ["The approach", "Make it boring, on purpose", "Set the fee structure once, invoice every student automatically, let each family pay into their own account, and watch it reconcile itself."],
+        ["The build", "Tested before it matters", "Every provider — payments, messaging — sits behind an interface we control, tested at real scale before a single school depends on it."]
+      ],
+      cats: [["getting-started", "Getting started"], ["payments", "Payments & billing"], ["students", "Students & parents"], ["security", "Security"], ["account", "Account & company"]],
+      faqs: [
+        ["getting-started", "What is Fees101?", "Fees101 is a revenue operations platform for Nigerian schools. It helps schools set up fee structures per term/class, generate per-student invoices, collect payments, and automatically reconcile them against the right student."],
+        ["getting-started", "Is Fees101 live yet?", "Fees101 is in active development and currently being rolled out with a small number of schools. We’re not yet open for general sign-up, but we’d love to hear from schools interested in early access."],
+        ["getting-started", "How can my school get early access?", "Reach out to support@fees101.com and we’ll get you set up as part of our early onboarding."],
+        ["payments", "How does payment collection work?", "Each student is issued a dedicated virtual bank account through our licensed payment infrastructure partner. Parents pay directly into that account, and Fees101 automatically matches the payment to the right student and invoice — no manual reconciliation needed."],
+        ["payments", "Do parents need to download an app or change how they pay?", "No. Parents keep paying exactly how they already do — a regular bank transfer, from whatever banking app they normally use. The only difference is they’re transferring into their own child’s dedicated account instead of a shared one, and it’s the school’s side that’s now organised — everything is matched and recorded automatically."],
+        ["payments", "Does Fees101 hold our money?", "No. Fees101 does not hold school funds. Payments are settled through our payment infrastructure partner directly to the school’s own designated settlement account."],
+        ["payments", "What happens to a student’s outstanding balance at the end of term?", "Any unpaid balance is automatically carried forward to the student’s next invoice, so nothing gets lost between terms."],
+        ["students", "How do parents get notified about fees?", "Parents receive SMS (and in future, WhatsApp) notifications for new invoices and payment confirmations, sent through our licensed messaging provider, using the phone number the school has on file."],
+        ["students", "Does Fees101 send anything other than fee-related messages?", "No. Every SMS/WhatsApp notification we send is tied to a specific invoice, payment, or reminder for that student’s fees — never marketing or unrelated messages."],
+        ["security", "How is our data protected?", "We apply industry-standard security practices, including encrypted connections and encrypted storage of sensitive credentials. See our Privacy Policy for full detail on what we collect and how it’s used."],
+        ["account", "Is Fees101 a registered company?", "Yes. Fees101 is operated by FEES101 LTD, RC 9694725, registered in Nigeria with its registered office at Plot L182, Ellicot Citi Street, Kubwa Extension III, Bwari, FCT, Nigeria."],
+        ["account", "Who can I contact for support or questions?", "General enquiries and support: support@fees101.com. The inbox is checked directly by our team — there’s no ticketing bot in between."]
+      ],
+      cta: {
+        home: ["We’re building Fees101 right now.", "If you run a school in Nigeria and want early access, reach out — we’d love to hear from you."],
+        features: ["Want to see it on your school’s numbers?", "We’re onboarding a limited number of schools while we finish building. Reach out and we’ll walk you through it."],
+        "how-it-works": ["Want to see it running on your school’s numbers?", "We’re onboarding a limited number of schools while we finish building. Reach out and we’ll walk you through it."],
+        about: ["Want to see it running at your school?", "We’re onboarding a limited number of schools while we finish building. Reach out and we’ll walk you through it."],
+        faq: ["Still have questions?", "Our team reads every message directly — no ticketing bot in between."]
+      },
+      legal: {
+        privacy: {
+          title: "Privacy Policy", updated: "24 July 2026",
+          intro: "This Privacy Policy explains how FEES101 LTD (“Fees101”, “we”, “us”) collects, uses, and protects information in connection with our revenue operations platform. It is written to comply with the Nigeria Data Protection Act, 2023 (NDPA) and the regulations of the Nigeria Data Protection Commission (NDPC).",
+          sections: [
+            { h: "1. Who we are", ps: ["Fees101 is operated by FEES101 LTD, RC 9694725, a company registered in Nigeria with its registered office at Plot L182, Ellicot Citi Street, Kubwa Extension III, Bwari, FCT, Nigeria.", "Fees101 provides software that Nigerian schools use to manage tuition and fee structures, generate student invoices, collect payments, and send payment notifications to parents/guardians."] },
+            { h: "2. Controller and processor roles", ps: ["Schools that use Fees101 (“School Customers”) act as data controllers for the student and parent/guardian data they enter into the platform — they decide what data to collect and why. Fees101 acts as a data processor, handling that data only on the School Customer’s instructions and for the purpose of providing the service.", "If you are a parent, guardian, or student and have questions about your data, your school is the first point of contact, since they control what information is submitted to us."] },
+            { h: "3. Information we collect", ps: ["We process the following categories of information:"], bl: [["School account data", " — school name, administrator names, email addresses, and login credentials."], ["Student and family data", ", entered by schools — student names, class/term enrolment, and parent/guardian names and phone numbers, used to generate invoices and send payment notifications."], ["Payment data", " — fee amounts, invoice and payment status, and virtual bank account details generated by our licensed payment infrastructure partner for each student. We do not store bank card numbers or full account credentials."], ["Messaging data", " — the content and delivery status of SMS/WhatsApp notifications sent to parents/guardians (e.g. invoice and payment reminders), and the phone number they were sent to."], ["Technical data", " — basic log and session data needed to keep the platform secure and operating correctly."]] },
+            { h: "4. How we use information", bl: [["", "To generate and deliver fee invoices to the correct student/family."], ["", "To provision and reconcile payments against the correct student."], ["", "To send transactional notifications by SMS/WhatsApp — for example, new invoice alerts, payment confirmations, and payment reminders."], ["", "To provide collection reporting and dashboards to School Customers."], ["", "To maintain the security, integrity, and availability of the platform."]], ps: ["We do not sell personal information, and we do not use it for advertising."] },
+            { h: "5. Who we share information with", ps: ["Data is shared only with service providers we use to operate Fees101, under contract:"], bl: [["Payment infrastructure providers", " (e.g. Monnify), to generate dedicated virtual bank accounts and process payments."], ["Messaging providers", " (e.g. Termii), to deliver SMS and WhatsApp notifications to parents/guardians on our behalf."], ["Cloud infrastructure and database providers", " (e.g. Supabase), to securely host application data."]], tail: "We do not share personal data with third parties for their own independent marketing purposes." },
+            { h: "6. Children’s data", ps: ["Because Fees101 is used to manage school fees, it necessarily processes limited data about students, some of whom are minors. This data (typically name and class/term enrolment) is provided directly by the school for the specific purpose of invoicing and is not used for any other purpose. We do not knowingly collect data directly from children."] },
+            { h: "7. Data retention", ps: ["We retain data for as long as a School Customer maintains an active account, and for a reasonable period afterward to meet legal, accounting, and dispute-resolution obligations. School Customers may request deletion of their data, subject to any records we are legally required to keep."] },
+            { h: "8. Data security", ps: ["We apply industry-standard technical and organisational measures to protect data, including encrypted connections, encrypted storage of sensitive credentials, and access controls restricting who within Fees101 can view data."] },
+            { h: "9. Your rights", ps: ["Under the NDPA, individuals have the right to:"], bl: [["", "Request access to personal data held about them;"], ["", "Request correction of inaccurate data;"], ["", "Request deletion or restriction of processing, in certain circumstances;"], ["", "Object to certain processing; and"], ["", "Lodge a complaint with the Nigeria Data Protection Commission (NDPC)."]], tail: "Requests relating to student or parent/guardian data should generally be directed to the relevant school first. Requests relating to school account data can be sent to us directly using the contact details below." },
+            { h: "10. Contact us", ps: ["For any privacy questions or requests, contact us at support@fees101.com, or by post at:"], addr: ["FEES101 LTD", "Plot L182, Ellicot Citi Street, Kubwa Extension III, Bwari, FCT, Nigeria", "RC 9694725"] }
+          ]
+        },
+        terms: {
+          title: "Terms of Service", updated: "24 July 2026",
+          intro: "These Terms of Service (“Terms”) govern access to and use of the Fees101 platform, provided by FEES101 LTD, RC 9694725, a company registered in Nigeria (“Fees101”, “we”, “us”). By using Fees101, a School Customer agrees to these Terms.",
+          sections: [
+            { h: "1. The service", ps: ["Fees101 is software that helps schools set fee structures, generate student invoices, collect and reconcile payments, and notify parents/guardians of invoices and payments due. Fees101 is currently in active development and being onboarded with schools on a limited basis."] },
+            { h: "2. Accounts and eligibility", ps: ["Fees101 is intended for use by schools and authorised school staff. You must provide accurate information when creating an account and are responsible for keeping your login credentials confidential and for all activity under your account."] },
+            { h: "3. School Customer responsibilities", bl: [["", "You are responsible for the accuracy of the fee, student, and parent/guardian information you enter into Fees101."], ["", "You confirm you have the appropriate basis and, where applicable, consent to share parent/guardian contact details with us for the purpose of sending invoice and payment notifications."], ["", "You will not use Fees101 for any unlawful purpose or to send communications unrelated to school fee management."]] },
+            { h: "4. Payments", ps: ["Fees101 integrates with licensed third-party payment infrastructure to generate dedicated virtual bank accounts and process fee payments. Fees101 does not itself hold customer funds; funds are settled through our payment infrastructure partner directly to the relevant School Customer’s designated settlement account, subject to that partner’s own terms."] },
+            { h: "5. Messaging", ps: ["Fees101 sends transactional SMS/WhatsApp notifications (such as invoice alerts, payment confirmations, and reminders) to parent/guardian phone numbers provided by School Customers, using licensed messaging providers. These messages are limited to fee-related communication."] },
+            { h: "6. Availability and changes", ps: ["Fees101 is provided on an “as available” basis while we continue to build and improve it. We may update, modify, or temporarily suspend parts of the service, and will make reasonable efforts to communicate material changes to affected School Customers in advance."] },
+            { h: "7. Limitation of liability", ps: ["To the fullest extent permitted by law, Fees101 will not be liable for indirect, incidental, or consequential losses arising from use of the platform. Nothing in these Terms limits liability that cannot be excluded under Nigerian law."] },
+            { h: "8. Termination", ps: ["Either party may stop using or providing the service at any time. On termination, we will make reasonable efforts to allow a School Customer to export their data, and will retain data only as described in our Privacy Policy."] },
+            { h: "9. Governing law", ps: ["These Terms are governed by the laws of the Federal Republic of Nigeria, and any disputes are subject to the exclusive jurisdiction of the Nigerian courts."] },
+            { h: "10. Contact us", ps: ["Questions about these Terms can be sent to support@fees101.com."], addr: ["FEES101 LTD", "Plot L182, Ellicot Citi Street, Kubwa Extension III, Bwari, FCT, Nigeria", "RC 9694725"] }
+          ]
+        }
+      }
+    };
+  }
+
+  renderVals() {
+    const D = this.data(), st = this.state, route = st.route;
+    const money = n => "₦" + n.toLocaleString("en-NG");
+    const num = i => String(i + 1).padStart(2, "0");
+
+    const nav = D.pages.map(p => ({
+      href: "#/" + p.r, num: p.n, label: p.l,
+      style: "text-decoration:none;font-size:16px;padding:6px 0;border-bottom:2px solid " + (route === p.r ? "var(--color-accent)" : "transparent") + ";color:" + (route === p.r ? "var(--color-text)" : "var(--color-neutral-800)")
+    }));
+
+    // hero ledger
+    const m = st.matched;
+    const ledger = D.students.map((s, i) => {
+      const matched = i < m, fresh = i === m - 1;
+      return {
+        name: s[0], inv: "INV-" + (2040 + i), amount: money(s[1]), status: matched ? "MATCHED" : "PENDING",
+        style: "display:grid;grid-template-columns:auto 1fr auto auto;gap:6px 16px;align-items:baseline;padding:10px 8px;margin:0 -8px;border-bottom:1px solid rgba(232,248,241,.14);transition:background .6s;background:" + (fresh ? "rgba(90,216,166,.18)" : "transparent"),
+        statusStyle: "font-size:12px;letter-spacing:.06em;" + (matched ? "color:#5ad8a6" : "color:rgba(232,248,241,.5)")
+      };
+    });
+    const collected = D.students.slice(0, m).reduce((a, s) => a + s[1], 0);
+    const total = D.students.reduce((a, s) => a + s[1], 0);
+    const logLine = "› payment.received → matched  " + D.students[m - 1][0] + "  " + money(D.students[m - 1][1]);
+
+    const tab = D.tabs.find(t => t.k === st.tab);
+    const tabs = D.tabs.map((t, i) => ({
+      num: num(i), label: t.l, go: () => this.setState({ tab: t.k }),
+      style: "display:flex;align-items:baseline;text-align:left;background:none;border:0;border-bottom:1px solid var(--color-divider);padding:20px 16px 20px 12px;cursor:pointer;font-family:var(--font-heading);font-size:22px;line-height:1.1;font-weight:600;color:" + (st.tab === t.k ? "var(--color-text)" : "var(--color-neutral-600)") + ";box-shadow:" + (st.tab === t.k ? "inset 3px 0 0 var(--color-accent)" : "none")
+    }));
+
+    const steps = D.steps.map((s, i) => ({
+      num: num(i), title: s[0], label: s[1], body: s[2], rows: s[3].map(r => ({ k: r[0], v: r[1] })),
+      textStyle: "order:" + (i % 2)
+    }));
+
+    const q = st.query.trim().toLowerCase(), searching = q.length > 0;
+    const vis = D.faqs.filter(f => searching ? (f[1].toLowerCase().includes(q) || f[2].toLowerCase().includes(q)) : f[0] === st.cat);
+    const faqs = vis.map(f => {
+      const open = st.openQ === f[1];
+      return {
+        q: f[1], a: f[2], open, go: () => this.setState(s => ({ openQ: s.openQ === f[1] ? "" : f[1] })),
+        iconStyle: "flex:0 0 auto;font-family:var(--font-heading);font-size:29px;line-height:.8;color:var(--color-accent-700);transition:transform .25s;transform:rotate(" + (open ? 45 : 0) + "deg)"
+      };
+    });
+    const cats = D.cats.map(c => {
+      const on = !searching && st.cat === c[0];
+      return { label: c[1], go: () => this.setState({ cat: c[0], query: "", openQ: "" }), style: "background:none;border:0;cursor:pointer;padding:16px 0;font-size:15px;color:" + (on ? "var(--color-text)" : "var(--color-neutral-700)") + ";border-bottom:2px solid " + (on ? "var(--color-accent)" : "transparent") + ";font-weight:" + (on ? 600 : 400) };
+    });
+
+    const isLegal = route === "privacy" || route === "terms";
+    const L = isLegal ? D.legal[route] : { title: "", updated: "", intro: "", sections: [] };
+    const doc = {
+      title: L.title, updated: L.updated, intro: L.intro,
+      index: L.sections.map((s, i) => ({ label: s.h, go: () => { const el = document.getElementById("sec-" + i); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 90, behavior: "smooth" }); } })),
+      sections: L.sections.map((s, i) => ({
+        id: "sec-" + i, h: s.h,
+        ps: s.ps || [], tail: s.tail ? [s.tail] : [],
+        bl: (s.bl || []).map(b => ({ b: b[0], t: b[1] })), addr: s.addr || []
+      }))
+    };
+
+    const cta = D.cta[route] ? { head: D.cta[route][0], body: D.cta[route][1] } : { head: "", body: "" };
+
+    return {
+      nav, year: new Date().getFullYear(),
+      isHome: route === "home", isFeatures: route === "features", isHow: route === "how-it-works", isAbout: route === "about", isFaq: route === "faq", isLegal,
+      showCta: !isLegal, cta,
+      ledger, collected: money(collected), outstanding: money(total - collected), logLine,
+      stats: D.stats,
+      pains: D.pains.map(p => ({ before: p[0], after: p[1] })),
+      highlights: D.highlights.map((h, i) => ({ num: num(i), title: h[0], body: h[1] })),
+      facts: D.facts.map(f => ({ k: f[0], v: f[1] })),
+      tabs, tab,
+      engineering: D.engineering.map((e, i) => ({ num: num(i), title: e[0], body: e[1] })),
+      integrations: D.integrations.map(i => ({ name: i[0], note: i[1] })),
+      steps,
+      trust: D.trust.map(t => ({ title: t[0], body: t[1] })),
+      story: D.story.map((s, i) => ({ num: num(i), tag: s[0], title: s[1], body: s[2] })),
+      cats, faqs, searching, noResults: searching && vis.length === 0,
+      resultLine: vis.length + " result" + (vis.length === 1 ? "" : "s") + " for “" + st.query + "”",
+      query: st.query, onQuery: e => this.setState({ query: e.target.value, openQ: "" }),
+      doc
+    };
+  }
+}
+</script>
+</body>
+</html>
