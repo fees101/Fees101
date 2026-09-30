@@ -1,0 +1,76 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  DashboardView,
+  InvoicingView,
+  PaymentView,
+  FeeStructureView,
+  ReconciliationView,
+} from "@/components/ProductScreens";
+
+const VIEWS = [
+  { label: "Dashboard", View: DashboardView },
+  { label: "Invoices", View: InvoicingView },
+  { label: "Payment", View: PaymentView },
+  { label: "Fee structure", View: FeeStructureView },
+  { label: "Reconciliation", View: ReconciliationView },
+];
+
+export function HeroPreview() {
+  const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setActive((i) => (i + 1) % VIEWS.length);
+    }, 3400);
+    return () => clearInterval(id);
+  }, []);
+
+  const ActiveView = VIEWS[active].View;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+      className="mx-auto max-w-2xl md:mx-0"
+    >
+      <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-2xl shadow-navy/10">
+        <div className="flex items-center gap-1.5 border-b border-black/5 bg-[#f6f9f8] px-4 py-3">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+          <span className="ml-2 text-xs font-medium text-gray-400">
+            {VIEWS[active].label}
+          </span>
+        </div>
+        <div className="relative min-h-[260px]">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={VIEWS[active].label}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <ActiveView />
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </div>
+
+      <div className="mt-5 flex justify-center gap-2">
+        {VIEWS.map((v, i) => (
+          <span
+            key={v.label}
+            className={`h-1.5 rounded-full transition-all ${
+              i === active ? "w-6 bg-mint-dark" : "w-1.5 bg-black/10"
+            }`}
+          />
+        ))}
+      </div>
+    </motion.div>
+  );
+}
