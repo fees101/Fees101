@@ -109,8 +109,9 @@ export default function PrivacyPage() {
         <p>Data is shared only with service providers we use to operate Fees101, under contract:</p>
         <ul className="list-disc pl-5">
           <li>
-            <strong>Payment infrastructure providers</strong> (e.g. Monnify), to
-            generate dedicated virtual bank accounts and process payments.
+            <strong>Payment infrastructure providers</strong> (e.g. Monnify,
+            Paystack), to generate dedicated virtual bank accounts and process
+            payments.
           </li>
           <li>
             <strong>Messaging providers</strong> (e.g. Sendchamp), to deliver SMS and

@@ -94,6 +94,7 @@ const ENGINEERING = [
 
 const INTEGRATIONS = [
   { name: "Monnify", note: "Payments" },
+  { name: "Paystack", note: "Payments" },
   { name: "Sendchamp", note: "SMS & WhatsApp" },
   { name: "More", note: "Coming soon" },
 ];
