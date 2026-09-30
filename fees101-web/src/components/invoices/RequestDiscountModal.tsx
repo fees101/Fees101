@@ -82,7 +82,7 @@ export default function RequestDiscountModal({ invoiceId, subtotal, existingDisc
       ? { category, reason }
       : { category, amount: enteredAmount, isPercentage, isRecurring, reason })
     setSaving(false)
-    if (result.error) return setError(result.error)
+    if ('error' in result) return setError(result.error ?? 'Something went wrong')
     onSuccess(!!result.autoApproved)
   }
 
