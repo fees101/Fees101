@@ -3,6 +3,10 @@
 **File:** `Fees101 Website.dc.html` (single Design Component, Modernist system: Archivo + JetBrains Mono, brand navy `#0D1B36` / mint `#5AD8A6`).
 **Positioning:** revenue operations platform for Nigerian schools (not "fee management").
 
+## v2 structure
+Left-rail app shell (Product: Overview / Platform / Workflow · Company: Pricing / About / FAQ; Privacy + Terms in rail footer). Route ids kept for repo parity: `features`=Platform, `how-it-works`=Workflow. New route `pricing`. v1 preserved as `Fees101 Website v1.dc.html`.
+**Pricing is a placeholder** — no rates exist in the repo. Edit via Tweaks (`priceMain`, `priceUnit`) or the Pricing block; tiers/plans are Early access vs General availability only.
+
 ## Flow
 - Hash router: `#/`, `#/features`, `#/how-it-works`, `#/about`, `#/faq`, `#/privacy`, `#/terms`. Set in `componentDidMount` (`onHash`). `initialRoute` prop = default.
 - Shell = masthead (top of template) + `<main>` page blocks (`<sc-if isHome|isFeatures|isHow|isAbout|isFaq|isLegal>`) + shared closing CTA (`showCta`, copy in `data().cta[route]`) + footer.

@@ -11,39 +11,47 @@
 <link rel="stylesheet" href="_ds/modernist-999121b8-27f1-406b-988e-740794f31b97/styles.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
 <script src="_ds/modernist-999121b8-27f1-406b-988e-740794f31b97/_ds_bundle.js"></script>
-<style>html{scroll-behavior:smooth}body{margin:0;background:#f3f2f2}a{color:var(--color-accent-700);text-decoration-color:#5ad8a6}a:hover{color:var(--color-accent-800)}button{font-family:inherit}input::placeholder{color:var(--color-neutral-600)}</style>
+<style>html{scroll-behavior:smooth}body{margin:0;background:#f3f2f2}a{color:var(--color-accent-700);text-decoration-color:#5ad8a6}a:hover{color:var(--color-accent-800)}button{font-family:inherit}input::placeholder{color:var(--color-neutral-600)}
+@media(max-width:900px){[data-shell]{flex-direction:column!important}[data-rail]{position:static!important;height:auto!important;width:auto!important;flex:none!important;border-right:0!important;border-bottom:2px solid #201e1d!important}[data-navlist]{flex-direction:row!important;flex-wrap:wrap;gap:4px 12px!important}[data-railextra]{display:none!important}}</style>
 </helmet>
-<div style="--font-mono:'JetBrains Mono',ui-monospace,monospace;min-height:100vh;display:flex;flex-direction:column;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);font-size:17px;line-height:1.6" lang="en">
+<div data-shell style="--font-mono:'JetBrains Mono',ui-monospace,monospace;display:flex;min-height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);font-size:16px;line-height:1.6">
 
-<!-- ═════════ SHELL: masthead (persistent) ═════════ -->
-<header data-screen-label="Masthead" style="position:sticky;top:0;z-index:20;background:var(--color-bg);border-bottom:1px solid var(--color-divider)">
-  <div style="max-width:1280px;margin:0 auto;padding:14px clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 32px">
-    <a href="#/" style="text-decoration:none;color:var(--color-text);font-family:var(--font-heading);font-size:26px;line-height:1;letter-spacing:-.01em;font-weight:600">Fees<span style="font-weight:400;color:var(--color-accent-700)">101</span></a>
-    <nav style="display:flex;flex-wrap:wrap;gap:6px 28px;align-items:center">
-      <sc-for list="{{ nav }}" as="n" hint-placeholder-count="5">
-        <a href="{{ n.href }}" style="{{ n.style }}"><span style="font-feature-settings:'tnum';font-size:11px;letter-spacing:.1em;color:var(--color-accent-700);margin-right:6px">{{ n.num }}</span>{{ n.label }}</a>
-      </sc-for>
-    </nav>
-    <a class="btn btn-primary" href="mailto:support@fees101.com">Talk to us</a>
+<!-- ═════════ SHELL: left rail (persistent). Add a page = add an entry to data().pages ═════════ -->
+<aside data-rail data-screen-label="Rail" style="flex:0 0 264px;width:264px;position:sticky;top:0;height:100vh;box-sizing:border-box;border-right:2px solid var(--color-text);display:flex;flex-direction:column;gap:28px;padding:24px;overflow:auto;background:var(--color-bg)">
+  <div>
+    <a href="#/" style="text-decoration:none;color:var(--color-text);font-family:var(--font-heading);font-weight:800;font-size:30px;line-height:1;letter-spacing:-.03em">Fees<span style="font-weight:400;color:var(--color-accent)">101</span></a>
+    <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-top:8px">Revenue operations</div>
   </div>
-</header>
+  <nav data-navlist style="display:flex;flex-direction:column;gap:2px">
+    <div data-railextra style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);padding:0 0 6px">Product</div>
+    <sc-for list="{{ navProduct }}" as="n" hint-placeholder-count="3"><a href="{{ n.href }}" style="{{ n.style }}"><span style="{{ n.numStyle }}">{{ n.num }}</span>{{ n.label }}</a></sc-for>
+    <div data-railextra style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-600);padding:18px 0 6px">Company</div>
+    <sc-for list="{{ navCompany }}" as="n" hint-placeholder-count="3"><a href="{{ n.href }}" style="{{ n.style }}"><span style="{{ n.numStyle }}">{{ n.num }}</span>{{ n.label }}</a></sc-for>
+  </nav>
+  <div data-railextra style="margin-top:auto;display:flex;flex-direction:column;gap:14px">
+    <div style="border-top:2px solid var(--color-text);padding-top:14px;font-family:var(--font-mono);font-size:11px;line-height:1.5;color:var(--color-neutral-800)"><span style="color:#0f7a55">●</span> Early access<br>Limited schools, onboarded directly</div>
+    <a class="btn btn-primary" href="mailto:support@fees101.com">Talk to us</a>
+    <div style="display:flex;gap:14px;font-size:13px"><a href="#/privacy">Privacy</a><a href="#/terms">Terms</a></div>
+  </div>
+</aside>
 
+<div data-main style="flex:1 1 0;min-width:0;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;gap:12px;padding:14px clamp(20px,3.5vw,48px);border-bottom:2px solid var(--color-text);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--color-neutral-700)"><span>fees101 / <span style="color:var(--color-text)">{{ path }}</span></span><span>Bwari, FCT · NG</span></div>
 <main style="flex:1">
 
-<!-- ═════════ 00 HOME ═════════ -->
+<!-- ═════════ OVERVIEW ═════════ -->
 <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
-<div data-screen-label="Home">
-  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(32px,4.8vw,70px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr));gap:clamp(29px,4.0vw,64px);align-items:center">
-    <div>
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">Revenue operations platform · Nigeria</div>
-      <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(35px,5.7vw,84px);line-height:.9;letter-spacing:-.03em;margin:0 0 32px">Revenue, <span style="color:var(--color-accent-700)">reconciled</span> in real time.</h1>
-      <p style="max-width:34em;margin:0 0 36px;font-size:18px;line-height:1.65;text-wrap:pretty">Fees101 is a revenue operations platform for Nigerian schools: invoicing, collections and automatic reconciliation on one ledger — every payment matched to its invoice the moment it lands.</p>
-      <div style="display:flex;flex-wrap:wrap;gap:12px">
-        <a class="btn btn-primary" href="mailto:support@fees101.com">Talk to us</a>
-        <a class="btn btn-secondary" href="#/how-it-works">See how it works</a>
-      </div>
+<div data-screen-label="Overview">
+  <section style="max-width:1120px;margin:0 auto;padding:clamp(40px,6vw,88px) clamp(20px,3.5vw,48px) clamp(32px,4vw,56px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:24px">Revenue operations platform · Nigeria</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(44px,7.6vw,112px);line-height:.9;letter-spacing:-.04em;margin:0 0 28px;max-width:9em">Revenue, <span style="color:var(--color-accent)">reconciled</span> in real time.</h1>
+    <div style="display:flex;flex-wrap:wrap;gap:24px 64px;align-items:end;justify-content:space-between">
+      <p style="max-width:32em;margin:0;font-size:18px;text-wrap:pretty">Fees101 is a revenue operations platform for Nigerian schools: invoicing, collections and automatic reconciliation on one ledger — every payment matched to its invoice the moment it lands.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px"><a class="btn btn-primary" href="mailto:support@fees101.com">Talk to us</a><a class="btn btn-secondary" href="#/how-it-works">See the workflow</a></div>
     </div>
-    <!-- Hero specimen: live reconciliation terminal -->
+  </section>
+
+  <section style="max-width:1120px;margin:0 auto;padding:0 clamp(20px,3.5vw,48px) clamp(48px,6vw,88px)">
     <div style="background:#201e1d;color:#e8f8f1;font-family:var(--font-mono);font-size:13px;border:2px solid var(--color-text)">
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;padding:12px 18px;border-bottom:1px solid rgba(232,248,241,.25);color:#a4e6cb"><span>ledger / jss-1 / term-2</span><span style="color:#5ad8a6">● live · illustrative data</span></div>
       <div style="padding:6px 18px 4px">
@@ -57,79 +65,77 @@
         </sc-for>
       </div>
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px 24px;padding:18px;border-top:1px solid rgba(232,248,241,.25)">
-        <div><div style="font-size:11px;letter-spacing:.12em;color:rgba(232,248,241,.55)">COLLECTED</div><div style="font-family:var(--font-heading);font-weight:800;font-size:24px;line-height:1.1;color:#5ad8a6;font-feature-settings:'tnum'">{{ collected }}</div></div>
-        <div style="text-align:right"><div style="font-size:11px;letter-spacing:.12em;color:rgba(232,248,241,.55)">OUTSTANDING</div><div style="font-family:var(--font-heading);font-weight:800;font-size:24px;line-height:1.1;font-feature-settings:'tnum'">{{ outstanding }}</div></div>
+        <div><div style="font-size:11px;letter-spacing:.12em;color:rgba(232,248,241,.55)">COLLECTED</div><div style="font-family:var(--font-heading);font-weight:800;font-size:32px;line-height:1.1;color:#5ad8a6;font-feature-settings:'tnum'">{{ collected }}</div></div>
+        <div style="text-align:right"><div style="font-size:11px;letter-spacing:.12em;color:rgba(232,248,241,.55)">OUTSTANDING</div><div style="font-family:var(--font-heading);font-weight:800;font-size:32px;line-height:1.1;font-feature-settings:'tnum'">{{ outstanding }}</div></div>
       </div>
       <div style="padding:12px 18px;border-top:1px solid rgba(232,248,241,.25);color:#5ad8a6;background:rgba(90,216,166,.08)">{{ logLine }}</div>
     </div>
   </section>
 
-  <!-- stress test / numbers -->
-  <section style="border-top:1px solid var(--color-divider)">
-    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
-      <div style="display:flex;flex-wrap:wrap;gap:24px 64px;justify-content:space-between;align-items:end;margin-bottom:56px">
-        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0;max-width:14em">We stress-test this before a school ever sees it.</h2>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700)">Figures from load testing</div>
+  <!-- the cycle -->
+  <section style="border-top:2px solid var(--color-text);background:var(--color-surface)">
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,3.5vw,48px)">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:20px 48px;margin-bottom:40px">
+        <div><div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:14px">The revenue cycle</div>
+        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(28px,3.8vw,54px);line-height:1;letter-spacing:-.03em;margin:0;max-width:11em">The whole cycle, on one ledger.</h2></div>
+        <a class="btn btn-secondary" href="#/features">Explore the platform</a>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));border-top:2px solid var(--color-text)">
-        <sc-for list="{{ stats }}" as="s" hint-placeholder-count="3">
-          <div style="padding:28px 28px 8px 0;border-right:1px solid var(--color-divider);margin-right:0">
-            <div style="font-family:var(--font-heading);font-weight:800;font-size:clamp(49px,6.1vw,95px);line-height:.95;letter-spacing:-.03em;font-feature-settings:'tnum'">{{ s.n }}<span style="color:var(--color-accent-700);">{{ s.u }}</span></div>
-            <p style="max-width:16em;margin:12px 0 24px;font-size:15px;color:var(--color-neutral-800)">{{ s.label }}</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));border-top:2px solid var(--color-text);border-left:1px solid var(--color-divider)">
+        <sc-for list="{{ pipeline }}" as="p" hint-placeholder-count="5">
+          <div style="padding:20px 18px 22px;border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:10px;background:var(--color-bg)">
+            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--color-accent-700)">{{ p.num }} · {{ p.tag }}</div>
+            <h3 style="margin:0;font-family:var(--font-heading);font-weight:800;font-size:24px;line-height:1.05;letter-spacing:-.02em">{{ p.title }}</h3>
+            <p style="margin:0;font-size:14px;color:var(--color-neutral-800)">{{ p.body }}</p>
+            <code style="margin-top:auto;padding-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--color-neutral-700);word-break:break-all">{{ p.code }}</code>
           </div>
         </sc-for>
       </div>
     </div>
   </section>
 
-  <!-- before / after -->
-  <section style="border-top:1px solid var(--color-divider);background:var(--color-surface)">
-    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:16px">Sound familiar?</div>
-      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0 0 48px;max-width:12em">Revenue ops shouldn’t run on screenshots.</h2>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:0 56px;border-top:2px solid var(--color-text);padding-top:12px;font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">
-        <div style="padding:6px 0">Before</div><div style="padding:6px 0;color:var(--color-accent-700)">With Fees101</div>
-      </div>
-      <sc-for list="{{ pains }}" as="p" hint-placeholder-count="5">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:8px 56px;padding:22px 0;border-top:1px solid var(--color-divider)">
-          <p style="margin:0;color:var(--color-neutral-700);text-decoration:line-through;text-decoration-color:var(--color-neutral-400);font-size:16px">{{ p.before }}</p>
-          <p style="margin:0;font-family:var(--font-heading);font-size:24px;line-height:1.25;font-weight:600">{{ p.after }}</p>
-        </div>
+  <!-- diff -->
+  <section style="max-width:1120px;margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,3.5vw,48px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:14px">Sound familiar?</div>
+    <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(28px,3.8vw,54px);line-height:1;letter-spacing:-.03em;margin:0 0 36px;max-width:12em">Revenue ops shouldn’t run on screenshots.</h2>
+    <div style="border:2px solid var(--color-text);background:#fff;font-family:var(--font-mono);font-size:13px;line-height:1.5">
+      <div style="padding:10px 16px;border-bottom:1px solid var(--color-divider);color:var(--color-neutral-700)">diff  before → fees101</div>
+      <sc-for list="{{ diff }}" as="d" hint-placeholder-count="10">
+        <div style="{{ d.style }}"><span style="opacity:.5;text-align:right">{{ d.n }}</span><span style="font-weight:600">{{ d.sign }}</span><span style="font-family:var(--font-body);font-size:15px">{{ d.text }}</span></div>
       </sc-for>
     </div>
   </section>
 
-  <!-- what we do: index -->
-  <section style="border-top:1px solid var(--color-divider)">
-    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
-      <div style="display:flex;flex-wrap:wrap;gap:24px 64px;justify-content:space-between;align-items:end;margin-bottom:48px">
-        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0;max-width:12em">The whole revenue cycle, on one ledger.</h2>
-        <a class="btn btn-secondary" href="#/features">Explore all features</a>
+  <!-- numbers -->
+  <section style="border-top:2px solid var(--color-text)">
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,3.5vw,48px)">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:16px 48px;margin-bottom:40px">
+        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(28px,3.8vw,54px);line-height:1;letter-spacing:-.03em;margin:0;max-width:12em">We stress-test this before a school ever sees it.</h2>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">Load-test figures</div>
       </div>
-      <sc-for list="{{ highlights }}" as="h" hint-placeholder-count="6">
-        <div style="display:flex;flex-wrap:wrap;gap:8px 32px;padding:26px 0;border-top:1px solid var(--color-divider);align-items:baseline">
-          <span style="flex:0 0 48px;font-size:13px;color:var(--color-accent-700);font-feature-settings:'tnum';letter-spacing:.08em">{{ h.num }}</span>
-          <h3 style="flex:1 1 300px;margin:0;font-family:var(--font-heading);font-weight:600;font-size:clamp(26px,3vw,38px);line-height:1.05">{{ h.title }}</h3>
-          <p style="flex:1 1 320px;margin:0;max-width:34em;color:var(--color-neutral-800);text-wrap:pretty">{{ h.body }}</p>
-        </div>
-      </sc-for>
-      <div style="border-top:1px solid var(--color-divider)"></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));border-top:2px solid var(--color-text)">
+        <sc-for list="{{ stats }}" as="s" hint-placeholder-count="3">
+          <div style="padding:24px 24px 8px 0;border-right:1px solid var(--color-divider)">
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:clamp(56px,6.6vw,96px);line-height:.95;letter-spacing:-.04em;font-feature-settings:'tnum'">{{ s.n }}<span style="color:var(--color-accent)">{{ s.u }}</span></div>
+            <p style="max-width:16em;margin:10px 0 20px;font-size:14px;color:var(--color-neutral-800)">{{ s.label }}</p>
+          </div>
+        </sc-for>
+      </div>
     </div>
   </section>
 
-  <!-- built in nigeria (colophon) -->
+  <!-- colophon -->
   <section style="background:#201e1d;color:var(--color-neutral-200)">
-    <div style="max-width:1280px;margin:0 auto;padding:clamp(44px,6.1vw,87px) clamp(16px,3.2vw,45px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:56px 80px">
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(56px,8vw,112px) clamp(20px,3.5vw,48px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr));gap:48px 72px">
       <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:24px">Where we operate</div>
-        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(32px,4.5vw,67px);line-height:.95;letter-spacing:-.02em;margin:0 0 28px;color:#f3f2f2">Built in Nigeria, for <span style="color:var(--color-accent-700)">Nigerian</span> schools.</h2>
-        <p style="margin:0;max-width:32em;font-size:18px;text-wrap:pretty">Every part of Fees101 — the payment rails, the messaging, the compliance groundwork — is built around how Nigerian schools actually collect fees today, not a generic template borrowed from elsewhere.</p>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:20px">Where we operate</div>
+        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(32px,4.6vw,64px);line-height:.95;letter-spacing:-.035em;margin:0 0 24px;color:#f3f2f2">Built in Nigeria, for Nigerian schools.</h2>
+        <p style="margin:0;max-width:32em;font-size:17px;text-wrap:pretty">Every part of Fees101 — the payment rails, the messaging, the compliance groundwork — is built around how Nigerian schools actually collect fees today, not a generic template borrowed from elsewhere.</p>
       </div>
       <dl style="margin:0;align-self:end;border-top:1px solid rgba(243,242,242,.3)">
         <sc-for list="{{ facts }}" as="f" hint-placeholder-count="5">
-          <div style="display:flex;justify-content:space-between;gap:24px;padding:16px 0;border-bottom:1px solid rgba(243,242,242,.3)">
-            <dt style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-400);padding-top:4px">{{ f.k }}</dt>
-            <dd style="margin:0;text-align:right;font-family:var(--font-heading);font-size:24px;line-height:1.2;color:#f3f2f2">{{ f.v }}</dd>
+          <div style="display:flex;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid rgba(243,242,242,.3)">
+            <dt style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-400);padding-top:5px">{{ f.k }}</dt>
+            <dd style="margin:0;text-align:right;font-weight:600;font-size:18px;line-height:1.3;color:#f3f2f2">{{ f.v }}</dd>
           </div>
         </sc-for>
       </dl>
@@ -138,64 +144,132 @@
 </div>
 </sc-if>
 
-<!-- ═════════ 01 FEATURES ═════════ -->
+<!-- ═════════ PLATFORM ═════════ -->
 <sc-if value="{{ isFeatures }}" hint-placeholder-val="{{ false }}">
-<div data-screen-label="Features">
-  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(32px,4.0vw,58px)">
-    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">Features</div>
-    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(33px,5.0vw,73px);line-height:.92;letter-spacing:-.03em;margin:0 0 32px;max-width:11em">The full revenue cycle, <span style="color:var(--color-accent-700)">end to end.</span></h1>
-    <p style="max-width:36em;margin:0;font-size:18px;text-wrap:pretty">Not a spreadsheet replacement — a revenue operations system, from setting the fee schedule to knowing the money actually landed.</p>
+<div data-screen-label="Platform">
+  <section style="max-width:1120px;margin:0 auto;padding:clamp(40px,6vw,88px) clamp(20px,3.5vw,48px) clamp(32px,4vw,56px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:24px">Platform</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(40px,6.4vw,92px);line-height:.92;letter-spacing:-.035em;margin:0 0 24px;max-width:10em">The full revenue cycle, <span style="color:var(--color-accent)">end to end.</span></h1>
+    <p style="max-width:34em;margin:0;font-size:18px;text-wrap:pretty">Not a spreadsheet replacement — a revenue operations system, from setting the fee schedule to knowing the money actually landed.</p>
   </section>
 
   <section style="border-top:2px solid var(--color-text)">
-    <div style="max-width:1280px;margin:0 auto;padding:0 clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap">
-      <div style="flex:1 1 280px;border-right:1px solid var(--color-divider);padding:16px 0 32px;display:flex;flex-direction:column">
-        <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
-          <button onClick="{{ t.go }}" style="{{ t.style }}"><span style="font-size:12px;font-feature-settings:'tnum';letter-spacing:.08em;color:var(--color-accent-700);flex:0 0 28px">{{ t.num }}</span>{{ t.label }}</button>
-        </sc-for>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border-bottom:2px solid var(--color-text)">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5"><button onClick="{{ t.go }}" style="{{ t.style }}"><span style="{{ t.numStyle }}">{{ t.num }}</span><span>{{ t.label }}</span></button></sc-for>
+    </div>
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(32px,5vw,64px) clamp(20px,3.5vw,48px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr));gap:36px clamp(32px,5vw,80px)">
+      <div>
+        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(26px,3.2vw,44px);line-height:1;letter-spacing:-.03em;margin:0 0 18px">{{ tab.title }}</h2>
+        <p style="margin:0;max-width:32em;text-wrap:pretty">{{ tab.body }}</p>
       </div>
-      <div style="flex:2 1 460px;padding:clamp(22px,3.2vw,45px) 0 clamp(22px,3.2vw,45px) clamp(0px,3.2vw,51px)">
-        <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(26px,3.2vw,45px);line-height:1;letter-spacing:-.015em;margin:0 0 20px;max-width:14em">{{ tab.title }}</h2>
-        <p style="margin:0 0 32px;max-width:36em">{{ tab.body }}</p>
-        <ul style="list-style:none;margin:0;padding:0;border-top:1px solid var(--color-divider)">
-          <sc-for list="{{ tab.points }}" as="pt" hint-placeholder-count="3">
-            <li style="display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700);font-family:var(--font-heading);font-size:20px;line-height:1.4">→</span><span>{{ pt }}</span></li>
-          </sc-for>
-        </ul>
-      </div>
+      <ul style="list-style:none;margin:0;padding:0;border-top:2px solid var(--color-text);align-self:start">
+        <sc-for list="{{ tab.points }}" as="pt" hint-placeholder-count="3"><li style="display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-mono);color:#0f7a55">✓</span><span>{{ pt }}</span></li></sc-for>
+      </ul>
     </div>
   </section>
 
-  <section style="border-top:1px solid var(--color-divider);background:var(--color-surface)">
-    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
-      <div style="display:flex;flex-wrap:wrap;gap:24px 64px;justify-content:space-between;align-items:end;margin-bottom:48px">
-        <div>
-          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:16px">Under the hood</div>
-          <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0;max-width:12em">The hard-to-see decisions that make this work.</h2>
-        </div>
-        <p style="max-width:24em;margin:0;color:var(--color-neutral-800)">Software for money and school records has to be boring in the right way. Here’s some of the thinking behind it.</p>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));column-gap:64px;border-top:2px solid var(--color-text)">
+  <section style="border-top:2px solid var(--color-text);background:var(--color-surface)">
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,3.5vw,48px)">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:14px">Under the hood</div>
+      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(28px,3.8vw,54px);line-height:1;letter-spacing:-.03em;margin:0 0 12px;max-width:12em">The hard-to-see decisions that make this work.</h2>
+      <p style="margin:0 0 36px;max-width:32em;color:var(--color-neutral-800)">Software for money and school records has to be boring in the right way. Here’s some of the thinking behind it.</p>
+      <div style="border-top:2px solid var(--color-text);background:var(--color-bg)">
         <sc-for list="{{ engineering }}" as="e" hint-placeholder-count="6">
-          <div style="display:flex;gap:20px;padding:28px 0;border-bottom:1px solid var(--color-divider)">
-            <span style="flex:0 0 32px;font-size:13px;font-feature-settings:'tnum';color:var(--color-accent-700);padding-top:6px">{{ e.num }}</span>
-            <div><h3 style="margin:0 0 8px;font-family:var(--font-heading);font-weight:600;font-size:27px;line-height:1.1">{{ e.title }}</h3><p style="margin:0;color:var(--color-neutral-800);font-size:16px;text-wrap:pretty">{{ e.body }}</p></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:8px 40px;padding:22px 16px;border-bottom:1px solid var(--color-divider)">
+            <div style="display:flex;gap:16px;align-items:baseline"><span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--color-accent-700);flex:0 0 auto">DR-{{ e.num }}</span><h3 style="margin:0;font-weight:800;font-size:20px;line-height:1.15;letter-spacing:-.015em">{{ e.title }}</h3></div>
+            <p style="margin:0;font-size:15px;color:var(--color-neutral-800);text-wrap:pretty">{{ e.body }}</p>
           </div>
         </sc-for>
       </div>
     </div>
   </section>
 
-  <section style="border-top:1px solid var(--color-divider)">
-    <div style="max-width:1280px;margin:0 auto;padding:clamp(32px,4.0vw,58px) clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap;gap:32px 64px;align-items:center">
-      <div style="flex:1 1 320px">
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:12px">Integrations</div>
-        <h2 style="font-family:var(--font-heading);font-weight:600;font-size:27px;line-height:1.05;margin:0 0 10px">Built to connect with what you already use.</h2>
-        <p style="margin:0;color:var(--color-neutral-800)">We integrate with trusted payment and messaging providers to keep your workflow smooth and stress-free.</p>
+  <section style="border-top:2px solid var(--color-text)">
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(32px,5vw,64px) clamp(20px,3.5vw,48px);display:flex;flex-wrap:wrap;gap:28px 56px;align-items:center">
+      <div style="flex:1 1 300px"><div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:10px">Integrations</div><h2 style="font-weight:800;font-size:28px;line-height:1.05;letter-spacing:-.02em;margin:0 0 8px">Built to connect with what you already use.</h2><p style="margin:0;color:var(--color-neutral-800)">Trusted payment and messaging providers, behind interfaces we control.</p></div>
+      <div style="flex:1.2 1 360px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));border-top:2px solid var(--color-text)">
+        <sc-for list="{{ integrations }}" as="i" hint-placeholder-count="3"><div style="padding:16px 12px 16px 0"><div style="font-weight:800;font-size:26px;letter-spacing:-.02em">{{ i.name }}</div><div style="font-family:var(--font-mono);font-size:11px;color:var(--color-neutral-700);margin-top:4px">{{ i.note }}</div></div></sc-for>
       </div>
-      <div style="flex:1.2 1 380px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border-top:2px solid var(--color-text)">
-        <sc-for list="{{ integrations }}" as="i" hint-placeholder-count="3">
-          <div style="padding:18px 16px 18px 0"><div style="font-family:var(--font-heading);font-size:26px;line-height:1;font-weight:600">{{ i.name }}</div><div style="font-size:13px;color:var(--color-neutral-700);margin-top:4px">{{ i.note }}</div></div>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ═════════ WORKFLOW ═════════ -->
+<sc-if value="{{ isHow }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Workflow">
+  <section style="max-width:1120px;margin:0 auto;padding:clamp(40px,6vw,88px) clamp(20px,3.5vw,48px) clamp(32px,4vw,56px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:24px">Workflow</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(40px,6.4vw,92px);line-height:.92;letter-spacing:-.035em;margin:0 0 24px;max-width:10em">From fee schedule to <span style="color:var(--color-accent)">reconciled</span> payment.</h1>
+    <p style="max-width:34em;margin:0;font-size:18px">Six steps. No spreadsheets in between.</p>
+  </section>
+  <section style="max-width:1120px;margin:0 auto;padding:clamp(24px,3vw,40px) clamp(20px,3.5vw,48px) clamp(48px,6vw,88px)">
+    <div style="margin-left:8px;border-left:2px solid var(--color-text)">
+      <sc-for list="{{ steps }}" as="s" hint-placeholder-count="6">
+        <div style="position:relative;padding:0 0 clamp(36px,5vw,64px) clamp(24px,4vw,56px)">
+          <span style="position:absolute;left:-9px;top:2px;width:16px;height:16px;background:var(--color-accent);border:2px solid var(--color-text);box-sizing:border-box"></span>
+          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:10px">Step {{ s.num }} / 06 · {{ s.label }}</div>
+          <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(26px,3.4vw,46px);line-height:1;letter-spacing:-.03em;margin:0 0 14px">{{ s.title }}</h2>
+          <p style="margin:0 0 22px;max-width:34em;text-wrap:pretty">{{ s.body }}</p>
+          <div style="max-width:560px;background:#201e1d;color:#e8f8f1;font-family:var(--font-mono);font-size:13px;border:2px solid var(--color-text)">
+            <div style="display:flex;justify-content:space-between;padding:8px 14px;border-bottom:1px solid rgba(232,248,241,.25);color:#a4e6cb;font-size:11px;letter-spacing:.08em"><span>{{ s.label }}</span><span>specimen</span></div>
+            <sc-for list="{{ s.rows }}" as="r" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between;gap:20px;padding:9px 14px;border-bottom:1px solid rgba(232,248,241,.12)"><span style="color:rgba(232,248,241,.55)">{{ r.k }}</span><span style="text-align:right;color:#5ad8a6;font-feature-settings:'tnum'">{{ r.v }}</span></div></sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</div>
+</sc-if>
+
+<!-- ═════════ PRICING ═════════ -->
+<sc-if value="{{ isPricing }}" hint-placeholder-val="{{ false }}">
+<div data-screen-label="Pricing">
+  <section style="max-width:1120px;margin:0 auto;padding:clamp(40px,6vw,88px) clamp(20px,3.5vw,48px) clamp(32px,4vw,56px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:24px">Pricing</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(40px,6.4vw,92px);line-height:.92;letter-spacing:-.035em;margin:0 0 24px;max-width:10em">Quoted to <span style="color:var(--color-accent)">your school.</span></h1>
+    <p style="max-width:34em;margin:0;font-size:18px;text-wrap:pretty">We’re onboarding a limited number of schools while we finish building. Pricing is confirmed with each school during onboarding.</p>
+  </section>
+
+  <section style="border-top:2px solid var(--color-text)">
+    <div style="max-width:1120px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr))">
+      <div style="padding:clamp(28px,4vw,48px) clamp(20px,3.5vw,48px);border-right:1px solid var(--color-divider);display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase">Early access</span><span class="tag tag-accent">Available now</span></div>
+        <div style="font-family:var(--font-heading);font-weight:800;font-size:clamp(48px,6vw,84px);line-height:.95;letter-spacing:-.04em">{{ priceMain }}</div>
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--color-neutral-700)">{{ priceUnit }}</div>
+        <p style="margin:0;max-width:26em">Everything on the platform, set up with our team. Rates are agreed per school before you go live.</p>
+        <div><a class="btn btn-primary" href="mailto:support@fees101.com">Request a quote</a></div>
+      </div>
+      <div style="padding:clamp(28px,4vw,48px) clamp(20px,3.5vw,48px);display:flex;flex-direction:column;gap:16px;background:var(--color-surface)">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase">General availability</span><span class="tag tag-outline">Coming soon</span></div>
+        <div style="font-family:var(--font-heading);font-weight:800;font-size:clamp(32px,4vw,52px);line-height:1;letter-spacing:-.035em;color:var(--color-neutral-700)">Published at launch</div>
+        <p style="margin:0;max-width:26em">We’ll publish public pricing when general sign-up opens. Tell us you’re interested and we’ll write when it does.</p>
+        <div><a class="btn btn-secondary" href="mailto:support@fees101.com">Get notified</a></div>
+      </div>
+    </div>
+  </section>
+
+  <section style="border-top:2px solid var(--color-text)">
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,3.5vw,48px)">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:14px">Included</div>
+      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(28px,3.8vw,54px);line-height:1;letter-spacing:-.03em;margin:0 0 32px;max-width:12em">The whole platform, not a menu of add-ons.</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));column-gap:56px;border-top:2px solid var(--color-text)">
+        <sc-for list="{{ included }}" as="i" hint-placeholder-count="10"><div style="display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-mono);color:#0f7a55">✓</span><span>{{ i }}</span></div></sc-for>
+      </div>
+    </div>
+  </section>
+
+  <section style="border-top:2px solid var(--color-text);background:var(--color-surface)">
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,3.5vw,48px)">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:14px">Good to know</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));border-top:2px solid var(--color-text);margin-top:20px">
+        <sc-for list="{{ know }}" as="k" hint-placeholder-count="3">
+          <div style="padding:22px 24px 8px 0"><h3 style="margin:0 0 8px;font-weight:800;font-size:22px;line-height:1.1;letter-spacing:-.02em">{{ k.title }}</h3><p style="margin:0 0 16px;font-size:15px;color:var(--color-neutral-800)">{{ k.body }}</p></div>
+        </sc-for>
+      </div>
+      <div style="margin-top:32px;border-top:2px solid var(--color-text)">
+        <sc-for list="{{ priceFaqs }}" as="f" hint-placeholder-count="3">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:8px 40px;padding:20px 0;border-bottom:1px solid var(--color-divider)"><div style="font-weight:800;font-size:19px;line-height:1.2;letter-spacing:-.01em">{{ f.q }}</div><p style="margin:0;font-size:15px">{{ f.a }}</p></div>
         </sc-for>
       </div>
     </div>
@@ -203,71 +277,40 @@
 </div>
 </sc-if>
 
-<!-- ═════════ 02 HOW IT WORKS ═════════ -->
-<sc-if value="{{ isHow }}" hint-placeholder-val="{{ false }}">
-<div data-screen-label="How it works">
-  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(32px,4.0vw,58px)">
-    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">How it works</div>
-    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(33px,5.0vw,73px);line-height:.92;letter-spacing:-.03em;margin:0 0 32px;max-width:11em">From fee structure to <span style="color:var(--color-accent-700)">reconciled</span> payment.</h1>
-    <p style="max-width:36em;margin:0;font-size:18px">Six steps. No spreadsheets in between.</p>
-  </section>
-  <div style="max-width:1280px;margin:0 auto;padding:0 clamp(16px,3.2vw,45px)">
-    <sc-for list="{{ steps }}" as="s" hint-placeholder-count="6">
-      <section style="border-top:2px solid var(--color-text);padding:clamp(26px,4.0vw,58px) 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));gap:40px clamp(26px,4.8vw,77px);align-items:center">
-        <div style="{{ s.textStyle }}">
-          <div style="font-family:var(--font-heading);font-weight:800;font-size:clamp(60px,7.5vw,114px);line-height:.85;color:var(--color-accent-500);font-feature-settings:'tnum';margin-bottom:8px">{{ s.num }}</div>
-          <h2 style="font-family:var(--font-heading);font-weight:600;font-size:clamp(24px,2.9vw,38px);line-height:1;margin:0 0 16px">{{ s.title }}</h2>
-          <p style="margin:0;max-width:30em;text-wrap:pretty">{{ s.body }}</p>
-        </div>
-        <div style="border:1px solid var(--color-divider);border-top:2px solid var(--color-text);background:#fff;padding:clamp(18px,2.4vw,32px)">
-          <div style="display:flex;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700)">{{ s.label }}</span><span style="font-size:12px;color:var(--color-neutral-700)">Specimen</span></div>
-          <sc-for list="{{ s.rows }}" as="r" hint-placeholder-count="4">
-            <div style="display:flex;justify-content:space-between;gap:24px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-neutral-700);font-size:15px">{{ r.k }}</span><span style="text-align:right;font-family:var(--font-mono);font-size:15px;font-feature-settings:'tnum'">{{ r.v }}</span></div>
-          </sc-for>
-        </div>
-      </section>
-    </sc-for>
-  </div>
-</div>
-</sc-if>
-
-<!-- ═════════ 03 ABOUT ═════════ -->
+<!-- ═════════ ABOUT ═════════ -->
 <sc-if value="{{ isAbout }}" hint-placeholder-val="{{ false }}">
 <div data-screen-label="About">
-  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(38px,4.8vw,70px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:40px clamp(26px,4.8vw,77px)">
-    <div>
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">About</div>
-      <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(35px,5.1vw,77px);line-height:.94;letter-spacing:-.028em;margin:0">We got tired of revenue running on <span style="color:var(--color-accent-700)">memory</span> and spreadsheets.</h1>
-    </div>
-    <div style="align-self:end;display:flex;flex-direction:column;gap:20px;font-size:18px">
-      <p style="margin:0">Fees101 started with a simple frustration schools kept repeating: fees tracked in notebooks and spreadsheets, payments confirmed by word of mouth, and no clear picture of who still owes what.</p>
-      <p style="margin:0">We’re building the system we wished existed — one that sets fees once, invoices every student automatically, and matches every payment the moment it lands.</p>
+  <section style="max-width:1120px;margin:0 auto;padding:clamp(40px,6vw,88px) clamp(20px,3.5vw,48px) clamp(40px,5vw,72px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:24px">About</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(36px,5.6vw,80px);line-height:.94;letter-spacing:-.035em;margin:0 0 40px;max-width:13em">We got tired of revenue running on <span style="color:var(--color-accent)">memory</span> and spreadsheets.</h1>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:24px 64px;border-top:2px solid var(--color-text);padding-top:24px">
+      <div style="display:flex;flex-direction:column;gap:16px;font-size:17px"><p style="margin:0">Fees101 started with a simple frustration schools kept repeating: fees tracked in notebooks and spreadsheets, payments confirmed by word of mouth, and no clear picture of who still owes what.</p><p style="margin:0">We’re building the system we wished existed — one that sets fees once, invoices every student automatically, and matches every payment the moment it lands.</p></div>
+      <dl style="margin:0;border-top:1px solid var(--color-divider)">
+        <sc-for list="{{ registry }}" as="f" hint-placeholder-count="6"><div style="display:flex;justify-content:space-between;gap:20px;padding:11px 0;border-bottom:1px solid var(--color-divider)"><dt style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700);padding-top:4px">{{ f.k }}</dt><dd style="margin:0;text-align:right;font-weight:600;font-size:15px">{{ f.v }}</dd></div></sc-for>
+      </dl>
     </div>
   </section>
 
-  <section style="border-top:1px solid var(--color-divider);background:var(--color-surface)">
-    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:16px">Trust &amp; compliance</div>
-      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0 0 48px;max-width:13em">Built for how Nigerian schools actually operate.</h2>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));column-gap:64px;border-top:2px solid var(--color-text)">
-        <sc-for list="{{ trust }}" as="t" hint-placeholder-count="4">
-          <div style="padding:28px 0;border-bottom:1px solid var(--color-divider)"><h3 style="margin:0 0 10px;font-family:var(--font-heading);font-weight:600;font-size:24px;line-height:1.05">{{ t.title }}</h3><p style="margin:0;color:var(--color-neutral-800);text-wrap:pretty">{{ t.body }}</p></div>
-        </sc-for>
+  <section style="border-top:2px solid var(--color-text);background:var(--color-surface)">
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,3.5vw,48px)">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:14px">Trust &amp; compliance</div>
+      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(28px,3.8vw,54px);line-height:1;letter-spacing:-.03em;margin:0 0 32px;max-width:12em">Built for how Nigerian schools actually operate.</h2>
+      <div style="border-top:2px solid var(--color-text)">
+        <sc-for list="{{ trust }}" as="t" hint-placeholder-count="4"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:8px 40px;padding:22px 0;border-bottom:1px solid var(--color-divider)"><h3 style="margin:0;font-weight:800;font-size:24px;line-height:1.1;letter-spacing:-.02em">{{ t.title }}</h3><p style="margin:0;color:var(--color-neutral-800);text-wrap:pretty">{{ t.body }}</p></div></sc-for>
       </div>
     </div>
   </section>
 
-  <section style="border-top:1px solid var(--color-divider)">
-    <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px)">
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:16px">Our story</div>
-      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(27px,3.7vw,51px);line-height:1;letter-spacing:-.015em;margin:0 0 48px;max-width:13em">Built out of a real problem, not a hunch.</h2>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));border-top:2px solid var(--color-text)">
+  <section style="border-top:2px solid var(--color-text)">
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(48px,7vw,96px) clamp(20px,3.5vw,48px)">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:14px">Our story</div>
+      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(28px,3.8vw,54px);line-height:1;letter-spacing:-.03em;margin:0 0 32px;max-width:12em">Built out of a real problem, not a hunch.</h2>
+      <div style="border-top:2px solid var(--color-text)">
         <sc-for list="{{ story }}" as="s" hint-placeholder-count="3">
-          <div style="padding:28px 32px 8px 0;border-right:1px solid var(--color-divider)">
-            <div style="font-family:var(--font-heading);font-size:64px;line-height:1;color:var(--color-accent-500)">{{ s.num }}</div>
-            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin:14px 0 8px">{{ s.tag }}</div>
-            <h3 style="margin:0 0 12px;font-family:var(--font-heading);font-weight:600;font-size:24px;line-height:1.05">{{ s.title }}</h3>
-            <p style="margin:0 0 24px;color:var(--color-neutral-800);text-wrap:pretty">{{ s.body }}</p>
+          <div style="display:grid;grid-template-columns:110px repeat(auto-fit,minmax(min(260px,100%),1fr));gap:8px 40px;padding:24px 0;border-bottom:1px solid var(--color-divider)">
+            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700);padding-top:6px">{{ s.num }} · {{ s.tag }}</div>
+            <h3 style="margin:0;font-weight:800;font-size:26px;line-height:1.05;letter-spacing:-.025em">{{ s.title }}</h3>
+            <p style="margin:0;color:var(--color-neutral-800);text-wrap:pretty">{{ s.body }}</p>
           </div>
         </sc-for>
       </div>
@@ -275,80 +318,66 @@
   </section>
 
   <section style="background:#201e1d;color:#f3f2f2">
-    <div style="max-width:1000px;margin:0 auto;padding:clamp(44px,6.1vw,87px) clamp(16px,3.2vw,45px)">
-      <div style="font-family:var(--font-heading);font-size:96px;line-height:.5;color:#5ad8a6">“</div>
-      <p style="margin:0;font-family:var(--font-heading);font-weight:400;font-size:clamp(27px,4.0vw,54px);line-height:1.05;letter-spacing:-.01em">A school shouldn’t need a spreadsheet expert to know who has paid this term.</p>
-      <div style="margin-top:28px;font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6">Why Fees101 exists</div>
+    <div style="max-width:1120px;margin:0 auto;padding:clamp(56px,8vw,112px) clamp(20px,3.5vw,48px)">
+      <p style="margin:0;font-family:var(--font-heading);font-weight:800;font-size:clamp(30px,4.6vw,64px);line-height:1;letter-spacing:-.035em;max-width:16em"><span style="color:#5ad8a6">“</span>A school shouldn’t need a spreadsheet expert to know who has paid this term.<span style="color:#5ad8a6">”</span></p>
+      <div style="margin-top:24px;font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6">Why Fees101 exists</div>
     </div>
   </section>
 </div>
 </sc-if>
 
-<!-- ═════════ 04 FAQ ═════════ -->
+<!-- ═════════ FAQ ═════════ -->
 <sc-if value="{{ isFaq }}" hint-placeholder-val="{{ false }}">
 <div data-screen-label="FAQ">
-  <section style="max-width:1280px;margin:0 auto;padding:clamp(33px,4.8vw,71px) clamp(16px,3.2vw,45px) clamp(26px,3.2vw,45px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:36px clamp(26px,4.8vw,77px);align-items:end">
-    <div>
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:28px">FAQ</div>
-      <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(33px,5.0vw,73px);line-height:.92;letter-spacing:-.03em;margin:0">Frequently asked <span style="color:var(--color-accent-700)">questions.</span></h1>
-    </div>
-    <div>
-      <p style="margin:0 0 24px;max-width:30em">Everything you need to know about Fees101. Can’t find the answer you’re looking for? Reach out and we’ll help directly.</p>
-      <input class="input" value="{{ query }}" onInput="{{ onQuery }}" placeholder="Search the questions…" style="width:100%;box-sizing:border-box">
-    </div>
+  <section style="max-width:1120px;margin:0 auto;padding:clamp(40px,6vw,88px) clamp(20px,3.5vw,48px) clamp(32px,4vw,56px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:24px">FAQ</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(40px,6.4vw,92px);line-height:.92;letter-spacing:-.035em;margin:0 0 20px">Frequently asked <span style="color:var(--color-accent)">questions.</span></h1>
+    <p style="max-width:32em;margin:0">Everything you need to know about Fees101. Can’t find the answer? Reach out and we’ll help directly.</p>
   </section>
-
-  <div style="border-top:2px solid var(--color-text);border-bottom:1px solid var(--color-divider);position:sticky;top:69px;background:var(--color-bg);z-index:10">
-    <div style="max-width:1280px;margin:0 auto;padding:0 clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap;gap:0 32px">
-      <sc-for list="{{ cats }}" as="c" hint-placeholder-count="5">
-        <button onClick="{{ c.go }}" style="{{ c.style }}">{{ c.label }}</button>
-      </sc-for>
-    </div>
-  </div>
-
-  <section style="max-width:900px;margin:0 auto;padding:clamp(26px,4.0vw,51px) clamp(16px,3.2vw,45px) clamp(38px,5.4vw,76px)">
-    <sc-if value="{{ searching }}" hint-placeholder-val="{{ false }}"><p style="margin:0 0 20px;color:var(--color-neutral-700)">{{ resultLine }}</p></sc-if>
-    <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}"><p style="margin:0;padding:24px 0;border-top:1px solid var(--color-divider)">No questions match that search — try another term or email support@fees101.com directly.</p></sc-if>
-    <sc-for list="{{ faqs }}" as="f" hint-placeholder-count="3">
-      <div style="border-top:1px solid var(--color-divider)">
-        <button onClick="{{ f.go }}" style="width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:24px;text-align:left;background:none;border:0;padding:24px 0;cursor:pointer;color:var(--color-text)">
-          <span style="font-family:var(--font-heading);font-weight:600;font-size:clamp(24px,2.6vw,32px);line-height:1.1">{{ f.q }}</span>
-          <span style="{{ f.iconStyle }}">+</span>
-        </button>
-        <sc-if value="{{ f.open }}" hint-placeholder-val="{{ false }}"><p style="margin:0 0 28px;max-width:38em">{{ f.a }}</p></sc-if>
+  <section style="border-top:2px solid var(--color-text)">
+    <div style="max-width:1120px;margin:0 auto;padding:0 clamp(20px,3.5vw,48px);display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 clamp(32px,5vw,72px)">
+      <div style="flex:1 1 240px;max-width:300px;position:sticky;top:16px;padding:28px 0">
+        <input class="input" value="{{ query }}" onInput="{{ onQuery }}" placeholder="Search…" style="width:100%;box-sizing:border-box;margin-bottom:20px">
+        <sc-for list="{{ cats }}" as="c" hint-placeholder-count="5"><button onClick="{{ c.go }}" style="{{ c.style }}">{{ c.label }}</button></sc-for>
       </div>
-    </sc-for>
-    <div style="border-top:1px solid var(--color-divider)"></div>
+      <div style="flex:3 1 460px;padding:16px 0 clamp(48px,7vw,96px)">
+        <sc-if value="{{ searching }}" hint-placeholder-val="{{ false }}"><p style="margin:12px 0;font-family:var(--font-mono);font-size:12px;color:var(--color-neutral-700)">{{ resultLine }}</p></sc-if>
+        <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}"><p style="margin:0;padding:20px 0;border-top:1px solid var(--color-divider)">No questions match that search — try another term or email support@fees101.com directly.</p></sc-if>
+        <sc-for list="{{ faqs }}" as="f" hint-placeholder-count="3">
+          <div style="border-top:1px solid var(--color-divider)">
+            <button onClick="{{ f.go }}" style="width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:24px;text-align:left;background:none;border:0;padding:20px 0;cursor:pointer;color:var(--color-text)"><span style="font-weight:800;font-size:clamp(18px,1.9vw,22px);line-height:1.2;letter-spacing:-.01em">{{ f.q }}</span><span style="{{ f.iconStyle }}">+</span></button>
+            <sc-if value="{{ f.open }}" hint-placeholder-val="{{ false }}"><p style="margin:0 0 24px;max-width:38em">{{ f.a }}</p></sc-if>
+          </div>
+        </sc-for>
+        <div style="border-top:1px solid var(--color-divider)"></div>
+      </div>
+    </div>
   </section>
 </div>
 </sc-if>
 
-<!-- ═════════ 05 / 06 PRIVACY + TERMS ═════════ -->
+<!-- ═════════ LEGAL (privacy + terms) ═════════ -->
 <sc-if value="{{ isLegal }}" hint-placeholder-val="{{ false }}">
 <div data-screen-label="Legal">
-  <section style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.6vw,77px) clamp(16px,3.2vw,45px) clamp(26px,3.2vw,45px)">
-    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:24px">Legal · Last updated {{ doc.updated }}</div>
-    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(33px,4.8vw,71px);line-height:.92;letter-spacing:-.03em;margin:0">{{ doc.title }}</h1>
+  <section style="max-width:1120px;margin:0 auto;padding:clamp(40px,6vw,88px) clamp(20px,3.5vw,48px) clamp(28px,4vw,48px)">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:20px">Legal · Last updated {{ doc.updated }}</div>
+    <h1 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(40px,6vw,88px);line-height:.92;letter-spacing:-.035em;margin:0">{{ doc.title }}</h1>
   </section>
   <section style="border-top:2px solid var(--color-text)">
-    <div style="max-width:1280px;margin:0 auto;padding:0 clamp(16px,3.2vw,45px);display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 clamp(26px,4.8vw,77px)">
-      <aside style="flex:1 1 240px;max-width:320px;position:sticky;top:96px;padding:32px 0">
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:12px">Contents</div>
-        <sc-for list="{{ doc.index }}" as="x" hint-placeholder-count="10">
-          <button onClick="{{ x.go }}" style="display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--color-divider);padding:8px 0;font-size:14px;cursor:pointer;color:var(--color-text)">{{ x.label }}</button>
-        </sc-for>
+    <div style="max-width:1120px;margin:0 auto;padding:0 clamp(20px,3.5vw,48px);display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 clamp(32px,5vw,72px)">
+      <aside style="flex:1 1 230px;max-width:300px;position:sticky;top:16px;padding:28px 0">
+        <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:10px">Contents</div>
+        <sc-for list="{{ doc.index }}" as="x" hint-placeholder-count="10"><button onClick="{{ x.go }}" style="display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--color-divider);padding:7px 0;font-size:13px;cursor:pointer;color:var(--color-text)">{{ x.label }}</button></sc-for>
       </aside>
-      <article style="flex:3 1 480px;max-width:760px;padding:32px 0 clamp(38px,5.4vw,76px)">
-        <p style="margin:0 0 40px;font-size:19px">{{ doc.intro }}</p>
+      <article style="flex:3 1 460px;max-width:720px;padding:28px 0 clamp(48px,7vw,96px)">
+        <p style="margin:0 0 36px;font-size:18px">{{ doc.intro }}</p>
         <sc-for list="{{ doc.sections }}" as="sec" hint-placeholder-count="10">
-          <div id="{{ sec.id }}" style="border-top:1px solid var(--color-divider);padding:28px 0 12px">
-            <h2 style="font-family:var(--font-heading);font-weight:600;font-size:27px;line-height:1.05;margin:0 0 16px">{{ sec.h }}</h2>
+          <div id="{{ sec.id }}" style="border-top:1px solid var(--color-divider);padding:24px 0 10px">
+            <h2 style="font-weight:800;font-size:26px;line-height:1.1;letter-spacing:-.02em;margin:0 0 14px">{{ sec.h }}</h2>
             <sc-for list="{{ sec.ps }}" as="p" hint-placeholder-count="1"><p style="margin:0 0 14px">{{ p }}</p></sc-for>
-            <ul style="margin:0 0 14px;padding-left:22px">
-              <sc-for list="{{ sec.bl }}" as="b" hint-placeholder-count="0"><li style="margin-bottom:8px"><strong style="font-weight:600">{{ b.b }}</strong>{{ b.t }}</li></sc-for>
-            </ul>
+            <ul style="margin:0 0 14px;padding-left:22px"><sc-for list="{{ sec.bl }}" as="b" hint-placeholder-count="0"><li style="margin-bottom:8px"><strong style="font-weight:600">{{ b.b }}</strong>{{ b.t }}</li></sc-for></ul>
             <sc-for list="{{ sec.tail }}" as="tl" hint-placeholder-count="0"><p style="margin:0 0 14px">{{ tl }}</p></sc-for>
-            <sc-for list="{{ sec.addr }}" as="a" hint-placeholder-count="0"><div style="font-family:var(--font-heading);font-size:22px;line-height:1.3">{{ a }}</div></sc-for>
+            <sc-for list="{{ sec.addr }}" as="a" hint-placeholder-count="0"><div style="font-weight:600;font-size:17px;line-height:1.4">{{ a }}</div></sc-for>
           </div>
         </sc-for>
       </article>
@@ -359,54 +388,41 @@
 
 <!-- ═════════ SHELL: shared closing block ═════════ -->
 <sc-if value="{{ showCta }}" hint-placeholder-val="{{ true }}">
-<section data-screen-label="Closing CTA" style="border-top:2px solid var(--color-text)">
-  <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,5.4vw,76px) clamp(16px,3.2vw,45px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:36px clamp(26px,4.8vw,77px);align-items:end">
+<section data-screen-label="Closing CTA" style="border-top:2px solid var(--color-text);background:var(--color-accent);color:var(--color-bg)">
+  <div style="max-width:1120px;margin:0 auto;padding:clamp(56px,8vw,112px) clamp(20px,3.5vw,48px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr));gap:32px clamp(32px,5vw,80px);align-items:end">
     <div>
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:20px">Early access</div>
-      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(32px,4.5vw,67px);line-height:.95;letter-spacing:-.02em;margin:0">{{ cta.head }}</h2>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:18px">Early access</div>
+      <h2 style="font-family:var(--font-heading);font-weight:800;font-size:clamp(34px,5.2vw,76px);line-height:.92;letter-spacing:-.04em;margin:0;color:var(--color-bg)">{{ cta.head }}</h2>
     </div>
     <div>
-      <p style="margin:0 0 24px;max-width:30em;font-size:18px">{{ cta.body }}</p>
-      <a href="mailto:support@fees101.com" style="font-family:var(--font-heading);font-size:clamp(28px,3.4vw,44px);line-height:1;color:var(--color-text);text-decoration:underline;text-decoration-color:var(--color-accent-500);text-decoration-thickness:2px;text-underline-offset:8px">support@fees101.com</a>
-      <div style="display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:28px;font-size:14px;color:var(--color-neutral-700)"><span>No spam — just a launch note</span><span>Be first to try it</span><span>Straight to our team</span></div>
+      <p style="margin:0 0 20px;max-width:28em;font-size:17px">{{ cta.body }}</p>
+      <a href="mailto:support@fees101.com" style="font-weight:800;font-size:clamp(22px,2.6vw,34px);letter-spacing:-.02em;color:var(--color-bg);text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:6px">support@fees101.com</a>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 24px;margin-top:22px;font-family:var(--font-mono);font-size:11px;letter-spacing:.06em"><span>No spam — just a launch note</span><span>Be first to try it</span><span>Straight to our team</span></div>
     </div>
   </div>
 </section>
 </sc-if>
 </main>
 
-<!-- ═════════ SHELL: footer (persistent) ═════════ -->
 <footer data-screen-label="Footer" style="background:#201e1d;color:var(--color-neutral-300)">
-  <div style="max-width:1280px;margin:0 auto;padding:clamp(38px,4.8vw,64px) clamp(16px,3.2vw,45px) 28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:40px">
-    <div style="grid-column:span 1">
-      <div style="font-family:var(--font-heading);font-size:35px;line-height:1;font-weight:600;color:#f3f2f2">Fees<span style="font-weight:400;color:#5ad8a6">101</span></div>
-      <p style="margin:14px 0 0;font-size:15px;max-width:16em">Revenue operations platform for Nigerian schools.</p>
-    </div>
-    <div>
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:14px">Product</div>
-      <div style="display:flex;flex-direction:column;gap:8px;font-size:15px"><a href="#/features" style="color:inherit">Features</a><a href="#/how-it-works" style="color:inherit">How it works</a><a href="#/about" style="color:inherit">About</a><a href="#/faq" style="color:inherit">FAQ</a></div>
-    </div>
-    <div>
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:14px">Legal &amp; contact</div>
-      <div style="display:flex;flex-direction:column;gap:8px;font-size:15px"><a href="#/privacy" style="color:inherit">Privacy Policy</a><a href="#/terms" style="color:inherit">Terms of Service</a><a href="mailto:support@fees101.com" style="color:inherit">support@fees101.com</a></div>
-    </div>
-    <div>
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:14px">Registered office</div>
-      <address style="font-style:normal;font-size:15px;line-height:1.6"><span style="color:#f3f2f2;font-family:var(--font-heading);font-size:22px;font-weight:600">FEES101 LTD</span><br>Plot L182, Ellicot Citi Street,<br>Kubwa Extension III, Bwari,<br>FCT, Nigeria<br>RC 9694725</address>
-    </div>
+  <div style="max-width:1120px;margin:0 auto;padding:clamp(36px,5vw,56px) clamp(20px,3.5vw,48px) 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:32px">
+    <div><div style="font-weight:800;font-size:28px;letter-spacing:-.03em;color:#f3f2f2">Fees<span style="font-weight:400;color:#5ad8a6">101</span></div><p style="margin:10px 0 0;font-size:14px;max-width:16em">Revenue operations platform for Nigerian schools.</p></div>
+    <div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:12px">Legal &amp; contact</div><div style="display:flex;flex-direction:column;gap:6px;font-size:14px"><a href="#/privacy" style="color:inherit">Privacy Policy</a><a href="#/terms" style="color:inherit">Terms of Service</a><a href="mailto:support@fees101.com" style="color:inherit">support@fees101.com</a></div></div>
+    <div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#5ad8a6;margin-bottom:12px">Registered office</div><address style="font-style:normal;font-size:14px;line-height:1.6"><strong style="color:#f3f2f2">FEES101 LTD</strong><br>Plot L182, Ellicot Citi Street,<br>Kubwa Extension III, Bwari,<br>FCT, Nigeria · RC 9694725</address></div>
   </div>
-  <div style="max-width:1280px;margin:0 auto;padding:18px clamp(16px,3.2vw,45px);border-top:1px solid rgba(243,242,242,.2);display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;font-size:13px;color:var(--color-neutral-400)"><span>© {{ year }} FEES101 LTD. All rights reserved.</span><span>RC 9694725 · Bwari, FCT, Nigeria</span></div>
+  <div style="max-width:1120px;margin:0 auto;padding:14px clamp(20px,3.5vw,48px);border-top:1px solid rgba(243,242,242,.2);font-family:var(--font-mono);font-size:11px;color:var(--color-neutral-400)">© {{ year }} FEES101 LTD. All rights reserved.</div>
 </footer>
 </div>
+</div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;autoplay&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;initialRoute&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;home&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;features&quot;,&quot;how-it-works&quot;,&quot;about&quot;,&quot;faq&quot;,&quot;privacy&quot;,&quot;terms&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Behaviour&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;autoplay&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;initialRoute&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;home&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;features&quot;,&quot;how-it-works&quot;,&quot;pricing&quot;,&quot;about&quot;,&quot;faq&quot;,&quot;privacy&quot;,&quot;terms&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;priceMain&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;₦ —&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Pricing&quot;},&quot;priceUnit&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;per student, per term — to be confirmed&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Pricing&quot;}}">
 class Component extends DCLogic {
   state = { route: "home", tab: "fees", cat: "getting-started", openQ: "What is Fees101?", query: "", matched: 3 };
 
   componentDidMount() {
     this.onHash = () => {
       const r = (location.hash || "").replace(/^#\/?/, "") || (this.props.initialRoute || "home");
-      const ok = ["home", "features", "how-it-works", "about", "faq", "privacy", "terms"];
+      const ok = ["home", "features", "how-it-works", "about", "faq", "privacy", "terms", "pricing"];
       const route = ok.includes(r) ? r : "home";
       if (route !== this.state.route) { this.setState({ route }); window.scrollTo(0, 0); }
     };
@@ -422,9 +438,23 @@ class Component extends DCLogic {
   data() {
     return {
       pages: [
-        { r: "features", n: "01", l: "Features" }, { r: "how-it-works", n: "02", l: "How it works" },
-        { r: "about", n: "03", l: "About" }, { r: "faq", n: "04", l: "FAQ" }
+        { r: "home", n: "01", l: "Overview", g: "p" }, { r: "features", n: "02", l: "Platform", g: "p" }, { r: "how-it-works", n: "03", l: "Workflow", g: "p" },
+        { r: "pricing", n: "04", l: "Pricing", g: "c" }, { r: "about", n: "05", l: "About", g: "c" }, { r: "faq", n: "06", l: "FAQ", g: "c" }
       ],
+      pipeline: [
+        ["01", "Structure", "Fee schedule", "Fee schedules per term and class, set once.", "fee.schedule.set(class, term)"],
+        ["02", "Invoice", "Per-student invoices", "Balances carried forward automatically.", "invoice.create(student)"],
+        ["03", "Collect", "Virtual accounts", "A dedicated bank account for every student.", "account.provision(student)"],
+        ["04", "Reconcile", "Auto-matching", "Every transfer matched to its invoice on arrival.", "payment.match(invoice)"],
+        ["05", "Report", "Live dashboard", "Collections, outstanding and SMS reminders.", "dashboard.sync()"]
+      ],
+      included: ["Fee schedules per class and term", "Per-student invoices with balances carried forward", "A dedicated virtual account for every student", "Automatic payment reconciliation", "Live collection dashboard", "SMS notifications (WhatsApp coming soon)", "Bulk CSV student onboarding", "Self-service payment provider settings", "Encrypted provider credentials (AES-256-GCM)", "A direct line to our team"],
+      know: [
+        ["Fees101 never holds school funds", "Payments settle through our payment infrastructure partner directly to the school’s own designated account."],
+        ["Provider terms apply", "Payments and messaging run on licensed third-party providers, subject to their own terms."],
+        ["Parents change nothing", "Same bank app, same transfer. No new app to install."]
+      ],
+      registry: [["Company", "FEES101 LTD"], ["RC number", "9694725"], ["Office", "Bwari, FCT, Nigeria"], ["Our role", "Data processor"], ["Data law", "NDPA 2023"], ["Status", "Early access"]],
       students: [["Amara Okafor", 185000], ["Tunde Bello", 185000], ["Zainab Sani", 185000], ["Chidi Eze", 185000], ["Ngozi Adeyemi", 232500], ["Ibrahim Musa", 185000]],
       stats: [
         { n: "400", u: "+", label: "students onboarded in a single import during load testing" },
@@ -502,6 +532,7 @@ class Component extends DCLogic {
         features: ["Want to see it on your school’s numbers?", "We’re onboarding a limited number of schools while we finish building. Reach out and we’ll walk you through it."],
         "how-it-works": ["Want to see it running on your school’s numbers?", "We’re onboarding a limited number of schools while we finish building. Reach out and we’ll walk you through it."],
         about: ["Want to see it running at your school?", "We’re onboarding a limited number of schools while we finish building. Reach out and we’ll walk you through it."],
+        pricing: ["Let’s scope your school.", "Tell us roughly how many students you have and we’ll come back with a quote."],
         faq: ["Still have questions?", "Our team reads every message directly — no ticketing bot in between."]
       },
       legal: {
@@ -546,10 +577,12 @@ class Component extends DCLogic {
     const money = n => "₦" + n.toLocaleString("en-NG");
     const num = i => String(i + 1).padStart(2, "0");
 
-    const nav = D.pages.map(p => ({
-      href: "#/" + p.r, num: p.n, label: p.l,
-      style: "text-decoration:none;font-size:16px;padding:6px 0;border-bottom:2px solid " + (route === p.r ? "var(--color-accent)" : "transparent") + ";color:" + (route === p.r ? "var(--color-text)" : "var(--color-neutral-800)")
-    }));
+    const mk = p => { const on = route === p.r; return { href: p.r === "home" ? "#/" : "#/" + p.r, num: p.n, label: p.l,
+      style: "display:flex;gap:10px;align-items:baseline;text-decoration:none;font-weight:" + (on ? 800 : 600) + ";font-size:16px;padding:8px 10px;margin:0 -10px;background:" + (on ? "var(--color-text)" : "transparent") + ";color:" + (on ? "var(--color-bg)" : "var(--color-text)"),
+      numStyle: "font-family:var(--font-mono);font-size:11px;font-weight:400;color:" + (on ? "#5ad8a6" : "var(--color-accent-700)") }; };
+    const navProduct = D.pages.filter(p => p.g === "p").map(mk), navCompany = D.pages.filter(p => p.g === "c").map(mk);
+    const path = route === "home" ? "overview" : route;
+    const diff = []; D.pains.forEach((p, i) => { diff.push({ n: i * 2 + 1, sign: "−", text: p[0], style: "display:grid;grid-template-columns:28px 16px 1fr;gap:8px;padding:8px 16px;background:rgba(236,48,19,.08);color:var(--color-accent-700)" }); diff.push({ n: i * 2 + 2, sign: "+", text: p[1], style: "display:grid;grid-template-columns:28px 16px 1fr;gap:8px;padding:8px 16px;background:rgba(90,216,166,.2);color:#083f2c;border-bottom:1px solid var(--color-divider)" }); });
 
     // hero ledger
     const m = st.matched;
@@ -566,10 +599,9 @@ class Component extends DCLogic {
     const logLine = "› payment.received → matched  " + D.students[m - 1][0] + "  " + money(D.students[m - 1][1]);
 
     const tab = D.tabs.find(t => t.k === st.tab);
-    const tabs = D.tabs.map((t, i) => ({
-      num: num(i), label: t.l, go: () => this.setState({ tab: t.k }),
-      style: "display:flex;align-items:baseline;text-align:left;background:none;border:0;border-bottom:1px solid var(--color-divider);padding:20px 16px 20px 12px;cursor:pointer;font-family:var(--font-heading);font-size:22px;line-height:1.1;font-weight:600;color:" + (st.tab === t.k ? "var(--color-text)" : "var(--color-neutral-600)") + ";box-shadow:" + (st.tab === t.k ? "inset 3px 0 0 var(--color-accent)" : "none")
-    }));
+    const tabs = D.tabs.map((t, i) => { const on = st.tab === t.k; return { num: num(i), label: t.l, go: () => this.setState({ tab: t.k }),
+      numStyle: "font-family:var(--font-mono);font-size:11px;font-weight:400;color:" + (on ? "#5ad8a6" : "var(--color-accent-700)"),
+      style: "display:flex;flex-direction:column;gap:6px;text-align:left;border:0;border-right:1px solid var(--color-divider);padding:16px 14px;cursor:pointer;font-weight:800;font-size:16px;letter-spacing:-.01em;background:" + (on ? "var(--color-text)" : "transparent") + ";color:" + (on ? "var(--color-bg)" : "var(--color-text)") }; });
 
     const steps = D.steps.map((s, i) => ({
       num: num(i), title: s[0], label: s[1], body: s[2], rows: s[3].map(r => ({ k: r[0], v: r[1] })),
@@ -585,10 +617,8 @@ class Component extends DCLogic {
         iconStyle: "flex:0 0 auto;font-family:var(--font-heading);font-size:29px;line-height:.8;color:var(--color-accent-700);transition:transform .25s;transform:rotate(" + (open ? 45 : 0) + "deg)"
       };
     });
-    const cats = D.cats.map(c => {
-      const on = !searching && st.cat === c[0];
-      return { label: c[1], go: () => this.setState({ cat: c[0], query: "", openQ: "" }), style: "background:none;border:0;cursor:pointer;padding:16px 0;font-size:15px;color:" + (on ? "var(--color-text)" : "var(--color-neutral-700)") + ";border-bottom:2px solid " + (on ? "var(--color-accent)" : "transparent") + ";font-weight:" + (on ? 600 : 400) };
-    });
+    const cats = D.cats.map(c => { const on = !searching && st.cat === c[0];
+      return { label: c[1], go: () => this.setState({ cat: c[0], query: "", openQ: "" }), style: "display:block;text-align:left;border:0;border-top:1px solid var(--color-divider);cursor:pointer;padding:10px;margin:0 -10px;width:calc(100% + 20px);font-size:15px;font-weight:" + (on ? 800 : 400) + ";background:" + (on ? "var(--color-text)" : "transparent") + ";color:" + (on ? "var(--color-bg)" : "var(--color-text)") }; });
 
     const isLegal = route === "privacy" || route === "terms";
     const L = isLegal ? D.legal[route] : { title: "", updated: "", intro: "", sections: [] };
@@ -605,7 +635,10 @@ class Component extends DCLogic {
     const cta = D.cta[route] ? { head: D.cta[route][0], body: D.cta[route][1] } : { head: "", body: "" };
 
     return {
-      nav, year: new Date().getFullYear(),
+      navProduct, navCompany, path, diff, year: new Date().getFullYear(),
+      pipeline: D.pipeline.map(p => ({ num: p[0], tag: p[1], title: p[2], body: p[3], code: p[4] })), included: D.included, registry: D.registry.map(f => ({ k: f[0], v: f[1] })),
+      know: D.know.map(k => ({ title: k[0], body: k[1] })), priceFaqs: [D.faqs[2], D.faqs[5], D.faqs[4]].map(f => ({ q: f[1], a: f[2] })),
+      priceMain: this.props.priceMain ?? "₦ —", priceUnit: this.props.priceUnit ?? "per student, per term — to be confirmed", isPricing: route === "pricing",
       isHome: route === "home", isFeatures: route === "features", isHow: route === "how-it-works", isAbout: route === "about", isFaq: route === "faq", isLegal,
       showCta: !isLegal, cta,
       ledger, collected: money(collected), outstanding: money(total - collected), logLine,
