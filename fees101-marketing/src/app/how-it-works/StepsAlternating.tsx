@@ -1,119 +1,129 @@
 "use client";
 
 import { motion } from "framer-motion";
-import {
-  School,
-  ClipboardList,
-  Receipt,
-  CreditCard,
-  CheckCircle2,
-  BarChart3,
-} from "lucide-react";
-import { TiltCard } from "@/components/TiltCard";
-import {
-  OnboardingView,
-  FeeStructureView,
-  InvoicingView,
-  PaymentView,
-  ReconciliationView,
-  DashboardView,
-} from "@/components/ProductScreens";
 
 const STEPS = [
   {
-    icon: School,
     title: "School onboards",
-    body: "An admin account is created and the school's profile is set up — classes, terms, and staff access.",
-    View: OnboardingView,
     label: "School setup",
+    body: "An admin account is created and the school's profile is set up — classes, terms, and staff access.",
+    rows: [
+      ["School", "Greenfield College"],
+      ["Classes", "JSS 1 – SS 3"],
+      ["Terms", "First · Second · Third"],
+      ["Staff access", "3 administrators"],
+    ],
   },
   {
-    icon: ClipboardList,
     title: "Fee structure is configured",
-    body: "Tuition and levies are set per class and per term, once — every student in that class inherits it.",
-    View: FeeStructureView,
     label: "Fee structure",
+    body: "Tuition and levies are set per class and per term, once — every student in that class inherits it.",
+    rows: [
+      ["Tuition", "₦150,000"],
+      ["Development levy", "₦20,000"],
+      ["PTA dues", "₦15,000"],
+      ["JSS 1 · Second term", "₦185,000"],
+    ],
   },
   {
-    icon: Receipt,
     title: "Invoices are generated",
+    label: "Invoice",
     body: "Per-student invoices are created automatically, with any prior outstanding balance carried forward.",
-    View: InvoicingView,
-    label: "Invoices",
+    rows: [
+      ["Student", "Ngozi Adeyemi"],
+      ["Second term fees", "₦185,000"],
+      ["Carried forward", "₦47,500"],
+      ["Amount due", "₦232,500"],
+    ],
   },
   {
-    icon: CreditCard,
     title: "Parent pays",
-    body: "Nothing changes for the parent — same bank app, same transfer they already do. It just lands in their child's own dedicated account instead of a shared, unlabeled one.",
-    View: PaymentView,
     label: "Payment",
+    body: "Nothing changes for the parent — same bank app, same transfer they already do. It just lands in their child's own dedicated account instead of a shared, unlabeled one.",
+    rows: [
+      ["Pay to", "Ngozi Adeyemi's account"],
+      ["Channel", "Bank transfer"],
+      ["Amount", "₦232,500"],
+      ["New app needed", "None"],
+    ],
   },
   {
-    icon: CheckCircle2,
     title: "Payment is auto-reconciled",
-    body: "The payment is matched to the right student and invoice the moment it lands. No spreadsheets, no manual matching.",
-    View: ReconciliationView,
     label: "Reconciliation",
+    body: "The payment is matched to the right student and invoice the moment it lands. No spreadsheets, no manual matching.",
+    rows: [
+      ["Matched to", "Ngozi Adeyemi"],
+      ["Invoice", "Second term"],
+      ["Balance", "₦0"],
+      ["Matched in", "Instantly"],
+    ],
   },
   {
-    icon: BarChart3,
     title: "The dashboard updates, live",
-    body: "Admin staff see collections and outstanding balances update in real time, and know exactly who to remind.",
-    View: DashboardView,
     label: "Dashboard",
+    body: "Admin staff see collections and outstanding balances update in real time, and know exactly who to remind.",
+    rows: [
+      ["Students paid", "4 of 6"],
+      ["Collected", "₦787,500"],
+      ["Outstanding", "₦370,000"],
+      ["Reminders queued", "2"],
+    ],
   },
 ];
 
 export function StepsAlternating() {
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-6xl px-6">
       {STEPS.map((step, i) => {
         const reversed = i % 2 === 1;
         return (
           <section
             key={step.title}
-            className="border-t border-black/5 px-6 py-16 first:border-t-0 sm:py-20"
+            className="border-t-2 border-ink py-12 sm:py-16"
           >
             <div className="grid items-center gap-10 md:grid-cols-2 md:gap-16">
               <motion.div
-                initial={{ opacity: 0, x: reversed ? 48 : -48 }}
-                whileInView={{ opacity: 1, x: 0 }}
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-100px" }}
-                transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
                 className={reversed ? "md:order-2" : ""}
               >
-                <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-full border-2 border-mint bg-white text-sm font-bold text-navy">
-                  {i + 1}
+                <div className="mb-2 font-heading text-7xl font-extrabold leading-[0.85] text-signal sm:text-8xl">
+                  {String(i + 1).padStart(2, "0")}
                 </div>
-                <div className="mb-1 flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-mint-light">
-                    <step.icon size={18} strokeWidth={2} color="#3fbe8e" />
-                  </div>
-                  <h3 className="text-lg font-bold text-navy sm:text-xl">{step.title}</h3>
-                </div>
-                <p className="max-w-md text-sm leading-relaxed text-gray-500 sm:text-[15px]">
+                <h2 className="mb-4 text-2xl font-semibold leading-none text-ink sm:text-[32px]">
+                  {step.title}
+                </h2>
+                <p className="max-w-md text-[15px] leading-relaxed text-neutral-700">
                   {step.body}
                 </p>
               </motion.div>
 
               <motion.div
-                initial={{ opacity: 0, x: reversed ? -48 : 48 }}
-                whileInView={{ opacity: 1, x: 0 }}
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-100px" }}
-                transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
                 className={reversed ? "md:order-1" : ""}
               >
-                <TiltCard className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-xl shadow-navy/10">
-                  <div className="flex items-center gap-1.5 border-b border-black/5 bg-[#f6f9f8] px-4 py-3">
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-                    <span className="ml-2 text-xs font-medium text-gray-400">
+                <div className="border border-neutral-300 border-t-2 border-t-ink bg-paper p-6 sm:p-8">
+                  <div className="mb-3 flex items-baseline justify-between gap-3 border-b border-neutral-300 pb-3">
+                    <span className="m-mono text-xs uppercase tracking-wider text-signal-text">
                       {step.label}
                     </span>
+                    <span className="text-xs text-neutral-600">Specimen</span>
                   </div>
-                  <step.View />
-                </TiltCard>
+                  {step.rows.map(([k, v]) => (
+                    <div
+                      key={k}
+                      className="flex items-baseline justify-between gap-6 border-b border-neutral-300 py-3 last:border-b-0"
+                    >
+                      <span className="text-[15px] text-neutral-700">{k}</span>
+                      <span className="m-mono text-right text-[15px] text-ink">{v}</span>
+                    </div>
+                  ))}
+                </div>
               </motion.div>
             </div>
           </section>

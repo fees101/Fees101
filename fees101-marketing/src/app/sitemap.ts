@@ -1,11 +1,27 @@
 import type { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/seo";
 
-const SITE_URL = "https://www.fees101.com";
+const ROUTES: Array<{
+  path: string;
+  changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"];
+  priority: number;
+}> = [
+  { path: "", changeFrequency: "weekly", priority: 1 },
+  { path: "/features", changeFrequency: "monthly", priority: 0.9 },
+  { path: "/how-it-works", changeFrequency: "monthly", priority: 0.8 },
+  { path: "/pricing", changeFrequency: "monthly", priority: 0.9 },
+  { path: "/about", changeFrequency: "monthly", priority: 0.6 },
+  { path: "/faq", changeFrequency: "monthly", priority: 0.7 },
+  { path: "/privacy", changeFrequency: "yearly", priority: 0.3 },
+  { path: "/terms", changeFrequency: "yearly", priority: 0.3 },
+];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const routes = ["", "/features", "/how-it-works", "/about", "/faq", "/privacy", "/terms"];
-  return routes.map((route) => ({
-    url: `${SITE_URL}${route}`,
-    lastModified: new Date("2026-07-24"),
+  const lastModified = new Date();
+  return ROUTES.map((route) => ({
+    url: `${SITE_URL}${route.path}`,
+    lastModified,
+    changeFrequency: route.changeFrequency,
+    priority: route.priority,
   }));
 }

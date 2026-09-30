@@ -1,10 +1,29 @@
 import { LegalLayout, LegalSection } from "@/components/LegalLayout";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata = { title: "Terms of Service" };
+export const metadata = buildPageMetadata({
+  title: "Terms of Service",
+  description:
+    "The terms governing use of the Fees101 platform by Nigerian schools — payments, messaging, data handling and liability.",
+  path: "/terms",
+});
+
+const SECTIONS = [
+  { id: "the-service", label: "1. The service" },
+  { id: "accounts-and-eligibility", label: "2. Accounts and eligibility" },
+  { id: "school-customer-responsibilities", label: "3. School Customer responsibilities" },
+  { id: "payments", label: "4. Payments" },
+  { id: "messaging", label: "5. Messaging" },
+  { id: "availability-and-changes", label: "6. Availability and changes" },
+  { id: "limitation-of-liability", label: "7. Limitation of liability" },
+  { id: "termination", label: "8. Termination" },
+  { id: "governing-law", label: "9. Governing law" },
+  { id: "contact-us", label: "10. Contact us" },
+];
 
 export default function TermsPage() {
   return (
-    <LegalLayout title="Terms of Service" updated="24 July 2026">
+    <LegalLayout title="Terms of Service" updated="24 July 2026" sections={SECTIONS}>
       <p>
         These Terms of Service (&ldquo;Terms&rdquo;) govern access to and use of
         the Fees101 platform, provided by FEES101 LTD, RC 9694725, a company
@@ -13,7 +32,7 @@ export default function TermsPage() {
         Terms.
       </p>
 
-      <LegalSection heading="1. The service">
+      <LegalSection id="the-service" heading="1. The service">
         <p>
           Fees101 is software that helps schools set fee structures, generate
           student invoices, collect and reconcile payments, and notify
@@ -22,7 +41,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="2. Accounts and eligibility">
+      <LegalSection id="accounts-and-eligibility" heading="2. Accounts and eligibility">
         <p>
           Fees101 is intended for use by schools and authorised school staff. You
           must provide accurate information when creating an account and are
@@ -31,7 +50,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="3. School Customer responsibilities">
+      <LegalSection id="school-customer-responsibilities" heading="3. School Customer responsibilities">
         <ul className="list-disc pl-5">
           <li>
             You are responsible for the accuracy of the fee, student, and
@@ -44,12 +63,12 @@ export default function TermsPage() {
           </li>
           <li>
             You will not use Fees101 for any unlawful purpose or to send
-            communications unrelated to school fee management.
+            communications unrelated to fee collection and reconciliation.
           </li>
         </ul>
       </LegalSection>
 
-      <LegalSection heading="4. Payments">
+      <LegalSection id="payments" heading="4. Payments">
         <p>
           Fees101 integrates with licensed third-party payment infrastructure to
           generate dedicated virtual bank accounts and process fee payments.
@@ -60,7 +79,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="5. Messaging">
+      <LegalSection id="messaging" heading="5. Messaging">
         <p>
           Fees101 sends transactional SMS/WhatsApp notifications (such as invoice
           alerts, payment confirmations, and reminders) to parent/guardian phone
@@ -69,7 +88,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="6. Availability and changes">
+      <LegalSection id="availability-and-changes" heading="6. Availability and changes">
         <p>
           Fees101 is provided on an &ldquo;as available&rdquo; basis while we
           continue to build and improve it. We may update, modify, or temporarily
@@ -78,7 +97,7 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="7. Limitation of liability">
+      <LegalSection id="limitation-of-liability" heading="7. Limitation of liability">
         <p>
           To the fullest extent permitted by law, Fees101 will not be liable for
           indirect, incidental, or consequential losses arising from use of the
@@ -87,19 +106,19 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="8. Termination">
+      <LegalSection id="termination" heading="8. Termination">
         <p>
           Either party may stop using or providing the service at any time. On
           termination, we will make reasonable efforts to allow a School Customer
           to export their data, and will retain data only as described in our{" "}
-          <a href="/privacy" className="text-mint-dark underline">
+          <a href="/privacy" className="text-signal-text underline">
             Privacy Policy
           </a>
           .
         </p>
       </LegalSection>
 
-      <LegalSection heading="9. Governing law">
+      <LegalSection id="governing-law" heading="9. Governing law">
         <p>
           These Terms are governed by the laws of the Federal Republic of
           Nigeria, and any disputes are subject to the exclusive jurisdiction of
@@ -107,14 +126,14 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="10. Contact us">
+      <LegalSection id="contact-us" heading="10. Contact us">
         <p>
           Questions about these Terms can be sent to{" "}
-          <a href="mailto:support@fees101.com" className="text-mint-dark underline">
+          <a href="mailto:support@fees101.com" className="text-signal-text underline">
             support@fees101.com
           </a>{" "}
           or{" "}
-          <a href="mailto:support@fees101.com" className="text-mint-dark underline">
+          <a href="mailto:support@fees101.com" className="text-signal-text underline">
             support@fees101.com
           </a>
           .

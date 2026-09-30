@@ -1,0 +1,18 @@
+# Fees101
+
+> Fees101 is a revenue operations platform for Nigerian schools: fee structures set once per term/class, automatic per-student invoicing with balances carried forward, a dedicated virtual bank account per student, automated payment reconciliation, and a live collection dashboard. Operated by FEES101 LTD (RC 9694725), registered in Bwari, FCT, Nigeria.
+
+Fees101 does not hold school funds — payments settle directly to each school's own bank account through its licensed payment infrastructure partner. Pricing is ₦500 per active student per month, billed daily, with no setup fee or contract. As of this writing Fees101 is in active development and onboarding a limited number of schools rather than open for general sign-up.
+
+## Docs
+
+- [Pricing](https://www.fees101.com/pricing): the ₦500-per-active-student-per-month rate, billed daily, and what's included.
+- [Features](https://www.fees101.com/features): fee structures, invoicing, payments, notifications, and admin/scale features in detail.
+- [How it works](https://www.fees101.com/how-it-works): the step-by-step flow from setting a fee structure to a reconciled payment.
+- [About](https://www.fees101.com/about): why Fees101 was built and who operates it.
+- [FAQ](https://www.fees101.com/faq): common questions on payments, students/parents, security, and the account.
+
+## Optional
+
+- [Privacy Policy](https://www.fees101.com/privacy): data handling under Nigeria's Data Protection Act (NDPA).
+- [Terms of Service](https://www.fees101.com/terms): terms governing use of the platform.

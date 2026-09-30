@@ -1,19 +1,38 @@
 import { LegalLayout, LegalSection } from "@/components/LegalLayout";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata = { title: "Privacy Policy" };
+export const metadata = buildPageMetadata({
+  title: "Privacy Policy",
+  description:
+    "How FEES101 LTD collects, uses and protects data on the Fees101 platform, in line with Nigeria's Data Protection Act (NDPA).",
+  path: "/privacy",
+});
+
+const SECTIONS = [
+  { id: "who-we-are", label: "1. Who we are" },
+  { id: "controller-and-processor-roles", label: "2. Controller and processor roles" },
+  { id: "information-we-collect", label: "3. Information we collect" },
+  { id: "how-we-use-information", label: "4. How we use information" },
+  { id: "who-we-share-information-with", label: "5. Who we share information with" },
+  { id: "childrens-data", label: "6. Children's data" },
+  { id: "data-retention", label: "7. Data retention" },
+  { id: "data-security", label: "8. Data security" },
+  { id: "your-rights", label: "9. Your rights" },
+  { id: "contact-us", label: "10. Contact us" },
+];
 
 export default function PrivacyPage() {
   return (
-    <LegalLayout title="Privacy Policy" updated="24 July 2026">
+    <LegalLayout title="Privacy Policy" updated="24 July 2026" sections={SECTIONS}>
       <p>
         This Privacy Policy explains how <strong>FEES101 LTD</strong> (&ldquo;Fees101&rdquo;,
         &ldquo;we&rdquo;, &ldquo;us&rdquo;) collects, uses, and protects information
-        in connection with our school fee management software. It is written to comply
+        in connection with our revenue operations platform. It is written to comply
         with the Nigeria Data Protection Act, 2023 (NDPA) and the regulations of the
         Nigeria Data Protection Commission (NDPC).
       </p>
 
-      <LegalSection heading="1. Who we are">
+      <LegalSection id="who-we-are" heading="1. Who we are">
         <p>
           Fees101 is operated by FEES101 LTD, RC 9694725, a company registered in
           Nigeria with its registered office at Plot L182, Ellicot Citi Street,
@@ -26,7 +45,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="2. Controller and processor roles">
+      <LegalSection id="controller-and-processor-roles" heading="2. Controller and processor roles">
         <p>
           Schools that use Fees101 (&ldquo;School Customers&rdquo;) act as{" "}
           <strong>data controllers</strong> for the student and parent/guardian data
@@ -42,7 +61,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="3. Information we collect">
+      <LegalSection id="information-we-collect" heading="3. Information we collect">
         <p>We process the following categories of information:</p>
         <ul className="list-disc pl-5">
           <li>
@@ -72,7 +91,7 @@ export default function PrivacyPage() {
         </ul>
       </LegalSection>
 
-      <LegalSection heading="4. How we use information">
+      <LegalSection id="how-we-use-information" heading="4. How we use information">
         <ul className="list-disc pl-5">
           <li>To generate and deliver fee invoices to the correct student/family.</li>
           <li>To provision and reconcile payments against the correct student.</li>
@@ -86,7 +105,7 @@ export default function PrivacyPage() {
         <p>We do not sell personal information, and we do not use it for advertising.</p>
       </LegalSection>
 
-      <LegalSection heading="5. Who we share information with">
+      <LegalSection id="who-we-share-information-with" heading="5. Who we share information with">
         <p>Data is shared only with service providers we use to operate Fees101, under contract:</p>
         <ul className="list-disc pl-5">
           <li>
@@ -94,7 +113,7 @@ export default function PrivacyPage() {
             generate dedicated virtual bank accounts and process payments.
           </li>
           <li>
-            <strong>Messaging providers</strong> (e.g. Termii), to deliver SMS and
+            <strong>Messaging providers</strong> (e.g. Sendchamp), to deliver SMS and
             WhatsApp notifications to parents/guardians on our behalf.
           </li>
           <li>
@@ -108,7 +127,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="6. Children&rsquo;s data">
+      <LegalSection id="childrens-data" heading="6. Children&rsquo;s data">
         <p>
           Because Fees101 is used to manage school fees, it necessarily processes
           limited data about students, some of whom are minors. This data
@@ -118,7 +137,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="7. Data retention">
+      <LegalSection id="data-retention" heading="7. Data retention">
         <p>
           We retain data for as long as a School Customer maintains an active
           account, and for a reasonable period afterward to meet legal,
@@ -128,7 +147,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="8. Data security">
+      <LegalSection id="data-security" heading="8. Data security">
         <p>
           We apply industry-standard technical and organisational measures to
           protect data, including encrypted connections, encrypted storage of
@@ -137,7 +156,7 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="9. Your rights">
+      <LegalSection id="your-rights" heading="9. Your rights">
         <p>Under the NDPA, individuals have the right to:</p>
         <ul className="list-disc pl-5">
           <li>Request access to personal data held about them;</li>
@@ -153,14 +172,14 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="10. Contact us">
+      <LegalSection id="contact-us" heading="10. Contact us">
         <p>
           For any privacy questions or requests, contact us at{" "}
-          <a href="mailto:support@fees101.com" className="text-mint-dark underline">
+          <a href="mailto:support@fees101.com" className="text-signal-text underline">
             support@fees101.com
           </a>{" "}
           or{" "}
-          <a href="mailto:support@fees101.com" className="text-mint-dark underline">
+          <a href="mailto:support@fees101.com" className="text-signal-text underline">
             support@fees101.com
           </a>
           , or by post at:

@@ -3,50 +3,48 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { LogoHorizontal } from "./Logo";
 
 const NAV_LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/features", label: "Features" },
-  { href: "/how-it-works", label: "How it works" },
-  { href: "/about", label: "About" },
-  { href: "/faq", label: "FAQ" },
-];
+  { href: "/", label: "Home", num: "00" },
+  { href: "/features", label: "Platform", num: "01" },
+  { href: "/how-it-works", label: "How it works", num: "02" },
+  { href: "/pricing", label: "Pricing", num: "03" },
+  { href: "/about", label: "About", num: "04" },
+  { href: "/faq", label: "FAQ", num: "05" },
+] as const;
 
 export function Header() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-black/5 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
+    <header className="sticky top-0 z-30 border-b-2 border-ink bg-paper">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <Link href="/" className="shrink-0" onClick={() => setOpen(false)}>
-          <motion.div
-            whileHover={{ scale: 1.04 }}
-            transition={{ type: "spring", stiffness: 400, damping: 20 }}
-            className="inline-flex rounded-md"
-          >
-            <LogoHorizontal height={30} />
-          </motion.div>
+          <LogoHorizontal height={22} />
         </Link>
 
-        <nav className="hidden items-center gap-7 text-sm font-medium text-gray-600 md:flex">
+        <nav className="hidden items-center gap-7 text-sm font-semibold text-neutral-700 md:flex">
           {NAV_LINKS.map((link) => {
             const active = pathname === link.href;
             return (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`relative py-1 transition-colors hover:text-navy ${
-                  active ? "text-navy" : ""
+                className={`relative flex items-baseline gap-1.5 py-1 transition-colors hover:text-ink ${
+                  active ? "text-ink" : ""
                 }`}
               >
+                <span className="m-mono text-[10px] font-normal text-neutral-400">
+                  {link.num}
+                </span>
                 {link.label}
                 {active && (
                   <motion.span
                     layoutId="nav-underline"
-                    className="absolute -bottom-[15px] left-0 right-0 h-[2px] rounded-full bg-mint"
+                    className="absolute -bottom-[17px] left-0 right-0 h-[2px] bg-signal"
                     transition={{ type: "spring", stiffness: 400, damping: 32 }}
                   />
                 )}
@@ -56,10 +54,7 @@ export function Header() {
         </nav>
 
         <div className="hidden md:block">
-          <a
-            href="mailto:support@fees101.com"
-            className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5"
-          >
+          <a href="mailto:support@fees101.com" className="m-btn m-btn-primary">
             Talk to us
           </a>
         </div>
@@ -70,17 +65,13 @@ export function Header() {
           className="flex h-9 w-9 flex-col items-center justify-center gap-1.5 md:hidden"
         >
           <span
-            className={`h-0.5 w-6 rounded-full bg-navy transition-transform ${
+            className={`h-0.5 w-6 bg-ink transition-transform ${
               open ? "translate-y-2 rotate-45" : ""
             }`}
           />
+          <span className={`h-0.5 w-6 bg-ink transition-opacity ${open ? "opacity-0" : ""}`} />
           <span
-            className={`h-0.5 w-6 rounded-full bg-navy transition-opacity ${
-              open ? "opacity-0" : ""
-            }`}
-          />
-          <span
-            className={`h-0.5 w-6 rounded-full bg-navy transition-transform ${
+            className={`h-0.5 w-6 bg-ink transition-transform ${
               open ? "-translate-y-2 -rotate-45" : ""
             }`}
           />
@@ -94,7 +85,7 @@ export function Header() {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            className="flex flex-col gap-1 overflow-hidden border-t border-black/5 bg-white px-6 md:hidden"
+            className="flex flex-col gap-1 overflow-hidden border-t-2 border-ink bg-paper px-6 md:hidden"
           >
             <div className="flex flex-col gap-1 py-4">
               {NAV_LINKS.map((link) => (
@@ -102,18 +93,25 @@ export function Header() {
                   key={link.href}
                   href={link.href}
                   onClick={() => setOpen(false)}
-                  className={`rounded-lg px-3 py-2.5 text-sm font-medium ${
+                  className={`flex items-baseline gap-2.5 px-3 py-2.5 text-sm font-semibold ${
                     pathname === link.href
-                      ? "bg-mint-light text-navy"
-                      : "text-gray-600 hover:bg-gray-50"
+                      ? "bg-ink text-paper"
+                      : "text-neutral-700 hover:bg-neutral-200"
                   }`}
                 >
+                  <span
+                    className={`m-mono text-[10px] font-normal ${
+                      pathname === link.href ? "text-neutral-400" : "text-neutral-500"
+                    }`}
+                  >
+                    {link.num}
+                  </span>
                   {link.label}
                 </Link>
               ))}
               <a
                 href="mailto:support@fees101.com"
-                className="mt-2 rounded-lg bg-navy px-3 py-2.5 text-center text-sm font-semibold text-white"
+                className="m-btn m-btn-primary mt-2 justify-center"
               >
                 Talk to us
               </a>

@@ -7,7 +7,7 @@ import {
   InvoicingView,
   PaymentView,
   FeeStructureView,
-  ReconciliationView,
+  LedgerView,
 } from "@/components/ProductScreens";
 
 const VIEWS = [
@@ -15,7 +15,7 @@ const VIEWS = [
   { label: "Invoices", View: InvoicingView },
   { label: "Payment", View: PaymentView },
   { label: "Fee structure", View: FeeStructureView },
-  { label: "Reconciliation", View: ReconciliationView },
+  { label: "Ledger", View: LedgerView },
 ];
 
 export function HeroPreview() {
@@ -37,12 +37,12 @@ export function HeroPreview() {
       transition={{ delay: 0.3, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
       className="mx-auto max-w-2xl md:mx-0"
     >
-      <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-2xl shadow-navy/10">
-        <div className="flex items-center gap-1.5 border-b border-black/5 bg-[#f6f9f8] px-4 py-3">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-          <span className="ml-2 text-xs font-medium text-gray-400">
+      <div className="overflow-hidden border-2 border-ink bg-paper">
+        <div className="flex items-center gap-1.5 border-b-2 border-ink bg-surface px-4 py-3">
+          <span className="h-2.5 w-2.5 border border-ink" />
+          <span className="h-2.5 w-2.5 border border-ink" />
+          <span className="h-2.5 w-2.5 border border-ink" />
+          <span className="ml-2 text-xs font-medium text-neutral-600">
             {VIEWS[active].label}
           </span>
         </div>
@@ -65,8 +65,8 @@ export function HeroPreview() {
         {VIEWS.map((v, i) => (
           <span
             key={v.label}
-            className={`h-1.5 rounded-full transition-all ${
-              i === active ? "w-6 bg-mint-dark" : "w-1.5 bg-black/10"
+            className={`h-1.5 transition-all ${
+              i === active ? "w-6 bg-signal" : "w-1.5 bg-ink/15"
             }`}
           />
         ))}

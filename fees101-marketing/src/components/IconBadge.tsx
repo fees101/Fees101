@@ -6,25 +6,25 @@ import type { LucideIcon } from "lucide-react";
 export function IconBadge({
   icon: Icon,
   size = 44,
-  tone = "navy",
+  tone = "ink",
   className = "",
 }: {
   icon: LucideIcon;
   size?: number;
-  tone?: "navy" | "light";
+  tone?: "ink" | "light";
   className?: string;
 }) {
-  const bg = tone === "navy" ? "bg-navy" : "bg-white/10";
-  const stroke = tone === "navy" ? "#5ad8a6" : "#ffffff";
+  const bg = tone === "ink" ? "bg-ink" : "bg-paper";
+  const border = tone === "ink" ? "border-ink" : "border-ink/20";
+  const stroke = tone === "ink" ? "#ec3013" : "#201e1d";
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.5, rotate: -12 }}
-      whileInView={{ opacity: 1, scale: 1, rotate: 0 }}
+      initial={{ opacity: 0, y: 6 }}
+      whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      whileHover={{ rotate: [0, -10, 8, 0], scale: 1.1 }}
-      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className={`flex shrink-0 items-center justify-center rounded-xl ${bg} ${className}`}
+      transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+      className={`flex shrink-0 items-center justify-center border-2 ${border} ${bg} ${className}`}
       style={{ width: size, height: size }}
     >
       <Icon size={size * 0.5} strokeWidth={2} color={stroke} />
