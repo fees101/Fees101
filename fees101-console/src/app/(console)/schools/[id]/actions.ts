@@ -64,6 +64,67 @@ export async function runSuspensionCheck(schoolId: string) {
   return result
 }
 
+type RegenerateLinkResult =
+  | { error: string }
+  | { alreadyActive: true; email: string }
+  | { success: true; email: string; actionLink: string }
+
+// Regenerates the owner's activation link when the first one expired or was
+// never used. Supabase invite tokens are single-use and time-limited, so an
+// unused/expired link can't be revived — only a fresh one issued. If the owner
+// has already activated (set a password), there's nothing to regenerate: they
+// log in normally, or use password reset. generateLink(type:'invite') would
+// itself error for a confirmed user, so we check activation first and give a
+// clear message instead of surfacing a raw Supabase error.
+export async function regenerateOwnerLink(schoolId: string): Promise<RegenerateLinkResult> {
+  const admin = await requireAdmin()
+  const supabase = createServiceRoleClient()
+
+  const { data: owner } = await supabase
+    .from('users')
+    .select('id, name, email')
+    .eq('school_id', schoolId)
+    .eq('role', 'school_admin')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (!owner?.email) return { error: 'No owner account found for this school.' }
+
+  const { data: authUser } = await supabase.auth.admin.getUserById(owner.id)
+  if (authUser?.user?.email_confirmed_at || authUser?.user?.last_sign_in_at) {
+    return { alreadyActive: true, email: owner.email }
+  }
+
+  const { data: school } = await supabase.from('schools').select('name').eq('id', schoolId).maybeSingle()
+  const schoolAppUrl = process.env.SCHOOL_APP_URL || 'http://localhost:3000'
+  const redirectTo = `${schoolAppUrl}/auth/callback?next=${encodeURIComponent(`/set-password?email=${encodeURIComponent(owner.email)}`)}`
+
+  const { data: inviteData, error: inviteError } = await supabase.auth.admin.generateLink({
+    type: 'invite',
+    email: owner.email,
+    options: {
+      redirectTo,
+      data: { name: owner.name || '', school_name: school?.name || '', role_name: 'Administrator', inviter_name: admin.name },
+    },
+  })
+
+  if (inviteError || !inviteData?.properties?.action_link) {
+    return { error: inviteError?.message || 'Could not generate a new link.' }
+  }
+
+  await supabase.from('platform_audit_log').insert({
+    actor_id: admin.id,
+    actor_name: admin.name,
+    action: 'school.owner_link_regenerated',
+    school_id: schoolId,
+    summary: `Regenerated the activation link for owner ${owner.name || owner.email}`,
+    metadata: { ownerEmail: owner.email },
+  })
+
+  return { success: true, email: owner.email, actionLink: inviteData.properties.action_link }
+}
+
 export async function setBillingStatusManually(schoolId: string, status: string) {
   const admin = await requireAdmin()
   const supabase = createServiceRoleClient()

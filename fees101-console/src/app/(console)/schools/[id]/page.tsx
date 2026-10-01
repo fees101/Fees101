@@ -6,6 +6,8 @@ import { getPerTermAmount } from '@/lib/billing'
 import BillingPanel from './BillingPanel'
 import AccrualPanel from './AccrualPanel'
 import CollectionPanel from './CollectionPanel'
+import SetupChecklistPanel from './SetupChecklistPanel'
+import OwnerAccessPanel from './OwnerAccessPanel'
 
 function naira(n: number) {
   return '₦' + Math.round(n).toLocaleString('en-NG')
@@ -25,6 +27,10 @@ export default async function SchoolDetailPage({ params }: { params: Promise<{ i
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '40px 20px' }}>
       <Link href="/schools" style={{ color: 'var(--muted)', fontSize: 13, textDecoration: 'none' }}>&larr; All schools</Link>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '8px 0 24px' }}>{school.name}</h1>
+
+      <SetupChecklistPanel schoolId={school.id} />
+
+      <OwnerAccessPanel schoolId={school.id} />
 
       {/* New billing model (daily pro-rata + Fees101 DVA collection) — the panels
           the accrual + collection tracks built, re-homed here per the IA. */}

@@ -146,6 +146,53 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
   }
 }
 
+export interface SchoolSetupChecklist {
+  paymentProvider: string | null
+  paymentProviderConnected: boolean
+  keysVerified: boolean
+  activeCycleName: string | null
+  feeItemCount: number
+  billingConfigured: boolean
+  studentCount: number
+  studentsAdded: boolean
+}
+
+// The compulsory pre-collection steps a school completes itself in the
+// school-facing app — this is read-only status computed from the same
+// tables/conditions that app uses (see payments.ts's isConfigured), not a
+// manual checkbox. Webhooks aren't a separate item: the endpoint is a fixed
+// per-school URL that goes live the moment a provider is connected, there's
+// no independent DB state for it.
+export async function getSchoolSetupChecklist(schoolId: string): Promise<SchoolSetupChecklist> {
+  const supabase = createServiceRoleClient()
+
+  const [{ data: school }, { data: activeCycle }, { count: studentCount }] = await Promise.all([
+    supabase.from('schools').select('payment_provider, provider_api_key, provider_secret_key, provider_contract_code, keys_verified_at').eq('id', schoolId).maybeSingle(),
+    supabase.from('billing_cycles').select('id, name').eq('school_id', schoolId).eq('status', 'active').maybeSingle(),
+    supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'active'),
+  ])
+
+  const hasApiKey = !!school?.provider_api_key
+  const hasSecretKey = !!school?.provider_secret_key
+  const hasContractCode = school?.payment_provider === 'monnify' ? !!school?.provider_contract_code : true
+  const paymentProviderConnected = !!school?.payment_provider && hasApiKey && hasSecretKey && hasContractCode
+
+  const { count: feeItemCount } = activeCycle
+    ? await supabase.from('fee_items').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).eq('billing_cycle_id', activeCycle.id)
+    : { count: 0 }
+
+  return {
+    paymentProvider: school?.payment_provider || null,
+    paymentProviderConnected,
+    keysVerified: !!school?.keys_verified_at,
+    activeCycleName: activeCycle?.name || null,
+    feeItemCount: feeItemCount || 0,
+    billingConfigured: !!activeCycle && (feeItemCount || 0) > 0,
+    studentCount: studentCount || 0,
+    studentsAdded: (studentCount || 0) > 0,
+  }
+}
+
 export async function getAllSchoolsCostToServe(): Promise<Map<string, SchoolUsage>> {
   const supabase = createServiceRoleClient()
   const { data: messages } = await supabase.from('message_logs').select('school_id, channel, cost_amount')

@@ -1,13 +1,19 @@
-export default function OnboardingPage() {
+import { redirect } from 'next/navigation'
+import { getPlatformAdmin } from '@/lib/auth'
+import OnboardingForm from './OnboardingForm'
+
+export default async function OnboardingPage() {
+  const admin = await getPlatformAdmin()
+  if (!admin) redirect('/login')
+
   return (
     <div>
       <div className="kicker">Onboarding</div>
-      <h1 style={{ fontSize: 24, marginTop: 6, marginBottom: 14 }}>Onboarding</h1>
-      <div className="panel" style={{ padding: '22px 18px', color: 'var(--muted)', fontSize: 13, maxWidth: 640 }}>
-        <div className="tag tag-accent" style={{ marginBottom: 12 }}>Planned</div>
-        <p style={{ margin: 0, lineHeight: 1.6 }}>Create a new school tenant (seeds default roles, sets the billing cycle anchor, provisions the Fees101 billing DVA).</p>
-        <p style={{ marginTop: 10, color: 'var(--faint)' }}>See docs/platform-dashboard-architecture.md for the full spec.</p>
-      </div>
+      <h1 style={{ fontSize: 24, marginTop: 6, marginBottom: 14 }}>Onboard a school</h1>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, maxWidth: 480 }}>
+        Creates the school and the owner&rsquo;s login. Everything else &mdash; academic structure, fee items, payment provider, staff &mdash; the school sets up itself once they&rsquo;re in.
+      </p>
+      <OnboardingForm />
     </div>
   )
 }

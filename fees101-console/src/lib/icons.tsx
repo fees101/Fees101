@@ -105,3 +105,12 @@ export const ArrowRight = base(
     <path d="M12 5l7 7-7 7" />
   </>
 )
+
+export const CheckCircle2 = base(
+  <>
+    <path d="M21.801 10A10 10 0 1 1 17 3.335" />
+    <path d="m9 11 3 3L22 4" />
+  </>
+)
+
+export const Circle = base(<circle cx="12" cy="12" r="10" />)

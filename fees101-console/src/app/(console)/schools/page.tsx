@@ -27,8 +27,11 @@ export default async function SchoolsPage() {
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: '40px 20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700 }}>Schools</h1>
-          <p style={{ color: 'var(--muted)', fontSize: 13 }}>Signed in as {admin.name}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700 }}>Schools</h1>
+            <Link href="/onboarding" className="btn btn-primary">Onboard new school</Link>
+          </div>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 4 }}>Signed in as {admin.name}</p>
         </div>
         <div style={{ textAlign: 'right' }}>
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>Messaging cost across all schools</p>
