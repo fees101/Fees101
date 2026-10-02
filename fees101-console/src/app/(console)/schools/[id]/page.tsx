@@ -8,6 +8,7 @@ import AccrualPanel from './AccrualPanel'
 import CollectionPanel from './CollectionPanel'
 import SetupChecklistPanel from './SetupChecklistPanel'
 import OwnerAccessPanel from './OwnerAccessPanel'
+import MandateBillingPanel from './MandateBillingPanel'
 
 function naira(n: number) {
   return '₦' + Math.round(n).toLocaleString('en-NG')
@@ -31,6 +32,10 @@ export default async function SchoolDetailPage({ params }: { params: Promise<{ i
       <SetupChecklistPanel schoolId={school.id} />
 
       <OwnerAccessPanel schoolId={school.id} />
+
+      <div style={{ marginBottom: 24 }}>
+        <MandateBillingPanel schoolId={school.id} />
+      </div>
 
       {/* New billing model (daily pro-rata + Fees101 DVA collection) — the panels
           the accrual + collection tracks built, re-homed here per the IA. */}

@@ -3,6 +3,7 @@ import { getAuthContext, permissionList } from '@/lib/auth/permissions'
 import { PermissionsProvider } from '@/lib/auth/PermissionsProvider'
 import { ActiveJobsProvider } from '@/lib/jobs/ActiveJobsProvider'
 import { getScheduledDeletion } from '@/lib/dataPrivacy/deletion'
+import { getBillingGateState } from '@/lib/platformBilling/config'
 import { redirect } from 'next/navigation'
 
 export default async function AppLayout({
@@ -67,6 +68,7 @@ export default async function AppLayout({
   }
 
   const [
+    gate,
     profile,
     { data: currentCycle },
     { data: notificationRows },
@@ -74,6 +76,11 @@ export default async function AppLayout({
     { count: studentsCount },
     { count: pendingDiscountsCount },
   ] = await Promise.all([
+    // Billing entry gate, folded into this batch so it costs no extra serial
+    // round-trip (a single PK lookup on platform_billing). A school that hasn't
+    // connected billing yet can't enter the app — bounce to /connect-billing.
+    // Grandfathered schools and super_admins (no schoolId) pass through.
+    schoolId ? getBillingGateState(schoolId) : Promise.resolve({ connected: true }),
     loadDisplayProfile(),
     supabase
       .from('billing_cycles')
@@ -117,6 +124,13 @@ export default async function AppLayout({
       .eq('school_id', schoolId || '')
       .eq('status', 'pending'),
   ])
+
+  // Billing gate: a school that hasn't paid the setup fee / connected its
+  // direct-debit mandate can't enter the app. Checked here (not in the auth
+  // context) so it bounces before any (app) page renders, mirroring the
+  // deactivation kick-out above. /connect-billing lives outside (app) so this
+  // never loops.
+  if (schoolId && !gate.connected) redirect('/connect-billing')
 
   // getAuthContext() already validated the JWT and loaded the user row, so a
   // null here (after loadDisplayProfile's own retries above) means either the

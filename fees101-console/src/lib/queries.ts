@@ -193,6 +193,94 @@ export async function getSchoolSetupChecklist(schoolId: string): Promise<SchoolS
   }
 }
 
+export interface MandateBillingSummary {
+  onboardingAt: string | null
+  billingConnectedAt: string | null
+  setupFeeStatus: string
+  setupFeeAmount: number
+  setupFeePaidAt: string | null
+  mandateStatus: string
+  mandateEmail: string | null
+  mandateAuthorizationCodeMasked: string | null
+  mandateAuthorizedAt: string | null
+  mandateActiveAt: string | null
+  termsAcceptedAt: string | null
+  termsVersion: string | null
+  billingStatus: string
+  nextChargeDueAt: string | null
+  lastChargedAt: string | null
+  lastChargeAmount: number | null
+  lastChargeReference: string | null
+  recentCharges: {
+    id: string
+    amount: number
+    status: string
+    chargedBy: string | null
+    createdAt: string
+    paidAt: string | null
+    failureReason: string | null
+  }[]
+}
+
+function maskAuthCode(code: string | null): string | null {
+  if (!code) return null
+  return code.length <= 8 ? code : `${code.slice(0, 4)}…${code.slice(-4)}`
+}
+
+// Key facts about a school's direct-debit mandate and setup — the fields the
+// owner wants visible without going into Supabase (platform_billing is
+// service-role-only, no admin DB UI). Read-only: this surfaces state set by
+// the connect-billing flow and the recurring-debit cron, it doesn't act.
+export async function getMandateBillingSummary(schoolId: string): Promise<MandateBillingSummary> {
+  const supabase = createServiceRoleClient()
+
+  const [{ data: billing }, { data: charges }] = await Promise.all([
+    supabase
+      .from('platform_billing')
+      .select(
+        'onboarding_at, billing_connected_at, setup_fee_status, setup_fee_amount, setup_fee_paid_at, mandate_status, mandate_email, mandate_authorization_code, mandate_authorized_at, mandate_active_at, terms_accepted_at, terms_version, billing_status, next_charge_due_at, last_charged_at, last_charge_amount, last_charge_reference',
+      )
+      .eq('school_id', schoolId)
+      .maybeSingle(),
+    supabase
+      .from('platform_billing_charges')
+      .select('id, amount, status, charged_by, created_at, paid_at, failure_reason')
+      .eq('school_id', schoolId)
+      .eq('method', 'direct_debit')
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ])
+
+  return {
+    onboardingAt: billing?.onboarding_at || null,
+    billingConnectedAt: billing?.billing_connected_at || null,
+    setupFeeStatus: billing?.setup_fee_status || 'unpaid',
+    setupFeeAmount: Number(billing?.setup_fee_amount || 0),
+    setupFeePaidAt: billing?.setup_fee_paid_at || null,
+    mandateStatus: billing?.mandate_status || 'none',
+    mandateEmail: billing?.mandate_email || null,
+    mandateAuthorizationCodeMasked: maskAuthCode(billing?.mandate_authorization_code || null),
+    mandateAuthorizedAt: billing?.mandate_authorized_at || null,
+    mandateActiveAt: billing?.mandate_active_at || null,
+    termsAcceptedAt: billing?.terms_accepted_at || null,
+    termsVersion: billing?.terms_version || null,
+    billingStatus: billing?.billing_status || 'active',
+    nextChargeDueAt: billing?.next_charge_due_at || null,
+    lastChargedAt: billing?.last_charged_at || null,
+    lastChargeAmount: billing?.last_charge_amount ? Number(billing.last_charge_amount) : null,
+    lastChargeReference: billing?.last_charge_reference || null,
+    recentCharges: (charges || []).map(c => ({
+      id: c.id,
+      amount: Number(c.amount),
+      status: c.status,
+      chargedBy: c.charged_by,
+      createdAt: c.created_at,
+      paidAt: c.paid_at,
+      failureReason: c.failure_reason,
+    })),
+  }
+}
+
 export async function getAllSchoolsCostToServe(): Promise<Map<string, SchoolUsage>> {
   const supabase = createServiceRoleClient()
   const { data: messages } = await supabase.from('message_logs').select('school_id, channel, cost_amount')
