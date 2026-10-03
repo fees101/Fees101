@@ -142,6 +142,70 @@ export async function deactivateMandate(authorizationCode: string) {
   })
 }
 
+// Bank-transfer fallback for a school whose bank isn't on Paystack's
+// direct-debit list (or whose mandate keeps failing): a Fees101-owned
+// Dedicated Virtual Account the school transfers its bill into by hand each
+// month, instead of an automatic debit. Mirrors fees101-console's
+// createPlatformDVA (same platform account, same /customer + /dedicated_account
+// calls) so the schools-facing app can offer this without a cross-app call.
+// Idempotent per customer email — Paystack returns the same customer_code on
+// a repeat /customer call.
+export async function provisionPlatformDva(params: {
+  schoolId: string
+  schoolName: string
+  email: string
+}) {
+  const customerRes = await paystackFetch('/customer', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: params.email,
+      first_name: 'Fees101',
+      last_name: params.schoolName,
+      metadata: { school_id: params.schoolId },
+    }),
+  })
+  const customerCode = customerRes.data.customer_code as string
+
+  const preferredBank = secretKey().startsWith('sk_test') ? 'test-bank' : 'wema-bank'
+  const dvaRes = await paystackFetch('/dedicated_account', {
+    method: 'POST',
+    body: JSON.stringify({ customer: customerCode, preferred_bank: preferredBank }),
+  })
+
+  const dva = dvaRes.data as { account_number: string; bank: { name: string; id: number } }
+  return {
+    reference: customerCode,
+    accountNumber: dva.account_number,
+    bankName: dva.bank?.name ?? '',
+    bankCode: String(dva.bank?.id ?? ''),
+  }
+}
+
+// Backstop for the webhook: list a platform DVA customer's successful
+// transactions directly from Paystack, so a missed/lost webhook delivery
+// doesn't leave a school stuck suspended despite having paid. Only successful
+// charges matter here — everything else reconcile.ts/webhook.ts don't act on.
+// Paystack's List Transactions "customer" filter takes the numeric customer
+// id, not the CUS_... code we store as platform_dva_reference, so that has to
+// be resolved first via /customer/:code.
+export async function listCustomerTransactions(customerCode: string): Promise<
+  Array<{ reference: string; amountNaira: number; paidAt: string | null }>
+> {
+  const customerRes = await paystackFetch(`/customer/${encodeURIComponent(customerCode)}`)
+  const customerId = customerRes.data?.id
+  if (!customerId) return []
+
+  const res = await paystackFetch(
+    `/transaction?customer=${encodeURIComponent(String(customerId))}&status=success&perPage=50`,
+  )
+  const rows = (res.data as Array<Record<string, unknown>>) || []
+  return rows.map(row => ({
+    reference: String(row.reference),
+    amountNaira: typeof row.amount === 'number' ? row.amount / 100 : 0,
+    paidAt: (row.paid_at as string) || (row.paidAt as string) || null,
+  }))
+}
+
 // Verify a platform-account webhook by HMAC-SHA512 of the RAW body with the
 // platform secret key. Must be the exact bytes Paystack sent.
 export function verifyPaystackWebhookSignature(rawBody: string, signature: string | null): boolean {

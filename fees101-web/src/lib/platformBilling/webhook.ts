@@ -1,6 +1,6 @@
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { verifyPaystackWebhookSignature } from './paystack'
-import { applyFailedCharge, applySuccessfulCharge } from './reconcile'
+import { applyFailedCharge, applySuccessfulCharge, reconcilePlatformDvaCharge } from './reconcile'
 
 // Platform-billing webhook processor. Paystack posts here from the PLATFORM
 // account (the one that holds the direct-debit mandates), so there is a single
@@ -110,52 +110,14 @@ export async function processPlatformPaystackWebhook(
         return { status: 200, body: { received: true, ignored: 'unrecognized reference' } }
       }
 
-      const { data: existing } = await svc
-        .from('platform_billing_charges')
-        .select('id, status')
-        .eq('paystack_reference', reference)
-        .maybeSingle()
-      if (existing?.status === 'success') {
-        return { status: 200, body: { received: true, handled: type, reference, via: 'platform_dva' } }
-      }
-
       const amountNaira = typeof data.amount === 'number' ? data.amount / 100 : 0
       const paidAt = (data.paid_at as string) || now
 
-      // Credit whichever open period is oldest, if any — same "nothing to
-      // credit yet, still reactivate" tolerance as the mandate path below.
-      const { data: openPeriod } = await svc
-        .from('platform_billing_periods')
-        .select('id')
-        .eq('school_id', billing.school_id)
-        .neq('status', 'paid')
-        .order('period_start', { ascending: true })
-        .limit(1)
-        .maybeSingle()
-
-      if (existing) {
-        await svc
-          .from('platform_billing_charges')
-          .update({ status: 'success', paid_at: paidAt })
-          .eq('id', existing.id)
-      } else {
-        await svc.from('platform_billing_charges').insert({
-          school_id: billing.school_id,
-          amount: amountNaira,
-          status: 'success',
-          paystack_reference: reference,
-          method: 'dva_transfer',
-          paid_at: paidAt,
-          charged_by: 'monthly_fee',
-        })
-      }
-
-      await applySuccessfulCharge(svc, {
+      await reconcilePlatformDvaCharge(svc, {
         schoolId: billing.school_id as string,
         reference,
         amountNaira,
         paidAt,
-        periodId: openPeriod?.id ?? null,
       })
 
       return { status: 200, body: { received: true, handled: type, reference, via: 'platform_dva' } }

@@ -65,6 +65,59 @@ export async function applySuccessfulCharge(
     .eq('school_id', p.schoolId)
 }
 
+// A payment landed in a school's platform DVA (bank transfer, not a mandate
+// debit) — via the webhook's customer_code match, or the polling backstop
+// re-checking Paystack directly. Idempotent on paystack_reference, so the
+// webhook and the poller can both observe the same transaction safely.
+export async function reconcilePlatformDvaCharge(
+  svc: ServiceClient,
+  p: { schoolId: string; reference: string; amountNaira: number; paidAt: string | null },
+): Promise<'applied' | 'already_applied'> {
+  const { data: existing } = await svc
+    .from('platform_billing_charges')
+    .select('id, status')
+    .eq('paystack_reference', p.reference)
+    .maybeSingle()
+  if (existing?.status === 'success') return 'already_applied'
+
+  // Credit whichever open period is oldest, if any.
+  const { data: openPeriod } = await svc
+    .from('platform_billing_periods')
+    .select('id')
+    .eq('school_id', p.schoolId)
+    .neq('status', 'paid')
+    .order('period_start', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (existing) {
+    await svc
+      .from('platform_billing_charges')
+      .update({ status: 'success', paid_at: p.paidAt })
+      .eq('id', existing.id)
+  } else {
+    await svc.from('platform_billing_charges').insert({
+      school_id: p.schoolId,
+      amount: p.amountNaira,
+      status: 'success',
+      paystack_reference: p.reference,
+      method: 'dva_transfer',
+      paid_at: p.paidAt,
+      charged_by: 'monthly_fee',
+    })
+  }
+
+  await applySuccessfulCharge(svc, {
+    schoolId: p.schoolId,
+    reference: p.reference,
+    amountNaira: p.amountNaira,
+    paidAt: p.paidAt,
+    periodId: openPeriod?.id ?? null,
+  })
+
+  return 'applied'
+}
+
 // A direct-debit charge failed. Nudge the school into the dunning ladder's first
 // rung (payment_due) if it was current; if it's already further down the ladder
 // (grace/suspended), leave it — the ladder, keyed on how overdue it is, owns the
