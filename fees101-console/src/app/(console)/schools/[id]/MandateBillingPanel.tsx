@@ -1,10 +1,14 @@
 import { getMandateBillingSummary } from '@/lib/queries'
+import DeactivateMandateButton from './DeactivateMandateButton'
 
-// Read-only key-facts panel for the direct-debit billing model (the current
-// collection mechanism — supersedes the DVA model shown in CollectionPanel).
-// Server component: fetches platform_billing's mandate/setup-fee fields
-// directly, so the owner can see a school's billing setup without going into
-// Supabase. It never acts; BillingPanel still owns the legacy action buttons.
+// Key-facts panel for the direct-debit billing model (the current collection
+// mechanism — supersedes the DVA model shown in CollectionPanel). Server
+// component: fetches platform_billing's mandate/setup-fee fields directly, so
+// the owner can see a school's billing setup without going into Supabase.
+// Mostly read-only; BillingPanel still owns the legacy action buttons. The
+// one action here is DeactivateMandateButton, a founder-initiated hard stop
+// for when a school leaves and the mandate must be cancelled at Paystack
+// right away rather than waiting on the recurring-debit cron.
 
 const FREE_DAYS = 65 // kept in sync by hand with fees101-web's cycle.ts
 
@@ -125,6 +129,10 @@ export default async function MandateBillingPanel({ schoolId }: { schoolId: stri
           <p style={{ fontSize: 13, color: 'var(--muted)' }}>No direct-debit charges yet.</p>
         )}
       </div>
+
+      {s.mandateAuthorizationCodeMasked && s.mandateStatus !== 'cancelled' && s.mandateStatus !== 'revoked' && (
+        <DeactivateMandateButton schoolId={schoolId} />
+      )}
     </div>
   )
 }

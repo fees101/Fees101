@@ -1,5 +1,6 @@
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import RegenerateLinkButton from './RegenerateLinkButton'
+import PasswordResetButton from './PasswordResetButton'
 
 export default async function OwnerAccessPanel({ schoolId }: { schoolId: string }) {
   const supabase = createServiceRoleClient()
@@ -27,9 +28,13 @@ export default async function OwnerAccessPanel({ schoolId }: { schoolId: string 
       <p style={{ fontSize: 13.5, fontWeight: 600 }}>{owner.name || owner.email}</p>
       <p style={{ fontSize: 12, color: 'var(--faint)', marginTop: 2, marginBottom: 14 }}>{owner.email}</p>
       {activated ? (
-        <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-          The owner has set a password and can log in. The original activation link is dead. If they&rsquo;re locked out, they use password reset in the app &mdash; there&rsquo;s no link to regenerate.
-        </p>
+        <div>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+            The owner has set a password and can log in. They normally use password reset in the app themselves &mdash;
+            only send this if they&rsquo;ve asked us directly (e.g. called in locked out).
+          </p>
+          <PasswordResetButton schoolId={schoolId} />
+        </div>
       ) : (
         <RegenerateLinkButton schoolId={schoolId} />
       )}

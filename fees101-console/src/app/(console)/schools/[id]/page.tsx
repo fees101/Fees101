@@ -2,12 +2,12 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getPlatformAdmin } from '@/lib/auth'
 import { getSchoolDetail, getSchoolUsage } from '@/lib/queries'
-import { getPerTermAmount } from '@/lib/billing'
 import BillingPanel from './BillingPanel'
 import AccrualPanel from './AccrualPanel'
 import CollectionPanel from './CollectionPanel'
 import SetupChecklistPanel from './SetupChecklistPanel'
 import OwnerAccessPanel from './OwnerAccessPanel'
+import ImpersonatePanel from './ImpersonatePanel'
 import MandateBillingPanel from './MandateBillingPanel'
 
 function naira(n: number) {
@@ -22,8 +22,6 @@ export default async function SchoolDetailPage({ params }: { params: Promise<{ i
   const [school, usage] = await Promise.all([getSchoolDetail(id), getSchoolUsage(id)])
   if (!school) notFound()
 
-  const perTerm = getPerTermAmount(school.billing.annualPrice, school.termsPerYear)
-
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '40px 20px' }}>
       <Link href="/schools" style={{ color: 'var(--muted)', fontSize: 13, textDecoration: 'none' }}>&larr; All schools</Link>
@@ -32,6 +30,8 @@ export default async function SchoolDetailPage({ params }: { params: Promise<{ i
       <SetupChecklistPanel schoolId={school.id} />
 
       <OwnerAccessPanel schoolId={school.id} />
+
+      <ImpersonatePanel schoolId={school.id} />
 
       <div style={{ marginBottom: 24 }}>
         <MandateBillingPanel schoolId={school.id} />
@@ -60,8 +60,6 @@ export default async function SchoolDetailPage({ params }: { params: Promise<{ i
         <div className="panel" style={{ padding: 20 }}>
           <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Billing</p>
           <p style={{ fontSize: 13, marginBottom: 4 }}>Terms per year: {school.termsPerYear}</p>
-          <p style={{ fontSize: 13, marginBottom: 4 }}>Annual price: {school.billing.annualPrice > 0 ? naira(school.billing.annualPrice) : '—'}</p>
-          <p style={{ fontSize: 13, marginBottom: 4 }}>Per term: {perTerm > 0 ? naira(perTerm) : '—'}</p>
           <p style={{ fontSize: 13, marginBottom: 4 }}>Status: <strong style={{ textTransform: 'capitalize' }}>{school.billing.billingStatus.replace('_', ' ')}</strong></p>
           <p style={{ fontSize: 13 }}>Saved card: {school.billing.hasSavedCard ? 'Yes' : 'No'}</p>
         </div>

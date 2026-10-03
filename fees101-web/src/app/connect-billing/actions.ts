@@ -3,7 +3,7 @@
 import { headers } from 'next/headers'
 import { getAuthContext } from '@/lib/auth/permissions'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
-import { initializeMandateSetup } from '@/lib/platformBilling/paystack'
+import { initializeMandateSetup, provisionPlatformDva } from '@/lib/platformBilling/paystack'
 import { setupFeeNaira, BILLING_TERMS_VERSION } from '@/lib/platformBilling/config'
 
 // Start connecting a school's billing: record the clickwrap terms acceptance,
@@ -92,4 +92,77 @@ export async function startBillingConnection(
   }
 
   return { url: init.authorization_url }
+}
+
+// Fallback for a school whose bank isn't on Paystack's direct-debit list, or
+// whose mandate checkout failed: provision a Fees101-owned DVA and show them
+// an account number to transfer the setup fee into instead. The transfer
+// lands via the platform webhook (fees101-console's /api/paystack/webhook ->
+// reconcilePlatformTransfer), which sets billing_connected_at once a transfer
+// of at least the setup fee amount arrives — this action only gets them the
+// account details, it never unlocks the gate itself.
+export async function startDvaFallback(
+  termsAccepted: boolean,
+): Promise<{ error: string } | { accountNumber: string; bankName: string; amount: number }> {
+  const ctx = await getAuthContext()
+  if (!ctx || !ctx.schoolId) return { error: 'Not authenticated.' }
+  if (!ctx.isOwner) {
+    return { error: 'Only the school owner can set up billing. Ask them to sign in and connect it.' }
+  }
+  if (!termsAccepted) {
+    return { error: 'Please accept the billing terms to continue.' }
+  }
+
+  const svc = createServiceRoleClient()
+
+  const [{ data: owner }, { data: school }, { data: existing }] = await Promise.all([
+    svc.from('users').select('email').eq('id', ctx.userId).maybeSingle(),
+    svc.from('schools').select('name').eq('id', ctx.schoolId).maybeSingle(),
+    svc
+      .from('platform_billing')
+      .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name')
+      .eq('school_id', ctx.schoolId)
+      .maybeSingle(),
+  ])
+  if (!owner?.email) return { error: 'No billing email on file for your account.' }
+  if (existing?.billing_connected_at) return { error: 'Billing is already connected for this school.' }
+
+  const amount = setupFeeNaira()
+
+  // Already provisioned (e.g. page refresh) — hand back the same account
+  // rather than minting a second one.
+  if (existing?.platform_dva_account_number) {
+    return { accountNumber: existing.platform_dva_account_number, bankName: existing.platform_dva_bank_name || '', amount }
+  }
+
+  let dva
+  try {
+    dva = await provisionPlatformDva({ schoolId: ctx.schoolId, schoolName: school?.name || 'School', email: owner.email })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Could not set up bank transfer. Try again.'
+    return { error: msg }
+  }
+
+  const now = new Date().toISOString()
+  const { error: upsertError } = await svc.from('platform_billing').upsert(
+    {
+      school_id: ctx.schoolId,
+      setup_fee_amount: amount,
+      billing_method: 'dva',
+      mandate_email: owner.email,
+      platform_dva_reference: dva.reference,
+      platform_dva_account_number: dva.accountNumber,
+      platform_dva_bank_name: dva.bankName,
+      platform_dva_bank_code: dva.bankCode,
+      platform_dva_created_at: now,
+      terms_accepted_at: now,
+      terms_accepted_by: ctx.userId,
+      terms_version: BILLING_TERMS_VERSION,
+      updated_at: now,
+    },
+    { onConflict: 'school_id' },
+  )
+  if (upsertError) return { error: 'Could not save billing details. Try again.' }
+
+  return { accountNumber: dva.accountNumber, bankName: dva.bankName, amount }
 }

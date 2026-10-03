@@ -4,6 +4,7 @@ import { evaluateAllLadders } from '@/lib/platformBilling/dunning'
 import { sendDvaReminderEmails } from '@/lib/platformBilling/dvaReminders'
 import { sendMandateReminderSms } from '@/lib/platformBilling/mandateReminders'
 import { pollPlatformDvaTransfers } from '@/lib/platformBilling/dvaPoll'
+import { remindDvaSchoolsToSwitch } from '@/lib/platformBilling/dvaSwitchReminder'
 
 // Recurring platform-billing cron. Runs the monthly direct-debits and then walks
 // the dunning ladder. Safe to run DAILY: the debit is idempotent per billing
@@ -46,6 +47,7 @@ async function handle(req: NextRequest) {
   const ladderMoves = await evaluateAllLadders(now)
   await sendDvaReminderEmails(ladderMoves)
   await sendMandateReminderSms(ladderMoves)
+  const dvaSwitchReminders = await remindDvaSchoolsToSwitch(now)
 
   return NextResponse.json({
     ok: true,
@@ -54,6 +56,7 @@ async function handle(req: NextRequest) {
     dvaDue,
     dvaPolled,
     ladderMoves,
+    dvaSwitchReminders,
   })
 }
 

@@ -1,9 +1,11 @@
 import Sidebar from '@/components/layout/Sidebar'
+import ImpersonationBanner from '@/components/layout/ImpersonationBanner'
 import { getAuthContext, permissionList } from '@/lib/auth/permissions'
 import { PermissionsProvider } from '@/lib/auth/PermissionsProvider'
 import { ActiveJobsProvider } from '@/lib/jobs/ActiveJobsProvider'
 import { getScheduledDeletion } from '@/lib/dataPrivacy/deletion'
 import { getBillingGateState } from '@/lib/platformBilling/config'
+import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { redirect } from 'next/navigation'
 
 export default async function AppLayout({
@@ -39,7 +41,7 @@ export default async function AppLayout({
     // account and when (getDeactivationDetails in login/actions.ts).
     redirect(`/logout?error=account_deactivated&uid=${encodeURIComponent(authCtx.userId)}`)
   }
-  const { supabase, userId, schoolId, role, isOwner } = authCtx
+  const { supabase, userId, schoolId, role, isOwner, isImpersonating, impersonationSessionId } = authCtx
 
   // getAuthContext() already retries its own profile lookup against the same
   // flaky proxy (see permissions.ts) — this display-only query needs the same
@@ -67,9 +69,51 @@ export default async function AppLayout({
     return null
   }
 
+  // A platform admin impersonating a school has NO public.users row at all
+  // (see owner@fees101.com — real founder account, access is via the
+  // platform_admins allowlist only), so loadDisplayProfile() above would
+  // throw for it. Build the display profile straight from the authCtx +
+  // impersonation_sessions instead, via the service-role client (same
+  // service-role-only access pattern as the rest of the impersonation
+  // tables).
+  type DisplayProfile = NonNullable<Awaited<ReturnType<typeof loadDisplayProfile>>>
+  async function loadImpersonationDisplayProfile(): Promise<{
+    profile: DisplayProfile | null
+    expiresAt: string | null
+  }> {
+    const svc = createServiceRoleClient()
+    const [{ data: session }, { data: school }] = await Promise.all([
+      svc
+        .from('impersonation_sessions')
+        .select('target_school_name, target_user_name, expires_at')
+        .eq('id', impersonationSessionId as string)
+        .maybeSingle(),
+      svc.from('schools').select('name, logo_url').eq('id', schoolId as string).maybeSingle(),
+    ])
+    const schoolName = school?.name || session?.target_school_name || 'Fees101'
+    return {
+      profile: {
+        name: 'Fees101',
+        email: '',
+        schools: { name: schoolName, logo_url: school?.logo_url ?? null },
+        roles: { name: session?.target_user_name ? `Viewing as ${session.target_user_name}` : 'Viewing (read-only)' },
+      } as unknown as DisplayProfile,
+      expiresAt: session?.expires_at ?? null,
+    }
+  }
+
+  async function loadDisplayData(): Promise<{ profile: DisplayProfile | null; impersonationExpiresAt: string | null }> {
+    if (isImpersonating) {
+      const { profile: p, expiresAt } = await loadImpersonationDisplayProfile()
+      return { profile: p, impersonationExpiresAt: expiresAt }
+    }
+    const p = await loadDisplayProfile()
+    return { profile: p, impersonationExpiresAt: null }
+  }
+
   const [
     gate,
-    profile,
+    { profile, impersonationExpiresAt },
     { data: currentCycle },
     { data: notificationRows },
     { data: jobRows },
@@ -80,8 +124,10 @@ export default async function AppLayout({
     // round-trip (a single PK lookup on platform_billing). A school that hasn't
     // connected billing yet can't enter the app — bounce to /connect-billing.
     // Grandfathered schools and super_admins (no schoolId) pass through.
-    schoolId ? getBillingGateState(schoolId) : Promise.resolve({ connected: true }),
-    loadDisplayProfile(),
+    schoolId
+      ? getBillingGateState(schoolId)
+      : Promise.resolve({ connected: true, suspended: false, billingMethod: 'mandate' as const, dvaAccountNumber: null, dvaBankName: null }),
+    loadDisplayData(),
     supabase
       .from('billing_cycles')
       .select('id, name')
@@ -129,8 +175,14 @@ export default async function AppLayout({
   // direct-debit mandate can't enter the app. Checked here (not in the auth
   // context) so it bounces before any (app) page renders, mirroring the
   // deactivation kick-out above. /connect-billing lives outside (app) so this
-  // never loops.
-  if (schoolId && !gate.connected) redirect('/connect-billing')
+  // never loops. Bypassed during impersonation — a platform admin needs to be
+  // able to inspect exactly the schools that are unconnected/suspended.
+  if (schoolId && !gate.connected && !isImpersonating) redirect('/connect-billing')
+  // Suspension hard-block: the dunning ladder (dunning.ts) only recorded
+  // billing_status before this; this is the actual gate the owner signed off
+  // on. A super_admin (no schoolId) is never gated. Also bypassed during
+  // impersonation, same reasoning as above.
+  if (schoolId && gate.suspended && !isImpersonating) redirect('/account-suspended')
 
   // getAuthContext() already validated the JWT and loaded the user row, so a
   // null here (after loadDisplayProfile's own retries above) means either the
@@ -234,29 +286,38 @@ export default async function AppLayout({
   })
 
   return (
-    <div className="min-h-screen bg-[var(--color-paper)] flex">
-      <PermissionsProvider permissions={permissions} isOwner={isOwner}>
-        <ActiveJobsProvider interruptedJobs={interruptedJobs}>
-          <Sidebar
-            userName={profile.name}
-            userEmail={profile.email}
-            userRole={roleLabel}
-            // @ts-expect-error — schools is joined object
-            schoolName={profile.schools?.name || 'Fees101'}
-            // @ts-expect-error — schools is joined object
-            schoolLogoUrl={profile.schools?.logo_url || null}
-            currentTermName={currentCycle?.name || null}
-            currentTermId={currentCycle?.id || null}
-            notifications={notifications}
-            navCounts={navCounts}
-            streamCount={streamCount}
-          />
-          {/* pt-14 clears the fixed mobile top bar; the desktop rail is in-flow. */}
-          <main className="flex-1 min-w-0 pt-14 lg:pt-0">
-            {children}
-          </main>
-        </ActiveJobsProvider>
-      </PermissionsProvider>
+    <div className="min-h-screen bg-[var(--color-paper)] flex flex-col">
+      {isImpersonating && (
+        <ImpersonationBanner
+          // @ts-expect-error — schools is joined object
+          schoolName={profile.schools?.name || 'this school'}
+          expiresAt={impersonationExpiresAt}
+        />
+      )}
+      <div className="flex-1 flex min-h-0">
+        <PermissionsProvider permissions={permissions} isOwner={isOwner}>
+          <ActiveJobsProvider interruptedJobs={interruptedJobs}>
+            <Sidebar
+              userName={profile.name}
+              userEmail={profile.email}
+              userRole={roleLabel}
+              // @ts-expect-error — schools is joined object
+              schoolName={profile.schools?.name || 'Fees101'}
+              // @ts-expect-error — schools is joined object
+              schoolLogoUrl={profile.schools?.logo_url || null}
+              currentTermName={currentCycle?.name || null}
+              currentTermId={currentCycle?.id || null}
+              notifications={notifications}
+              navCounts={navCounts}
+              streamCount={streamCount}
+            />
+            {/* pt-14 clears the fixed mobile top bar; the desktop rail is in-flow. */}
+            <main className="flex-1 min-w-0 pt-14 lg:pt-0">
+              {children}
+            </main>
+          </ActiveJobsProvider>
+        </PermissionsProvider>
+      </div>
     </div>
   )
 }

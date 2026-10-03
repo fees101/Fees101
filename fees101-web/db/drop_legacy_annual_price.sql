@@ -1,0 +1,25 @@
+-- Removes the legacy flat-fee annual billing model entirely (owner decision
+-- 2026-10-03: "we have no schools on anything legacy so i think we can get
+-- rid of it entirely and any db thing that was built on it").
+--
+-- This was the ORIGINAL scaffold billing model (see platform_dashboard_schema.sql):
+-- a fixed yearly amount per school, divided by terms_per_year, charged
+-- manually per term via a saved Paystack card (getPerTermAmount /
+-- chargeSchoolForTerm, both removed from fees101-console/src/lib/billing.ts).
+-- It has been fully superseded by the per-student daily pro-rata accrual
+-- model (platform_billing.price_per_student_month + platform_daily_usage,
+-- see platform_billing_model.sql).
+--
+-- Verified before writing this migration: `select school_id, annual_price
+-- from platform_billing where annual_price > 0` returned zero rows (the
+-- column is `not null default 0`, so no row had it actually set) — no school
+-- was ever really on this path, so there is nothing to migrate.
+--
+-- Not touched: platform_billing_charges (still used as the generic charge
+-- history log, shown on the school detail page regardless of billing model)
+-- and schools.terms_per_year (not defined in platform_dashboard_schema.sql;
+-- also read by code outside the legacy billing path, so left alone here).
+--
+-- Idempotent: safe to re-run.
+
+ALTER TABLE public.platform_billing DROP COLUMN IF EXISTS annual_price;

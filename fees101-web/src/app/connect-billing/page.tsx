@@ -17,7 +17,7 @@ export const metadata = { title: 'Connect billing · Fees101' }
 export default async function ConnectBillingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; checked?: string }>
 }) {
   const ctx = await getAuthContext()
   if (!ctx || !ctx.schoolId) redirect('/login')
@@ -27,7 +27,7 @@ export default async function ConnectBillingPage({
   // Already connected? Don't show the step again.
   const { data: billing } = await svc
     .from('platform_billing')
-    .select('billing_connected_at')
+    .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name')
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
   if (billing?.billing_connected_at) redirect('/today')
@@ -38,7 +38,7 @@ export default async function ConnectBillingPage({
     .eq('id', ctx.schoolId)
     .maybeSingle()
 
-  const { error: errorCode } = await searchParams
+  const { error: errorCode, checked } = await searchParams
 
   return (
     <ConnectBillingForm
@@ -49,6 +49,12 @@ export default async function ConnectBillingPage({
       termsVersion={BILLING_TERMS_VERSION}
       isOwner={ctx.isOwner}
       initialErrorCode={errorCode || null}
+      checkedForTransfer={checked === '1'}
+      existingDva={
+        billing?.platform_dva_account_number
+          ? { accountNumber: billing.platform_dva_account_number, bankName: billing.platform_dva_bank_name || '' }
+          : null
+      }
     />
   )
 }

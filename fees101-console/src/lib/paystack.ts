@@ -110,6 +110,17 @@ export async function chargeAuthorization(params: {
   return body.data as { status: string; reference: string; gateway_response: string }
 }
 
+// Deactivates a saved authorization at Paystack so it can no longer be
+// charged — used when a school's mandate needs to be cancelled immediately
+// (e.g. the school is leaving) rather than waiting on the recurring-debit
+// cron to notice a failure.
+export async function deactivateMandate(authorizationCode: string) {
+  await paystackFetch('/customer/authorization/deactivate', {
+    method: 'POST',
+    body: JSON.stringify({ authorization_code: authorizationCode }),
+  })
+}
+
 // --- Platform DVA (school-pays-into) collection ---------------------------
 //
 // A Fees101-owned Dedicated Virtual Account per school: the school transfers

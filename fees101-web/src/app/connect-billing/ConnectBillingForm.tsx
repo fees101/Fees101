@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { startBillingConnection } from './actions'
+import { useEffect, useState } from 'react'
+import { startBillingConnection, startDvaFallback } from './actions'
 
 // FEES101 wordmark + red rule — same logged-out branding as set-password.
 function Wordmark() {
@@ -34,6 +34,8 @@ export default function ConnectBillingForm({
   termsVersion,
   isOwner,
   initialErrorCode,
+  existingDva,
+  checkedForTransfer,
 }: {
   schoolName: string
   setupFee: number
@@ -42,12 +44,34 @@ export default function ConnectBillingForm({
   termsVersion: string
   isOwner: boolean
   initialErrorCode: string | null
+  existingDva: { accountNumber: string; bankName: string } | null
+  checkedForTransfer: boolean
 }) {
-  const [accepted, setAccepted] = useState(false)
+  // Terms were already accepted server-side on the first attempt that brought
+  // them back here with an error, or earlier when they got as far as a DVA —
+  // don't make them re-check the box on a later page load.
+  const [accepted, setAccepted] = useState(!!initialErrorCode || !!existingDva)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(
     initialErrorCode ? ERROR_COPY[initialErrorCode] || 'Something went wrong. Please try again.' : null,
   )
+  const [dva, setDva] = useState<{ accountNumber: string; bankName: string } | null>(existingDva)
+  // Collapsed by default so automatic debit keeps top billing even once a
+  // transfer account exists — only expand on request, or when they're coming
+  // back specifically to check on a transfer (checkedForTransfer).
+  const [showTransferDetails, setShowTransferDetails] = useState(!!checkedForTransfer)
+
+  // If they navigate to Paystack's checkout then back out (closed tab, browser
+  // back) instead of completing or landing on our callback, the browser can
+  // restore this page from bfcache with submitting still stuck true — leaving
+  // the button permanently disabled until a hard refresh.
+  useEffect(() => {
+    function handlePageShow(e: PageTransitionEvent) {
+      if (e.persisted) setSubmitting(false)
+    }
+    window.addEventListener('pageshow', handlePageShow)
+    return () => window.removeEventListener('pageshow', handlePageShow)
+  }, [])
 
   async function handleConnect() {
     setError(null)
@@ -59,6 +83,19 @@ export default function ConnectBillingForm({
     }
     setError(result.error)
     setSubmitting(false)
+  }
+
+  async function handleDvaFallback() {
+    setError(null)
+    setSubmitting(true)
+    const result = await startDvaFallback(accepted)
+    setSubmitting(false)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    setDva(result)
+    setShowTransferDetails(true)
   }
 
   return (
@@ -77,14 +114,62 @@ export default function ConnectBillingForm({
             </p>
             <a href="/login" className="m-btn m-btn-outline w-full justify-start">Back to sign in</a>
           </>
+        ) : dva && showTransferDetails ? (
+          <>
+            <h1 className="text-[26px] font-extrabold text-[var(--color-ink)] mb-3 leading-[1.1]" style={{ letterSpacing: '-0.02em' }}>
+              Transfer to connect billing
+            </h1>
+            <p className="text-sm leading-[1.55] text-[var(--color-neutral-800)] mb-5">
+              Transfer {naira(setupFee)} from your bank to the account below. This both pays the
+              one-time setup fee and sets up {schoolName}&apos;s billing account — no card or mandate needed.
+            </p>
+
+            <div className="mb-5" style={{ borderTop: '2px solid var(--color-ink)', borderBottom: '1px solid var(--color-neutral-300)' }}>
+              <Row label="ACCOUNT NUMBER" value={dva.accountNumber} />
+              <Row label="BANK" value={dva.bankName} />
+              <Row label="AMOUNT" value={naira(setupFee)} last />
+            </div>
+
+            <p className="text-[12.5px] leading-[1.5] text-[var(--color-neutral-700)] mb-4">
+              Once the transfer lands, this unlocks automatically — refresh or sign in again to check. Your monthly
+              fee is then collected the same way each month. You can switch to automatic bank debit instead at any
+              time, so you don&apos;t have to keep transferring manually.
+            </p>
+
+            {checkedForTransfer && (
+              <p className="text-[12.5px] leading-[1.5] text-[var(--color-ink)] mb-4 pt-3" style={{ borderTop: '1px solid var(--color-neutral-300)' }}>
+                We haven&apos;t received a transfer yet. It usually takes a few minutes to land — if it&apos;s been
+                longer, double-check the account number and bank above, or reach out if you think this is wrong.
+              </p>
+            )}
+
+            {error && (
+              <p className="text-[13px] leading-[1.5] mb-4" style={{ color: 'var(--color-signal-text)' }}>
+                {error}
+              </p>
+            )}
+
+            <a href="/connect-billing?checked=1" className="m-btn m-btn-outline w-full justify-start">
+              I&apos;ve made the transfer — refresh
+            </a>
+
+            <button
+              type="button"
+              onClick={() => setShowTransferDetails(false)}
+              className="text-[12.5px] text-[var(--color-neutral-700)] underline mt-3 block"
+            >
+              Back to automatic bank debit
+            </button>
+          </>
         ) : (
           <>
             <h1 className="text-[26px] font-extrabold text-[var(--color-ink)] mb-3 leading-[1.1]" style={{ letterSpacing: '-0.02em' }}>
               Connect billing
             </h1>
             <p className="text-sm leading-[1.55] text-[var(--color-neutral-800)] mb-5">
-              One quick step to switch on {schoolName}. You authorize an automatic bank debit so your monthly
-              platform fee is collected on its own, with no reminders and no manual transfers.
+              {dva
+                ? `One quick step to switch ${schoolName} to automatic bank debit. You authorize a direct debit so your monthly platform fee is collected on its own, with no manual transfers.`
+                : `One quick step to switch on ${schoolName}. You authorize an automatic bank debit so your monthly platform fee is collected on its own, with no reminders and no manual transfers.`}
             </p>
 
             {/* The terms of the agreement, stated plainly. */}
@@ -99,19 +184,22 @@ export default function ConnectBillingForm({
               Paying the setup fee authorizes a direct-debit mandate on your bank account. We use it to collect
               your monthly fee automatically after the free period. You can cancel the mandate at any time, which
               ends your use of the platform.
+              {!dva && ' If your bank isn’t supported or your card doesn’t work, you’ll be able to pay by bank transfer instead.'}
             </p>
 
-            <label className="flex items-start gap-2 mb-4 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={accepted}
-                onChange={(e) => setAccepted(e.target.checked)}
-                className="mt-[3px]"
-              />
-              <span className="text-[13px] leading-[1.5] text-[var(--color-neutral-800)]">
-                I am authorized to set up billing for {schoolName} and I accept the billing terms.
-              </span>
-            </label>
+            {!dva && (
+              <label className="flex items-start gap-2 mb-4 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={accepted}
+                  onChange={(e) => setAccepted(e.target.checked)}
+                  className="mt-[3px]"
+                />
+                <span className="text-[13px] leading-[1.5] text-[var(--color-neutral-800)]">
+                  I am authorized to set up billing for {schoolName} and I accept the billing terms.
+                </span>
+              </label>
+            )}
 
             {error && (
               <p className="text-[13px] leading-[1.5] mb-4" style={{ color: 'var(--color-signal-text)' }}>
@@ -127,6 +215,25 @@ export default function ConnectBillingForm({
             >
               {submitting ? 'Opening secure checkout...' : `Pay ${naira(setupFee)} and connect billing`}
             </button>
+
+            {dva ? (
+              <button
+                type="button"
+                onClick={() => setShowTransferDetails(true)}
+                className="text-[12.5px] text-[var(--color-neutral-700)] underline mt-3 block"
+              >
+                Or pay by bank transfer instead
+              </button>
+            ) : error ? (
+              <button
+                type="button"
+                onClick={handleDvaFallback}
+                disabled={!accepted || submitting}
+                className="text-[12.5px] text-[var(--color-neutral-700)] underline mt-3 block"
+              >
+                Can&apos;t get this to work? Use a bank transfer instead
+              </button>
+            ) : null}
 
             <p className="text-[11px] leading-[1.5] text-[var(--color-neutral-700)] mt-4 pt-3" style={{ borderTop: '1px solid var(--color-neutral-300)' }}>
               Secured by Paystack. Terms version {termsVersion}.

@@ -79,6 +79,8 @@ a { color: inherit; text-decoration: none; }
 .btn-primary:hover { background: var(--accent-600); border-color: var(--accent-600); }
 .btn-ghost { border-color: transparent; color: var(--muted); }
 .btn-ghost:hover { color: var(--ink); background: var(--panel-2); }
+.btn-danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn-danger:hover { opacity: 0.9; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Status/label tags — small, flat, tinted. */

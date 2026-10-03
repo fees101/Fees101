@@ -112,6 +112,10 @@ export async function requestAccountDeletion(input: RequestDeletionInput) {
 export async function cancelScheduledDeletion() {
   const ctx = await getAuthContext()
   if (!ctx || !ctx.schoolId) return { error: 'Not signed in.' }
+  // This check is role-based (ctx.role), not requirePermission()/ctx.isOwner —
+  // so it wouldn't otherwise notice an impersonation session (can() is never
+  // consulted). Impersonation is read-only, full stop; guard explicitly.
+  if (ctx.isImpersonating) return { error: 'Not available during an impersonation session.' }
 
   const isOwnerIdentity = ctx.role === 'school_admin' || ctx.role === 'super_admin'
   if (!isOwnerIdentity) return { error: 'Only the account owner can cancel this.' }

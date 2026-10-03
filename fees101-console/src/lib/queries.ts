@@ -6,7 +6,6 @@ export interface SchoolOverviewRow {
   createdAt: string
   subscriptionStatus: string
   billingStatus: string
-  annualPrice: number
   termsPerYear: number
   studentCount: number
 }
@@ -16,7 +15,7 @@ export async function getSchoolsOverview(): Promise<SchoolOverviewRow[]> {
 
   const [{ data: schools }, { data: billing }, { data: students }] = await Promise.all([
     supabase.from('schools').select('id, name, created_at, subscription_status, terms_per_year'),
-    supabase.from('platform_billing').select('school_id, billing_status, annual_price'),
+    supabase.from('platform_billing').select('school_id, billing_status'),
     supabase.from('students').select('school_id').eq('status', 'active'),
   ])
 
@@ -34,7 +33,6 @@ export async function getSchoolsOverview(): Promise<SchoolOverviewRow[]> {
       createdAt: s.created_at,
       subscriptionStatus: s.subscription_status,
       billingStatus: b?.billing_status || 'active',
-      annualPrice: Number(b?.annual_price || 0),
       termsPerYear: s.terms_per_year || 3,
       studentCount: studentCountByschool.get(s.id) || 0,
     }
@@ -90,7 +88,10 @@ export interface SchoolDetail {
   name: string
   termsPerYear: number
   billing: {
-    annualPrice: number
+    // Raw value from the DB column — null means the school has never had an
+    // override set and is silently using the platform default of 500.
+    pricePerStudentMonth: number | null
+    onboardingAt: string | null
     billingStatus: string
     nextChargeDueAt: string | null
     lastChargedAt: string | null
@@ -120,7 +121,8 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
     name: school.name,
     termsPerYear: school.terms_per_year || 3,
     billing: {
-      annualPrice: Number(billing?.annual_price || 0),
+      pricePerStudentMonth: billing?.price_per_student_month != null ? Number(billing.price_per_student_month) : null,
+      onboardingAt: billing?.onboarding_at || null,
       billingStatus: billing?.billing_status || 'active',
       nextChargeDueAt: billing?.next_charge_due_at || null,
       lastChargedAt: billing?.last_charged_at || null,

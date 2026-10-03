@@ -46,7 +46,6 @@ export default async function SchoolsPage() {
               <th>School</th>
               <th>Students</th>
               <th>Terms/yr</th>
-              <th>Annual price</th>
               <th>Billing status</th>
               <th>Messaging cost</th>
               <th>Row count (storage proxy)</th>
@@ -64,7 +63,6 @@ export default async function SchoolsPage() {
                   </td>
                   <td>{s.studentCount}</td>
                   <td>{s.termsPerYear}</td>
-                  <td>{s.annualPrice > 0 ? naira(s.annualPrice) : <span style={{ color: 'var(--muted)' }}>Not set</span>}</td>
                   <td>
                     <span style={{ color: STATUS_COLOR[s.billingStatus] || 'var(--muted)', fontWeight: 600, textTransform: 'capitalize' }}>
                       {s.billingStatus.replace('_', ' ')}
@@ -76,7 +74,7 @@ export default async function SchoolsPage() {
               )
             })}
             {schools.length === 0 && (
-              <tr><td colSpan={7} style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>No schools yet.</td></tr>
+              <tr><td colSpan={6} style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>No schools yet.</td></tr>
             )}
           </tbody>
         </table>

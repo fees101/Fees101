@@ -2,30 +2,41 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { setAnnualPrice, startCardCapture, chargeNow, runSuspensionCheck, setBillingStatusManually } from './actions'
+import { setPricePerStudentMonth, startCardCapture, runSuspensionCheck, setBillingStatusManually } from './actions'
 
 interface Props {
   schoolId: string
   billing: {
-    annualPrice: number
+    pricePerStudentMonth: number | null
     billingStatus: string
     hasSavedCard: boolean
     paystackEmail: string | null
   }
 }
 
+const DEFAULT_PRICE_PER_STUDENT = 500
+
 export default function BillingPanel({ schoolId, billing }: Props) {
   const router = useRouter()
-  const [price, setPrice] = useState(String(billing.annualPrice || ''))
+  const [studentPrice, setStudentPrice] = useState(String(billing.pricePerStudentMonth ?? ''))
   const [email, setEmail] = useState(billing.paystackEmail || '')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
-  async function handleSetPrice() {
+  async function handleSetStudentPrice() {
+    const value = Number(studentPrice)
+    if (!Number.isFinite(value) || value <= 0) {
+      setMessage('Price per student must be a positive number.')
+      return
+    }
     setBusy(true)
-    await setAnnualPrice(schoolId, Number(price) || 0)
+    try {
+      await setPricePerStudentMonth(schoolId, value)
+      setMessage('Price per student saved.')
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Failed to save price per student.')
+    }
     setBusy(false)
-    setMessage('Annual price saved.')
     router.refresh()
   }
 
@@ -39,14 +50,6 @@ export default function BillingPanel({ schoolId, billing }: Props) {
       setMessage(e instanceof Error ? e.message : 'Failed to start card capture.')
       setBusy(false)
     }
-  }
-
-  async function handleCharge() {
-    setBusy(true)
-    const result = await chargeNow(schoolId)
-    setBusy(false)
-    setMessage('error' in result ? `Charge failed: ${result.error}` : `Charged successfully (ref ${result.reference}).`)
-    router.refresh()
   }
 
   async function handleSuspensionCheck() {
@@ -71,14 +74,18 @@ export default function BillingPanel({ schoolId, billing }: Props) {
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
         <div>
-          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Annual price (₦)</label>
+          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Price per student / month (₦)</label>
           <input
-            value={price}
-            onChange={e => setPrice(e.target.value)}
+            value={studentPrice}
+            onChange={e => setStudentPrice(e.target.value)}
+            placeholder={String(DEFAULT_PRICE_PER_STUDENT)}
             style={{ padding: '7px 10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--ink)', width: 140 }}
           />
+          {billing.pricePerStudentMonth == null && (
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Unset, using the platform default of ₦{DEFAULT_PRICE_PER_STUDENT}.</p>
+          )}
         </div>
-        <button className="btn" disabled={busy} onClick={handleSetPrice}>Save price</button>
+        <button className="btn" disabled={busy} onClick={handleSetStudentPrice}>Save price per student</button>
       </div>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
@@ -97,7 +104,6 @@ export default function BillingPanel({ schoolId, billing }: Props) {
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" disabled={busy || !billing.hasSavedCard} onClick={handleCharge}>Charge now (test)</button>
         <button className="btn" disabled={busy} onClick={handleSuspensionCheck}>Run suspension check</button>
         <button className="btn" disabled={busy} onClick={() => handleManualStatus('active')}>Set active</button>
         <button className="btn" disabled={busy} onClick={() => handleManualStatus('suspended')}>Set suspended</button>

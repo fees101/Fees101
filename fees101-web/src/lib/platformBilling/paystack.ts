@@ -181,6 +181,17 @@ export async function provisionPlatformDva(params: {
   }
 }
 
+// Close a platform DVA at account teardown (school offboarding/purge). Mirrors
+// PaystackProvider.deleteDVA in src/lib/payments/paystack.ts: resolve the
+// dedicated account's numeric id via the customer, then delete it. No-op if
+// the customer has no active dedicated account.
+export async function deactivatePlatformDva(customerCode: string): Promise<void> {
+  const customerRes = await paystackFetch(`/customer/${encodeURIComponent(customerCode)}`)
+  const da = customerRes.data?.dedicated_account || customerRes.data?.dedicated_accounts?.[0]
+  if (!da?.id) return
+  await paystackFetch(`/dedicated_account/${da.id}`, { method: 'DELETE' })
+}
+
 // Backstop for the webhook: list a platform DVA customer's successful
 // transactions directly from Paystack, so a missed/lost webhook delivery
 // doesn't leave a school stuck suspended despite having paid. Only successful

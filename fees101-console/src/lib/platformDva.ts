@@ -129,7 +129,7 @@ export async function reconcilePlatformTransfer(params: ReconcileParams): Promis
   // 1. Map the DVA transfer back to a school via the customer_code.
   const { data: billing } = await supabase
     .from('platform_billing')
-    .select('school_id')
+    .select('school_id, billing_connected_at, setup_fee_amount, onboarding_at')
     .eq('platform_dva_reference', params.customerCode)
     .maybeSingle()
 
@@ -147,6 +147,56 @@ export async function reconcilePlatformTransfer(params: ReconcileParams): Promis
 
   if (dupe) {
     return { status: 'skipped_duplicate', schoolId }
+  }
+
+  // 2b. Not connected yet: this is the bank-transfer fallback's setup transfer
+  // (see fees101-web's /connect-billing "use bank transfer instead"), not a
+  // recurring bill payment. A transfer of at least the setup fee unlocks the
+  // app the same way a successful mandate checkout does; anything smaller is
+  // still recorded so it isn't lost, but the gate stays shut and the owner
+  // needs to send the rest.
+  if (!billing.billing_connected_at) {
+    const required = Number(billing.setup_fee_amount) || 10000
+    const nowIso = new Date().toISOString()
+
+    const { error: chargeErr } = await supabase.from('platform_billing_charges').insert({
+      school_id: schoolId,
+      amount: params.amount,
+      status: 'success',
+      paystack_reference: params.reference,
+      method: 'dva_transfer',
+      charged_by: 'setup_fee',
+      provider_transaction_id: params.transactionId != null ? String(params.transactionId) : null,
+      paid_at: params.paidAt ?? nowIso,
+    })
+    if (chargeErr) throw new Error(`Failed to record charge: ${chargeErr.message}`)
+
+    if (params.amount < required) {
+      return { status: 'reconciled', schoolId, appliedTo: [], overpayment: 0 }
+    }
+
+    await supabase
+      .from('platform_billing')
+      .update({
+        setup_fee_status: 'paid',
+        setup_fee_paid_at: nowIso,
+        billing_connected_at: nowIso,
+        onboarding_at: billing.onboarding_at || nowIso,
+        billing_status: 'active',
+        billing_status_changed_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq('school_id', schoolId)
+
+    await supabase.from('platform_audit_log').insert({
+      actor_name: 'System',
+      action: 'billing.dva_setup_connected',
+      school_id: schoolId,
+      summary: `Connected billing via ₦${params.amount.toLocaleString()} bank transfer`,
+      metadata: { reference: params.reference, amount: params.amount, method: 'dva_transfer' },
+    })
+
+    return { status: 'reconciled', schoolId, appliedTo: [], overpayment: Math.max(params.amount - required, 0) }
   }
 
   // 3. Pull outstanding periods, oldest first.

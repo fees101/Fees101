@@ -273,11 +273,19 @@ export const workspaces: Workspace[] = [
     key: 'team',
     label: 'Team & Trust',
     group: 'Configure',
-    match: ['/team/users', '/team/roles-permissions', '/team/audit-log', '/team/data-privacy', '/team/account-security'],
+    match: [
+      '/team/users',
+      '/team/roles-permissions',
+      '/team/audit-log',
+      '/team/platform-billing',
+      '/team/data-privacy',
+      '/team/account-security',
+    ],
     modes: [
       { href: '/team/users', label: 'Users', perm: 'manage-team' },
       { href: '/team/roles-permissions', label: 'Roles', perm: 'manage-team' },
       { href: '/team/audit-log', label: 'Audit log', perm: 'see-audit-log' },
+      { href: '/team/platform-billing', label: 'Platform billing', ownerOnly: true },
       { href: '/team/data-privacy', label: 'Data & privacy', ownerOnly: true },
       // No perm: every signed-in user can reach their own account security,
       // exactly as the old settings landing allowed.

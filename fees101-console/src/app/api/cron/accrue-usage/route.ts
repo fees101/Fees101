@@ -8,17 +8,22 @@ import { snapshotDailyUsage } from '@/lib/accrual'
 //
 // evaluate-billing reads it from the `x-billing-secret` header; that's the
 // primary here too. A `?secret=` query param and an `Authorization: Bearer`
-// header are also accepted so a plain GET-based scheduler can hit it.
+// header are also accepted so a plain GET-based scheduler can hit it. Vercel
+// Cron (see vercel.json) invokes with GET and sends the project's CRON_SECRET
+// env var as a bearer token automatically once it's set — accepted too so no
+// extra secret has to be managed for the native scheduler.
 function isAuthorized(req: NextRequest): boolean {
   const expected = process.env.BILLING_CRON_SECRET
-  if (!expected) return false
 
   const headerSecret = req.headers.get('x-billing-secret')
   const querySecret = req.nextUrl.searchParams.get('secret')
   const authHeader = req.headers.get('authorization')
   const bearerSecret = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
 
-  return headerSecret === expected || querySecret === expected || bearerSecret === expected
+  if (expected && (headerSecret === expected || querySecret === expected || bearerSecret === expected)) {
+    return true
+  }
+  return Boolean(process.env.CRON_SECRET) && bearerSecret === process.env.CRON_SECRET
 }
 
 async function handle(req: NextRequest) {

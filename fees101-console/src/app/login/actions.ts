@@ -19,5 +19,5 @@ export async function login(formData: FormData): Promise<{ error: string } | voi
     return { error: 'This account is not allowlisted for the platform dashboard. Add it to platform_admins first.' }
   }
 
-  redirect('/schools')
+  redirect('/')
 }

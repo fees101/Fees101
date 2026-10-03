@@ -161,6 +161,66 @@ export async function rollUpPeriod(schoolId: string, periodStart: string, period
   if (upsertErr) throw new Error(`rollUpPeriod upsert failed: ${upsertErr.message}`)
 }
 
+export interface SchoolBillingOverviewRow {
+  schoolId: string
+  schoolName: string
+  activeStudentCount: number
+  pricePerStudentMonth: number
+  // true once onboarding_at is set and the daily accrual cron is running for
+  // this school; false means the school hasn't started billing yet.
+  onAccrualPath: boolean
+  monthToDateAccrued: number
+  billingStatus: string
+}
+
+// Cross-school billing overview for the /billing dashboard page. Batches the
+// same per-school figures AccrualPanel shows for one school, across every
+// school, in a fixed number of queries (no N+1).
+export async function getAllSchoolsBillingOverview(): Promise<SchoolBillingOverviewRow[]> {
+  const supabase = createServiceRoleClient()
+  const today = new Date()
+  const monthStart = formatDate(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)))
+  const monthEnd = formatDate(today)
+
+  const [{ data: schools }, { data: billingRows }, { data: students }, { data: usageRows }] = await Promise.all([
+    supabase.from('schools').select('id, name'),
+    supabase.from('platform_billing').select('school_id, billing_status, price_per_student_month, onboarding_at'),
+    supabase.from('students').select('school_id').eq('status', 'active'),
+    supabase
+      .from('platform_daily_usage')
+      .select('school_id, accrued_amount')
+      .gte('usage_date', monthStart)
+      .lte('usage_date', monthEnd),
+  ])
+
+  const billingBySchool = new Map((billingRows || []).map(b => [b.school_id, b]))
+
+  const activeBySchool = new Map<string, number>()
+  ;(students || []).forEach(s => {
+    activeBySchool.set(s.school_id, (activeBySchool.get(s.school_id) || 0) + 1)
+  })
+
+  const mtdBySchool = new Map<string, number>()
+  ;(usageRows || []).forEach(u => {
+    mtdBySchool.set(u.school_id, (mtdBySchool.get(u.school_id) || 0) + Number(u.accrued_amount || 0))
+  })
+
+  return (schools || [])
+    .map(s => {
+      const b = billingBySchool.get(s.id)
+      return {
+        schoolId: s.id,
+        schoolName: s.name,
+        activeStudentCount: activeBySchool.get(s.id) || 0,
+        pricePerStudentMonth: Number(b?.price_per_student_month ?? 500),
+        onAccrualPath: !!b?.onboarding_at,
+        monthToDateAccrued: round2(mtdBySchool.get(s.id) || 0),
+        billingStatus: b?.billing_status || 'active',
+      }
+    })
+    .sort((a, b) => a.schoolName.localeCompare(b.schoolName))
+}
+
 export interface CurrentBillingSummary {
   // Is the school actually billing yet? (onboarding_at set)
   billingActive: boolean

@@ -128,10 +128,11 @@ function describe(row: FeedRow): { title: string; subtitle: string } {
     default: {
       // message_logs rows — receipts, reminders, invoice deliveries, manual.
       const channel = row.channel ? ` · ${row.channel.toUpperCase()}` : ''
-      const failed = row.status === 'failed' ? ' · Failed' : ''
+      const deliveryStatus =
+        row.status === 'failed' ? ' · Failed' : row.status === 'delivered' ? ' · Delivered' : ''
       return {
         title: eventTypeLabel(row.event_type),
-        subtitle: `To ${parent} for ${student}${cls}${channel}${failed}`,
+        subtitle: `To ${parent} for ${student}${cls}${channel}${deliveryStatus}`,
       }
     }
   }

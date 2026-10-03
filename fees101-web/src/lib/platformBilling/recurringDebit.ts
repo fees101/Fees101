@@ -22,6 +22,16 @@ import { previousMonthBounds, rollUpPeriod, round2 } from './accrualPeriod'
 import { applyFailedCharge, applySuccessfulCharge } from './reconcile'
 import { cycleBillable } from './cycle'
 
+// A mandate that's failed for this many days is overwhelmingly likely to be
+// expired or closed, not a timing fluke — retrying it further just racks up
+// failed-charge attempts against Fees101's own Paystack merchant standing for
+// no benefit (the school is already locked out from day 14 either way via the
+// suspension gate). Past this point runMonthlyDebits stops attempting the
+// charge; the school reconnects a payment method from /account-suspended
+// instead (startMandateReconnect in account-suspended/actions.ts), or pays by
+// transfer, which is unaffected by this cap.
+export const RETRY_CAP_DAYS = 60
+
 export type DebitOutcome =
   | { schoolId: string; status: 'charged'; amount: number; reference: string; settlement: 'success' | 'processing' }
   | { schoolId: string; status: 'skipped'; reason: string }
@@ -35,7 +45,7 @@ export async function chargeSchoolMonthly(schoolId: string, now: Date = new Date
   const { data: billing } = await svc
     .from('platform_billing')
     .select(
-      'onboarding_at, billing_connected_at, mandate_authorization_code, mandate_email, mandate_status, setup_fee_reference',
+      'onboarding_at, billing_connected_at, mandate_authorization_code, mandate_email, mandate_status, setup_fee_reference, next_charge_due_at',
     )
     .eq('school_id', schoolId)
     .maybeSingle()
@@ -45,6 +55,10 @@ export async function chargeSchoolMonthly(schoolId: string, now: Date = new Date
   if (!billing.onboarding_at) return { schoolId, status: 'skipped', reason: 'no_onboarding_anchor' }
   if (!billing.mandate_authorization_code || !billing.mandate_email) {
     return { schoolId, status: 'skipped', reason: 'no_mandate' }
+  }
+  if (billing.next_charge_due_at) {
+    const daysOverdue = (now.getTime() - new Date(billing.next_charge_due_at).getTime()) / 86_400_000
+    if (daysOverdue > RETRY_CAP_DAYS) return { schoolId, status: 'skipped', reason: 'retries_exhausted' }
   }
 
   // Roll up the completed month and work out what's still owed.
@@ -171,6 +185,45 @@ export async function runMonthlyDebits(now: Date = new Date()): Promise<DebitOut
       continue
     }
     outcomes.push(await chargeSchoolMonthly(row.school_id, now))
+  }
+  return outcomes
+}
+
+export type DvaDueOutcome =
+  | { schoolId: string; status: 'awaiting_transfer'; amount: number }
+  | { schoolId: string; status: 'skipped'; reason: string }
+
+// The bank-transfer equivalent of runMonthlyDebits: there is no charge to
+// attempt (the school pays by transferring into its DVA, reconciled by the
+// platform webhook), but a school that lets a completed month go unpaid still
+// needs to enter the dunning ladder, same as a failed mandate debit would.
+// applyFailedCharge already does exactly that seeding (payment_due + a
+// next_charge_due_at clock) and is a no-op once the school is already past
+// 'active', so this is safe to run daily alongside runMonthlyDebits.
+export async function runDvaDueChecks(now: Date = new Date()): Promise<DvaDueOutcome[]> {
+  const svc = createServiceRoleClient()
+  const { data: schools } = await svc
+    .from('platform_billing')
+    .select('school_id, onboarding_at')
+    .not('billing_connected_at', 'is', null)
+    .eq('billing_method', 'dva')
+
+  const outcomes: DvaDueOutcome[] = []
+  for (const row of schools || []) {
+    const { periodStart, periodEnd } = previousMonthBounds(now)
+    const { billable } = cycleBillable(row.onboarding_at as string, new Date(periodEnd))
+    if (!billable) {
+      outcomes.push({ schoolId: row.school_id, status: 'skipped', reason: 'free_period' })
+      continue
+    }
+    const { amountDue, amountPaid } = await rollUpPeriod(row.school_id, periodStart, periodEnd)
+    const outstanding = round2(amountDue - amountPaid)
+    if (outstanding <= 0) {
+      outcomes.push({ schoolId: row.school_id, status: 'skipped', reason: 'nothing_due' })
+      continue
+    }
+    await applyFailedCharge(svc, row.school_id, now)
+    outcomes.push({ schoolId: row.school_id, status: 'awaiting_transfer', amount: outstanding })
   }
   return outcomes
 }

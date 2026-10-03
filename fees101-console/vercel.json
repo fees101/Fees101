@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/cron/accrue-usage", "schedule": "0 4 * * *" }
+  ]
+}

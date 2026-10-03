@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthContext } from '@/lib/auth/permissions'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { verifyTransaction } from '@/lib/platformBilling/paystack'
+import { logAuditEvent } from '@/lib/audit/logAudit'
 import { FREE_DAYS } from '@/lib/platformBilling/config'
 
 // Paystack redirects the owner here after the setup-fee checkout. We verify the
@@ -62,6 +63,10 @@ export async function GET(request: NextRequest) {
     .update({
       setup_fee_status: 'paid',
       setup_fee_paid_at: now,
+      // A school may have looked at (or even requested) the DVA fallback before
+      // coming back and completing direct debit instead — billing_method must
+      // reflect whichever path actually succeeded, not whichever was tried first.
+      billing_method: 'mandate',
       mandate_authorization_code: authCode,
       mandate_email: tx.customer?.email || billing.mandate_email,
       // A bank/recurring charge that succeeds yields a reusable mandate; it's
@@ -90,6 +95,13 @@ export async function GET(request: NextRequest) {
   // FREE_DAYS is imported to keep the free-period contract visible at the point
   // the clock starts; the accrual engine applies it off onboarding_at.
   void FREE_DAYS
+
+  await logAuditEvent(svc, {
+    schoolId: ctx.schoolId,
+    actorId: ctx.userId,
+    action: 'platform_billing.connected',
+    summary: 'Connected platform billing via automatic bank debit',
+  })
 
   return NextResponse.redirect(new URL('/today', request.url))
 }
