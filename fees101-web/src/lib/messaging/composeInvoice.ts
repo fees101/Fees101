@@ -218,12 +218,18 @@ export interface PartialPaymentMessageParams {
   // open-ended. Optional: a payment can land against an invoice with no
   // due date set yet.
   dueDate?: string
+  // Set for a manually recorded (cash/POS/cheque) payment, so the SMS reads
+  // "recorded by your school" rather than implying the platform cleared it.
+  isManual?: boolean
 }
 
 export function composePartialPaymentSMS(p: PartialPaymentMessageParams): string {
   const dueClause = p.dueDate ? ` by ${smsDate(p.dueDate)}` : ''
+  const received = p.isManual
+    ? `NGN ${amount(p.amountPaid)} recorded for ${firstName(p.studentName)} by your school`
+    : `NGN ${amount(p.amountPaid)} received for ${firstName(p.studentName)}`
   return capSmsLength(
-    `${safeSchoolName(p.schoolName)}: NGN ${amount(p.amountPaid)} received for ${firstName(p.studentName)}, ` +
+    `${safeSchoolName(p.schoolName)}: ${received}, ` +
     `thank you. NGN ${amount(p.balance)} still to pay${dueClause}. Pay to ${p.accountNumber}.`
   )
 }
@@ -232,19 +238,28 @@ export interface FullPaymentMessageParams {
   studentName: string
   parentName?: string
   schoolName: string
-  termName: string
+  // The term the fees belong to. Optional: a manual entry may be recorded with
+  // no term, in which case the templates read "fees" rather than a blank space.
+  termName?: string | null
   amountPaid: number
   logoUrl?: string | null
   // Email/PDF room only. Kept off the SMS, which stays a one-line thank-you.
   paidAt?: string
   accountNumber?: string
   reference?: string
+  // Set for a manually recorded (cash/POS/cheque) payment. It has no provider
+  // receipt to reproduce, so the email drops the "attached as a PDF" claim, and
+  // both channels add "as recorded by your school" so the parent sees the school
+  // vouched for it rather than the platform clearing the funds.
+  isManual?: boolean
 }
 
 export function composeFullPaymentSMS(p: FullPaymentMessageParams): string {
-  return (
+  const termFees = p.termName ? `${p.termName} fees` : 'fees'
+  const recordedClause = p.isManual ? ', as recorded by your school' : ''
+  return capSmsLength(
     `${safeSchoolName(p.schoolName)}: NGN ${amount(p.amountPaid)} received for ${firstName(p.studentName)}, ` +
-    `thank you. ${p.termName} fees are fully paid.`
+    `thank you. ${termFees} are fully paid${recordedClause}.`
   )
 }
 
@@ -580,38 +595,47 @@ export function composeInvoiceEmail(p: InvoiceMessageParams): EmailBody {
 
 export function composeFullPaymentEmail(p: FullPaymentMessageParams): EmailBody {
   const student = firstName(p.studentName)
-  const subject = `${student}'s ${p.termName} fees: receipt for ${nairaAmount(p.amountPaid)} received`
+  const termFees = p.termName ? `${p.termName} fees` : 'fees'
+  const kicker = p.termName ? `RECEIPT · ${p.termName.toUpperCase()}` : 'RECEIPT'
+  const subject = `${student}'s ${termFees}: receipt for ${nairaAmount(p.amountPaid)} received`
+  const recordedClause = p.isManual ? ', as recorded by your school' : ''
+  const owedLine = p.termName ? 'Nothing further is owed this term.' : 'Nothing further is owed.'
+  // A manual entry has no provider receipt to reproduce, so it points the parent
+  // at this email itself rather than a PDF that was never attached.
+  const receiptNote = p.isManual
+    ? 'Keep this email for your records.'
+    : 'The stamped receipt is attached as a PDF. Keep it, schools ask for it at re-registration.'
 
   const text =
-    `${p.schoolName}\nRECEIPT · ${p.termName.toUpperCase()}\n\n` +
+    `${p.schoolName}\n${kicker}\n\n` +
     `Received with thanks: ${nairaAmount(p.amountPaid)}\n` +
-    `${student}'s ${p.termName} fees are fully settled. Nothing further is owed this term.\n\n` +
+    `${student}'s ${termFees} are fully settled${recordedClause}. ${owedLine}\n\n` +
     `Student: ${p.studentName}\n` +
-    `Term: ${p.termName}\n` +
+    (p.termName ? `Term: ${p.termName}\n` : '') +
     (p.paidAt ? `Paid on: ${emailDateTime(p.paidAt)}\n` : '') +
     (p.accountNumber ? `Account: ${spacedAccountNumber(p.accountNumber)}\n` : '') +
     (p.reference ? `Reference: ${p.reference}\n` : '') +
-    `\nThe stamped receipt is attached as a PDF. Keep it, schools ask for it at re-registration.\n\n` +
+    `\n${receiptNote}\n\n` +
     `Sent by ${p.schoolName} through Fees101.`
 
   const html = emailShell(
     GREEN,
-    headerRow(p.schoolName, `RECEIPT · ${p.termName.toUpperCase()}`, GREEN, p.logoUrl) +
+    headerRow(p.schoolName, kicker, GREEN, p.logoUrl) +
     `<tr><td style="padding:26px 28px 22px;">` +
     `<p style="margin:0 0 6px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">RECEIVED WITH THANKS</p>` +
     `<p style="margin:0 0 6px; color:${GREEN}; font-size:36px; font-weight:bold; letter-spacing:-0.02em; ${EMAIL_FONT}">${nairaAmount(p.amountPaid)}</p>` +
-    `<p style="margin:0; color:${INK}; font-size:15px; font-weight:bold; ${EMAIL_FONT}">${student}'s ${p.termName} fees are fully settled.</p>` +
-    `<p style="margin:6px 0 0; color:${SECONDARY}; font-size:14px; ${EMAIL_FONT}">Nothing further is owed this term.</p>` +
+    `<p style="margin:0; color:${INK}; font-size:15px; font-weight:bold; ${EMAIL_FONT}">${student}'s ${termFees} are fully settled${recordedClause}.</p>` +
+    `<p style="margin:6px 0 0; color:${SECONDARY}; font-size:14px; ${EMAIL_FONT}">${owedLine}</p>` +
     `</td></tr>` +
     `<tr><td style="border-top:2px solid ${RULE}; padding:20px 28px;">` +
     ledgerTable(
       ledgerRow('Student', p.studentName) +
-      ledgerRow('Term', p.termName) +
+      (p.termName ? ledgerRow('Term', p.termName) : '') +
       (p.paidAt ? ledgerRow('Paid on', emailDateTime(p.paidAt)) : '') +
       (p.accountNumber ? ledgerRow('Account', spacedAccountNumber(p.accountNumber)) : '') +
       (p.reference ? ledgerRow('Reference', p.reference) : '')
     ) +
-    noteParagraph('The stamped receipt is attached as a PDF. Keep it, schools ask for it at re-registration.') +
+    noteParagraph(receiptNote) +
     `</td></tr>` +
     footerRow(p.schoolName)
   )
@@ -633,6 +657,9 @@ export interface CreditReceiptMessageParams {
   paidAt?: string
   reference?: string
   logoUrl?: string | null
+  // Set for a manually recorded (cash/POS/cheque) payment, so both channels add
+  // "as recorded by your school" rather than implying the platform cleared it.
+  isManual?: boolean
 }
 
 // Money landed with no outstanding invoice to apply against — the whole amount
@@ -643,8 +670,11 @@ export function composeCreditReceiptSMS(p: CreditReceiptMessageParams): string {
   const balanceClause = p.newCreditBalance !== undefined
     ? ` (now NGN ${amount(p.newCreditBalance)})`
     : ''
+  const received = p.isManual
+    ? `NGN ${amount(p.amountPaid)} recorded by your school, thank you.`
+    : `NGN ${amount(p.amountPaid)} received, thank you.`
   return capSmsLength(
-    `${safeSchoolName(p.schoolName)}: NGN ${amount(p.amountPaid)} received, thank you. ` +
+    `${safeSchoolName(p.schoolName)}: ${received} ` +
     `Added to your account balance${balanceClause}. Pay to ${p.accountNumber}.`
   )
 }
@@ -652,6 +682,7 @@ export function composeCreditReceiptSMS(p: CreditReceiptMessageParams): string {
 export function composeCreditReceiptEmail(p: CreditReceiptMessageParams): EmailBody {
   const student = firstName(p.studentName)
   const subject = `Payment received: ${nairaAmount(p.amountPaid)} added to your account balance`
+  const recordedClause = p.isManual ? ', as recorded by your school' : ''
   const balanceLine = p.newCreditBalance !== undefined
     ? `Your account credit balance is now ${nairaAmount(p.newCreditBalance)}.`
     : `It has been added to your account credit balance.`
@@ -660,7 +691,7 @@ export function composeCreditReceiptEmail(p: CreditReceiptMessageParams): EmailB
     `${p.schoolName}\nPAYMENT RECEIVED\n\n` +
     `Received with thanks: ${nairaAmount(p.amountPaid)}\n` +
     `There was no outstanding invoice, so this payment has been added to your ` +
-    `account balance and will be used automatically against ${student}'s future fees.\n` +
+    `account balance${recordedClause} and will be used automatically against ${student}'s future fees.\n` +
     `${balanceLine}\n\n` +
     `Student: ${p.studentName}\n` +
     (p.paidAt ? `Paid on: ${emailDateTime(p.paidAt)}\n` : '') +
@@ -674,7 +705,7 @@ export function composeCreditReceiptEmail(p: CreditReceiptMessageParams): EmailB
     `<tr><td style="padding:26px 28px 22px;">` +
     `<p style="margin:0 0 6px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">RECEIVED WITH THANKS</p>` +
     `<p style="margin:0 0 6px; color:${GREEN}; font-size:36px; font-weight:bold; letter-spacing:-0.02em; ${EMAIL_FONT}">${nairaAmount(p.amountPaid)}</p>` +
-    `<p style="margin:0; color:${INK}; font-size:15px; font-weight:bold; ${EMAIL_FONT}">Added to your account balance.</p>` +
+    `<p style="margin:0; color:${INK}; font-size:15px; font-weight:bold; ${EMAIL_FONT}">Added to your account balance${recordedClause}.</p>` +
     `<p style="margin:6px 0 0; color:${SECONDARY}; font-size:14px; ${EMAIL_FONT}">There was no outstanding invoice, so this will be used automatically against ${student}'s future fees.</p>` +
     `</td></tr>` +
     `<tr><td style="border-top:2px solid ${RULE}; padding:20px 28px;">` +
@@ -896,6 +927,88 @@ export function composeOverdueEmail(p: ReminderMessageParams): EmailBody {
     `<tr><td style="padding:22px 28px;">` +
     ledgerTable(ledgerRow('Student', p.studentName) + ledgerRow('Term', p.termName)) +
     noteParagraph('Already paid? Ignore this, it crossed in the post.') +
+    `</td></tr>` +
+    footerRow(p.schoolName)
+  )
+
+  return { subject, html, text }
+}
+
+export interface ManualPaymentCorrectionMessageParams {
+  schoolName: string
+  parentName?: string
+  studentName: string
+  // The size of the correction as a positive figure: how much of a previously
+  // recorded payment is being taken back off the account.
+  amountReversed: number
+  // The student's outstanding balance after the correction, when known. Lets the
+  // parent see what, if anything, is owed again. Omitted when the correction
+  // applied against the credit balance rather than a specific invoice.
+  newOutstanding?: number
+  accountNumber?: string
+  bankName?: string
+  reason?: string
+  logoUrl?: string | null
+}
+
+// Sent when a previously approved manual (cash/POS/cheque) payment is reversed.
+// Deliberately not the receipt template: no money arrived, so this reads as a
+// correction in ochre, never the receipt's green. A mistake is put right with an
+// audited reversal, never a silent edit, so the parent is told plainly.
+export function composeManualPaymentCorrectionSMS(p: ManualPaymentCorrectionMessageParams): string {
+  const owingClause = p.newOutstanding && p.newOutstanding > 0
+    ? ` NGN ${amount(p.newOutstanding)} is now outstanding${p.accountNumber ? `. Pay to ${p.accountNumber}` : ''}.`
+    : ''
+  return capSmsLength(
+    `${safeSchoolName(p.schoolName)}: a recorded payment of NGN ${amount(p.amountReversed)} for ` +
+    `${firstName(p.studentName)} has been corrected and removed from the account.${owingClause}`
+  )
+}
+
+export function composeManualPaymentCorrectionEmail(p: ManualPaymentCorrectionMessageParams): EmailBody {
+  const student = firstName(p.studentName)
+  const subject = `Correction: a recorded payment of ${nairaAmount(p.amountReversed)} has been reversed`
+  const owing = p.newOutstanding !== undefined && p.newOutstanding > 0
+
+  const text =
+    `${p.schoolName}\nPAYMENT CORRECTION\n\n` +
+    `A payment of ${nairaAmount(p.amountReversed)} that was recorded for ${p.studentName} has been ` +
+    `corrected and removed from the account.\n` +
+    (p.reason ? `Reason: ${p.reason}\n` : '') +
+    (owing
+      ? `${nairaAmount(p.newOutstanding as number)} is now outstanding.\n` +
+        (p.accountNumber ? `Pay to ${spacedAccountNumber(p.accountNumber)}${p.bankName ? ` (${p.bankName})` : ''}.\n` : '')
+      : '') +
+    `\nIf you believe this is wrong, contact the school office.\n` +
+    `\nSent by ${p.schoolName} through Fees101.`
+
+  const html = emailShell(
+    OCHRE,
+    headerRow(p.schoolName, 'PAYMENT CORRECTION', OCHRE, p.logoUrl) +
+    `<tr><td style="padding:26px 28px 22px;">` +
+    `<p style="margin:0 0 6px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">CORRECTED AND REMOVED</p>` +
+    `<p style="margin:0 0 6px; color:${OCHRE}; font-size:36px; font-weight:bold; letter-spacing:-0.02em; ${EMAIL_FONT}">${nairaAmount(p.amountReversed)}</p>` +
+    `<p style="margin:0; color:${INK}; font-size:15px; font-weight:bold; ${EMAIL_FONT}">A recorded payment for ${student} has been reversed.</p>` +
+    `</td></tr>` +
+    (owing
+      ? `<tr><td style="border-top:2px solid ${OCHRE}; border-bottom:2px solid ${OCHRE}; background-color:${PAPER}; padding:20px 28px;">` +
+        `<p style="margin:0 0 6px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">NOW OUTSTANDING</p>` +
+        `<p style="margin:0 0 ${p.accountNumber ? '12px' : '0'}; color:${OCHRE}; font-size:24px; font-weight:bold; letter-spacing:-0.02em; ${EMAIL_FONT}">${nairaAmount(p.newOutstanding as number)}</p>` +
+        (p.accountNumber
+          ? `<p style="margin:0 0 2px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">PAY INTO THIS ACCOUNT</p>` +
+            `<p style="margin:0 0 2px; color:${INK}; font-size:20px; font-weight:bold; letter-spacing:0.02em; ${EMAIL_FONT}">${spacedAccountNumber(p.accountNumber)}</p>` +
+            (p.bankName ? `<p style="margin:0; color:${BODY_TEXT}; font-size:14px; ${EMAIL_FONT}">${p.bankName}</p>` : '')
+          : '') +
+        `</td></tr>`
+      : '') +
+    `<tr><td style="border-top:2px solid ${RULE}; padding:20px 28px;">` +
+    ledgerTable(
+      ledgerRow('Student', p.studentName) +
+      ledgerRow('Amount reversed', nairaAmount(p.amountReversed), OCHRE) +
+      (p.newOutstanding !== undefined ? ledgerRow('Now outstanding', nairaAmount(p.newOutstanding), p.newOutstanding > 0 ? OCHRE : INK) : '') +
+      (p.reason ? ledgerRow('Reason', p.reason) : '')
+    ) +
+    noteParagraph('If you believe this correction is wrong, contact the school office.') +
     `</td></tr>` +
     footerRow(p.schoolName)
   )

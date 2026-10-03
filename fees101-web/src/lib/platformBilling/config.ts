@@ -26,6 +26,12 @@ export const PRICE_PER_STUDENT_MONTH = 500
 // which version a school agreed to.
 export const BILLING_TERMS_VERSION = '2026-10-01'
 
+// Bump when the manual-payment liability affirmation text changes. The school
+// owner must accept the current version before manual payment entry unlocks for
+// the school; the accepted version is stamped on schools.manual_payment_
+// liability_version so a text change re-prompts for a fresh acceptance.
+export const MANUAL_PAYMENT_LIABILITY_VERSION = '2026-10-03'
+
 // Small token charge used when an already-connected school switches from DVA
 // back to a direct-debit mandate. Paystack's bank/recurring channel only
 // creates a reusable authorization off a real successful transaction, so a

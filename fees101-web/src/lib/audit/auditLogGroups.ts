@@ -4,6 +4,7 @@ export const AUDIT_LOG_GROUPS: { label: string; prefixes: string[] }[] = [
   { label: 'Staff', prefixes: ['staff.'] },
   { label: 'Roles', prefixes: ['role.'] },
   { label: 'Discounts', prefixes: ['discount.'] },
+  { label: 'Payments', prefixes: ['payment.'] },
   { label: 'Invoices', prefixes: ['invoice.'] },
   { label: 'Students', prefixes: ['student.'] },
   { label: 'Families', prefixes: ['family.'] },

@@ -15,6 +15,7 @@ import { Fragment, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
+import { usePermissions } from '@/lib/auth/PermissionsProvider'
 import { approveDiscount, rejectDiscount, revokeDecidedDiscount } from '@/app/(app)/discounts/actions'
 import type { PendingDiscountRequest, ActiveRecurringDiscount, DecidedDiscountRequest } from '@/lib/queries/discountRequests'
 import Toast from '@/components/ui/Toast'
@@ -105,6 +106,13 @@ interface RecurringGroup {
 
 export default function DiscountQueue({ requests, recurring, decided, canApprove }: Props) {
   const router = useRouter()
+  const { permissions, isOwner } = usePermissions()
+
+  // The Approvals workspace also owns the Manual payments surface. It lives at
+  // its own route, so it's offered here as a header tab that navigates there
+  // (alongside the in-place Queue/Recurring toggle) rather than an in-place
+  // view — shown only to staff who can reach it.
+  const canManual = isOwner || permissions.has('record-manual-payments') || permissions.has('approve-manual-payments')
 
   // Always lands on Queue — the workspace's job is "what needs a decision",
   // not "what's already running", even when the queue happens to be empty.
@@ -278,6 +286,7 @@ export default function DiscountQueue({ requests, recurring, decided, canApprove
         tabs={[
           { label: 'Queue', active: mode === 'queue', onClick: () => switchMode('queue') },
           { label: 'Recurring', active: mode === 'recurring', onClick: () => switchMode('recurring') },
+          ...(canManual ? [{ label: 'Manual payments', active: false, onClick: () => router.push('/discounts/manual-payments') }] : []),
         ]}
       />
 

@@ -1,6 +1,6 @@
 # Fees101
 
-School fees management platform. This repo holds every Fees101 app.
+Revenue operations platform for schools. This repo holds every Fees101 app.
 
 ## Apps
 

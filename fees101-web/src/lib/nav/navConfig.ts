@@ -82,7 +82,7 @@ export const sections: NavSection[] = [
       },
       {
         href: '/discounts',
-        label: 'Discounts',
+        label: 'Approvals',
         perm: ['see-discounts', 'approve-discounts'],
         icon: ['M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z'],
       },
@@ -248,11 +248,12 @@ export const workspaces: Workspace[] = [
   },
   {
     key: 'discounts',
-    label: 'Discounts',
+    label: 'Approvals',
     group: 'Operate',
-    match: ['/discounts'],
+    match: ['/discounts', '/discounts/manual-payments'],
     modes: [
       { href: '/discounts', label: 'Queue', perm: ['see-discounts', 'approve-discounts'] },
+      { href: '/discounts/manual-payments', label: 'Manual payments', perm: ['record-manual-payments', 'approve-manual-payments'] },
     ],
   },
   // ── CONFIGURE ──────────────────────────────────────────────────────────────

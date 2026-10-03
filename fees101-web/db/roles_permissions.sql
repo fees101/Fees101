@@ -97,7 +97,8 @@ select s.id, 'Bursar', 'Day-to-day fee operations', true, false,
     'approve-discounts',          false, 'run-year-end',               false,
     'manage-school-profile',      false, 'manage-academic-structure',  false,
     'manage-payment-config',      false, 'manage-discount-config',     false,
-    'manage-reminder-config',     false, 'manage-team',                false)
+    'manage-reminder-config',     false, 'manage-team',                false,
+    'record-manual-payments',     false, 'approve-manual-payments',    false)
 from public.schools s
 where not exists (select 1 from public.roles r where r.school_id = s.id and r.name = 'Bursar');
 

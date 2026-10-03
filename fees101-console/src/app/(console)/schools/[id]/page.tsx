@@ -9,6 +9,7 @@ import SetupChecklistPanel from './SetupChecklistPanel'
 import OwnerAccessPanel from './OwnerAccessPanel'
 import ImpersonatePanel from './ImpersonatePanel'
 import MandateBillingPanel from './MandateBillingPanel'
+import ManualPaymentEntryPanel from './ManualPaymentEntryPanel'
 
 function naira(n: number) {
   return '₦' + Math.round(n).toLocaleString('en-NG')
@@ -35,6 +36,18 @@ export default async function SchoolDetailPage({ params }: { params: Promise<{ i
 
       <div style={{ marginBottom: 24 }}>
         <MandateBillingPanel schoolId={school.id} />
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <ManualPaymentEntryPanel
+          schoolId={school.id}
+          enabled={school.manualPaymentEntry.enabled}
+          enabledAt={school.manualPaymentEntry.enabledAt}
+          enabledById={school.manualPaymentEntry.enabledById}
+          enabledByName={school.manualPaymentEntry.enabledByName}
+          liabilityVersion={school.manualPaymentEntry.liabilityVersion}
+          liabilityAcceptedAt={school.manualPaymentEntry.liabilityAcceptedAt}
+        />
       </div>
 
       {/* New billing model (daily pro-rata + Fees101 DVA collection) — the panels

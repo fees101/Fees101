@@ -102,19 +102,43 @@ export interface SchoolDetail {
   }
   charges: { id: string; amount: number; status: string; createdAt: string; failureReason: string | null }[]
   auditLog: { id: string; actorName: string; action: string; summary: string; createdAt: string }[]
+  // Manual payment entry is a per-school feature Fees101 staff turn on here,
+  // only once a signed liability agreement is in place. The owner must also
+  // accept an in-app liability affirmation (set on the fees101-web side) before
+  // the feature is actually usable by the school.
+  manualPaymentEntry: {
+    enabled: boolean
+    enabledAt: string | null
+    enabledById: string | null
+    enabledByName: string | null
+    liabilityVersion: string | null
+    liabilityAcceptedAt: string | null
+  }
 }
 
 export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | null> {
   const supabase = createServiceRoleClient()
 
   const [{ data: school }, { data: billing }, { data: charges }, { data: audit }] = await Promise.all([
-    supabase.from('schools').select('id, name, terms_per_year').eq('id', schoolId).maybeSingle(),
+    supabase.from('schools').select('id, name, terms_per_year, manual_payment_entry_enabled, manual_payment_entry_enabled_at, manual_payment_entry_enabled_by, manual_payment_liability_version, manual_payment_liability_accepted_at').eq('id', schoolId).maybeSingle(),
     supabase.from('platform_billing').select('*').eq('school_id', schoolId).maybeSingle(),
     supabase.from('platform_billing_charges').select('id, amount, status, created_at, failure_reason').eq('school_id', schoolId).order('created_at', { ascending: false }).limit(20),
     supabase.from('platform_audit_log').select('id, actor_name, action, summary, created_at').eq('school_id', schoolId).order('created_at', { ascending: false }).limit(20),
   ])
 
   if (!school) return null
+
+  // Resolve the enabling admin's uuid to a name when we have one. platform_admins
+  // is a small table, so this is a cheap single lookup rather than a join.
+  let enabledByName: string | null = null
+  if (school.manual_payment_entry_enabled_by) {
+    const { data: enabler } = await supabase
+      .from('platform_admins')
+      .select('name')
+      .eq('id', school.manual_payment_entry_enabled_by)
+      .maybeSingle()
+    enabledByName = enabler?.name ?? null
+  }
 
   return {
     id: school.id,
@@ -145,6 +169,14 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
       summary: a.summary,
       createdAt: a.created_at,
     })),
+    manualPaymentEntry: {
+      enabled: !!school.manual_payment_entry_enabled,
+      enabledAt: school.manual_payment_entry_enabled_at || null,
+      enabledById: school.manual_payment_entry_enabled_by || null,
+      enabledByName,
+      liabilityVersion: school.manual_payment_liability_version || null,
+      liabilityAcceptedAt: school.manual_payment_liability_accepted_at || null,
+    },
   }
 }
 
