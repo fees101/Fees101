@@ -1,10 +1,21 @@
 import { getAuthContext } from '@/lib/auth/permissions'
 import { MANUAL_PAYMENT_LIABILITY_VERSION } from '@/lib/platformBilling/config'
+import type { PendingManualPayment, DecidedManualPayment } from '@/lib/manualPayments/display'
 
 // Read side of the manual payment entry feature: the per-school feature/
 // liability state the pages gate on, plus the pending queue and decided
 // history that the workspace renders. All reads go through the user-scoped
 // client, so RLS already limits them to the caller's own school.
+//
+// The client-safe label helpers and row shapes live in @/lib/manualPayments/
+// display (no server imports) so the client workspace can use them without
+// pulling this server-only module into the browser bundle. Re-exported here so
+// existing server-side importers keep working.
+export {
+  manualPaymentMethodLabel,
+  manualPaymentDepositLabel,
+} from '@/lib/manualPayments/display'
+export type { PendingManualPayment, DecidedManualPayment } from '@/lib/manualPayments/display'
 
 export interface ManualPaymentFeatureState {
   // Fees101 staff turned the feature on for this school from the console.
@@ -16,72 +27,6 @@ export interface ManualPaymentFeatureState {
   acceptedVersion: string | null
   // The version the owner is being asked to accept right now.
   currentVersion: string
-}
-
-const METHOD_LABELS: Record<string, string> = {
-  cash: 'Cash',
-  pos: 'POS / card',
-  cheque: 'Cheque',
-  other: 'Other',
-}
-
-const DEPOSIT_LABELS: Record<string, string> = {
-  school_bank: "School's bank account",
-  paystack_dva: 'Fees101 transfer account',
-  other: 'Other',
-}
-
-export function manualPaymentMethodLabel(method: string): string {
-  return METHOD_LABELS[method] || method
-}
-
-export function manualPaymentDepositLabel(depositedTo: string): string {
-  return DEPOSIT_LABELS[depositedTo] || depositedTo
-}
-
-export interface PendingManualPayment {
-  id: string
-  studentId: string
-  studentName: string
-  className: string
-  invoiceId: string | null
-  cycleName: string | null
-  amount: number
-  method: string
-  depositedTo: string
-  depositReference: string | null
-  notes: string | null
-  requestedByName: string
-  requestedAt: string
-  // A pending reversal of a previously approved entry. The amount is negative;
-  // the UI frames it as a correction, never a payment.
-  isReversal: boolean
-}
-
-export interface DecidedManualPayment {
-  id: string
-  studentId: string
-  studentName: string
-  className: string
-  invoiceId: string | null
-  cycleName: string | null
-  amount: number
-  method: string
-  depositedTo: string
-  depositReference: string | null
-  notes: string | null
-  status: 'approved' | 'rejected'
-  autoApproved: boolean
-  requestedByName: string
-  requestedAt: string
-  reviewedByName: string | null
-  reviewedAt: string | null
-  reviewNote: string | null
-  isReversal: boolean
-  // True once a later approved reversal has fully cancelled this entry out, so
-  // the history can show it as reversed rather than offer to reverse it again.
-  reversed: boolean
-  paymentId: string | null
 }
 
 async function getSchoolContext() {

@@ -10,7 +10,7 @@ import {
   manualPaymentDepositLabel,
   type PendingManualPayment,
   type DecidedManualPayment,
-} from '@/lib/queries/manualPayments'
+} from '@/lib/manualPayments/display'
 import {
   requestManualPayment,
   approveManualPayment,
