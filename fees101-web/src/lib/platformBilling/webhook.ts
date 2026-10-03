@@ -89,12 +89,79 @@ export async function processPlatformPaystackWebhook(
   // --- A charge succeeded (setup fee backstop, or a recurring debit) -------
   if (type === 'charge.success') {
     const reference = (data.reference as string) || null
-    const { kind, schoolId } = parseReference(reference)
-    if (!reference || !schoolId) {
-      // Not one of ours (or an unexpected reference shape). Ack so Paystack
-      // stops retrying; nothing to record.
-      return { status: 200, body: { received: true, ignored: 'unrecognized reference' } }
+    const { kind, schoolId: parsedSchoolId } = parseReference(reference)
+
+    // A manual transfer into a platform DVA carries a Paystack-generated
+    // reference, not one of ours — parseReference won't recognise it. Match it
+    // instead by the Paystack customer_code (stored as platform_dva_reference
+    // when provisionPlatformDva created the account).
+    if (!reference || !parsedSchoolId) {
+      const customerCode = ((data.customer as Record<string, unknown>)?.customer_code as string) || null
+      if (!reference || !customerCode) {
+        return { status: 200, body: { received: true, ignored: 'unrecognized reference' } }
+      }
+
+      const { data: billing } = await svc
+        .from('platform_billing')
+        .select('school_id')
+        .eq('platform_dva_reference', customerCode)
+        .maybeSingle()
+      if (!billing) {
+        return { status: 200, body: { received: true, ignored: 'unrecognized reference' } }
+      }
+
+      const { data: existing } = await svc
+        .from('platform_billing_charges')
+        .select('id, status')
+        .eq('paystack_reference', reference)
+        .maybeSingle()
+      if (existing?.status === 'success') {
+        return { status: 200, body: { received: true, handled: type, reference, via: 'platform_dva' } }
+      }
+
+      const amountNaira = typeof data.amount === 'number' ? data.amount / 100 : 0
+      const paidAt = (data.paid_at as string) || now
+
+      // Credit whichever open period is oldest, if any — same "nothing to
+      // credit yet, still reactivate" tolerance as the mandate path below.
+      const { data: openPeriod } = await svc
+        .from('platform_billing_periods')
+        .select('id')
+        .eq('school_id', billing.school_id)
+        .neq('status', 'paid')
+        .order('period_start', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+      if (existing) {
+        await svc
+          .from('platform_billing_charges')
+          .update({ status: 'success', paid_at: paidAt })
+          .eq('id', existing.id)
+      } else {
+        await svc.from('platform_billing_charges').insert({
+          school_id: billing.school_id,
+          amount: amountNaira,
+          status: 'success',
+          paystack_reference: reference,
+          method: 'dva_transfer',
+          paid_at: paidAt,
+          charged_by: 'monthly_fee',
+        })
+      }
+
+      await applySuccessfulCharge(svc, {
+        schoolId: billing.school_id as string,
+        reference,
+        amountNaira,
+        paidAt,
+        periodId: openPeriod?.id ?? null,
+      })
+
+      return { status: 200, body: { received: true, handled: type, reference, via: 'platform_dva' } }
     }
+
+    const schoolId = parsedSchoolId
 
     const amountNaira = typeof data.amount === 'number' ? data.amount / 100 : 0
     const paidAt = (data.paid_at as string) || now
