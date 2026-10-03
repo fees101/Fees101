@@ -75,6 +75,62 @@ const ORGANIZATION_JSON_LD = {
   },
 };
 
+// SoftwareApplication schema — describes the Fees101 product so answer
+// engines can characterise what the software does. No price / no Offer:
+// pricing is deliberately unpublished (quoted per school).
+const SOFTWARE_APPLICATION_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: SITE_NAME,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  url: SITE_URL,
+  description:
+    "Revenue operations platform for Nigerian schools. Fee structures per class and term, per-student invoicing with balances carried forward, a dedicated virtual bank account per student, automatic payment reconciliation and a live collection dashboard.",
+  inLanguage: "en-NG",
+  areaServed: "NG",
+  provider: {
+    "@type": "Organization",
+    name: SITE_NAME,
+    legalName: "FEES101 LTD",
+    url: SITE_URL,
+  },
+  publisher: {
+    "@type": "Organization",
+    name: SITE_NAME,
+    legalName: "FEES101 LTD",
+    url: SITE_URL,
+  },
+  featureList: [
+    "Fee schedules per class and term",
+    "Per-student invoices with balances carried forward",
+    "A dedicated virtual bank account for every student",
+    "Family accounts with a shared virtual account across siblings, so a parent can pay once",
+    "Automatic payment reconciliation",
+    "Live collection dashboard",
+    "SMS notifications",
+    "Bulk CSV student onboarding",
+    "Self-service payment provider settings",
+    "Encrypted provider credentials (AES-256-GCM)",
+  ],
+};
+
+// WebSite schema — identifies the site itself. No SearchAction: there is no
+// site search to point an engine at.
+const WEBSITE_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: SITE_NAME,
+  url: SITE_URL,
+  inLanguage: "en-NG",
+  publisher: {
+    "@type": "Organization",
+    name: SITE_NAME,
+    legalName: "FEES101 LTD",
+    url: SITE_URL,
+  },
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -86,6 +142,8 @@ export default function RootLayout({
         className={`${archivo.variable} ${jetbrainsMono.variable} flex min-h-screen flex-col font-sans antialiased`}
       >
         <script {...jsonLdScriptProps(ORGANIZATION_JSON_LD)} />
+        <script {...jsonLdScriptProps(SOFTWARE_APPLICATION_JSON_LD)} />
+        <script {...jsonLdScriptProps(WEBSITE_JSON_LD)} />
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />

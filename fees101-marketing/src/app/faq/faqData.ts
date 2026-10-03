@@ -35,6 +35,31 @@ export const FAQS = [
     a: "Any unpaid balance is automatically carried forward to the student's next invoice, so nothing gets lost between terms.",
   },
   {
+    category: "payments",
+    q: "How can a Nigerian school stop fake bank-transfer payment alerts?",
+    a: "Give each student their own dedicated virtual bank account and verify every payment server-side instead of trusting a screenshot or a text alert. With Fees101, each student has a dedicated virtual account through our licensed payment partner, and every payment is confirmed by a verified webhook from that partner before it is recorded. A forged alert or edited screenshot never creates a real payment record, because the record only exists once the money has actually settled.",
+  },
+  {
+    category: "payments",
+    q: "How do schools reconcile fee payments automatically?",
+    a: "Reconciliation happens automatically when each student pays into their own dedicated virtual account, so the payment is matched to the right student and invoice with no manual lookup. Fees101 issues one virtual account per student, confirms the incoming transfer by verified webhook, and applies it to that student's invoice, carrying any remaining balance forward. Admin staff stop matching transfers to names by hand.",
+  },
+  {
+    category: "payments",
+    q: "Can a parent with more than one child in the school pay once?",
+    a: "Yes. Siblings can be grouped into a family account with one shared dedicated virtual account, so a parent transfers once and Fees101 applies the payment across each child's outstanding invoices automatically, oldest term first. The parent gets a single confirmation covering every child the payment was applied to. Each student also keeps their own account, so a school can use whichever fits a given family.",
+  },
+  {
+    category: "students",
+    q: "What is the best way to track school fees without Excel spreadsheets?",
+    a: "Use a system that generates a per-student invoice from the fee structure and updates the balance automatically as money arrives, instead of a spreadsheet someone has to edit by hand. Fees101 sets fees per class and term, issues an invoice for each student, reconciles payments through a dedicated virtual account per student, and shows what is collected and outstanding on a live dashboard. There is no formula to maintain and no file to pass around.",
+  },
+  {
+    category: "getting-started",
+    q: "Does Fees101 work for schools currently using Excel or paper records?",
+    a: "Yes. Schools moving off Excel or paper can bulk-import their existing student list by CSV and Fees101 takes over invoicing and reconciliation from there. You set your fee structure per class and term once, each student is issued a dedicated virtual account, and payments are matched and recorded automatically. You keep your records, without the manual matching and the version-control headaches.",
+  },
+  {
     category: "students",
     q: "How do parents get notified about fees?",
     a: "Parents receive SMS (and in future, WhatsApp) notifications for new invoices and payment confirmations, sent through our licensed messaging provider, using the phone number the school has on file.",

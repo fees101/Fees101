@@ -7,6 +7,7 @@ const INCLUDED = [
   "Fee schedules per class and term",
   "Per-student invoices with balances carried forward",
   "A dedicated virtual account for every student",
+  "Family accounts that group siblings under one shared account, so a parent can pay once",
   "Automatic payment reconciliation",
   "Live collection dashboard",
   "SMS notifications (WhatsApp coming soon)",

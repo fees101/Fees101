@@ -8,39 +8,6 @@ import { Counter } from "@/components/Counter";
 import { HeroPreview } from "@/components/HeroPreview";
 import { AfricaSection } from "@/components/AfricaSection";
 import { ClosingCta } from "@/components/ClosingCta";
-import { SITE_URL, SITE_NAME, jsonLdScriptProps } from "@/lib/seo";
-
-// SoftwareApplication + Offer schema for the product itself. No
-// aggregateRating/review fields are included since we have no real ratings
-// to report — inventing one would make this ineligible for (and a
-// misrepresentation to) any consumer that checks structured data honesty.
-const SOFTWARE_APPLICATION_JSON_LD = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: SITE_NAME,
-  applicationCategory: "BusinessApplication",
-  applicationSubCategory: "School revenue operations",
-  operatingSystem: "Web",
-  url: SITE_URL,
-  description:
-    "Fees101 is a revenue operations platform for Nigerian schools — invoicing, payment tracking, automated reconciliation and a dedicated virtual bank account per student.",
-  offers: {
-    "@type": "Offer",
-    url: `${SITE_URL}/pricing`,
-    priceCurrency: "NGN",
-    priceSpecification: {
-      "@type": "UnitPriceSpecification",
-      priceCurrency: "NGN",
-      unitText: "per student, per term — confirmed with each school during onboarding",
-    },
-    availability: "https://schema.org/LimitedAvailability",
-  },
-  provider: {
-    "@type": "Organization",
-    name: SITE_NAME,
-    url: SITE_URL,
-  },
-};
 
 const HIGHLIGHTS = [
   {
@@ -113,8 +80,6 @@ const PAIN_POINTS = [
 export default function HomePage() {
   return (
     <>
-      <script {...jsonLdScriptProps(SOFTWARE_APPLICATION_JSON_LD)} />
-
       {/* Hero */}
       <section className="bg-paper px-6 pb-24 pt-20">
         <div className="mx-auto grid max-w-6xl items-center gap-14 md:grid-cols-[1fr_1.15fr]">

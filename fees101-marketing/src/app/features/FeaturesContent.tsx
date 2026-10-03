@@ -35,6 +35,7 @@ const TABS = [
     body: "Each student gets their own virtual bank account, provisioned through licensed payment infrastructure. Parents pay by transfer like they always have — the difference is what happens next.",
     points: [
       "Dedicated virtual account per student — no shared or ambiguous accounts",
+      "Family accounts group siblings under one shared account, so a parent with several children can pay once",
       "Parents keep paying exactly how they already do — a bank transfer, no new app to install",
       "Payments matched to the right student and invoice automatically",
       "Funds settle to the school's own account — Fees101 never holds school funds",

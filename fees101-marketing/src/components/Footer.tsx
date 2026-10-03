@@ -3,6 +3,7 @@ import { LogoHorizontal } from "./Logo";
 
 const PRODUCT_LINKS = [
   { href: "/features", label: "Platform" },
+  { href: "/why-fees101", label: "Why Fees101" },
   { href: "/how-it-works", label: "How it works" },
   { href: "/pricing", label: "Pricing" },
   { href: "/about", label: "About" },

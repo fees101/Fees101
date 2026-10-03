@@ -130,8 +130,8 @@ export default function PrivacyPage() {
 
       <LegalSection id="childrens-data" heading="6. Children&rsquo;s data">
         <p>
-          Because Fees101 is used to manage school fees, it necessarily processes
-          limited data about students, some of whom are minors. This data
+          Because schools use Fees101 to invoice and collect fees, it necessarily
+          processes limited data about students, some of whom are minors. This data
           (typically name and class/term enrolment) is provided directly by the
           school for the specific purpose of invoicing and is not used for any
           other purpose. We do not knowingly collect data directly from children.
