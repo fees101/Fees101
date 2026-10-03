@@ -7,9 +7,20 @@ name: Background job sweep
 # stalled year-end rollover run — left running after its starting tab is
 # closed resumes within minutes instead of waiting up to a day — without
 # needing a paid Vercel plan for frequent cron.
+# PAUSED 2026-10-03: the schedule is disabled because this workflow's required
+# repo secrets (APP_URL + SWEEP_SECRET) are not set, so every 5-min run curled
+# an empty URL, failed (exit 3), and emailed a failure. The deployment target is
+# also mid-restructure (monorepo → separate Vercel projects), so there is no
+# stable URL to point APP_URL at yet. The once-daily Vercel cron in
+# fees101-web/vercel.json still covers the fallback sweep when deployed.
+#
+# TO RE-ENABLE once deployment is settled:
+#   1. Set repo secrets:  gh secret set APP_URL --body "https://<live-app-url>"
+#                         gh secret set SWEEP_SECRET --body "<same value as the deploy's SWEEP_SECRET env>"
+#   2. Un-comment the `schedule:` block below.
 on:
-  schedule:
-    - cron: '*/5 * * * *'
+  # schedule:
+  #   - cron: '*/5 * * * *'
   workflow_dispatch: {}
 
 jobs:
