@@ -44,8 +44,10 @@ export default function robots(): MetadataRoute.Robots {
       },
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,
-    // host tells crawlers the canonical host for this site; supported by the
-    // documented Robots object.
-    host: SITE_URL,
+    // No `host` directive: it is a non-standard, Yandex-only robots.txt field
+    // that Google/Bing reject as invalid (Bing's robots.txt tester flags it),
+    // and it requires a bare hostname anyway. The canonical host (www) is
+    // already enforced by the apex→www 308 redirect and the per-page
+    // rel="canonical" tags, so the directive added nothing but an error.
   };
 }
