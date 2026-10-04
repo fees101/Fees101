@@ -36,7 +36,9 @@ export default function EditClassPanel({ classData, sections: initialSections, a
   const [form, setForm] = useState({
     name: classData.name,
     sectionId: classData.sectionId,
-    displayOrder: classData.displayOrder,
+    // number | '' so the field can be cleared while editing; '' is coerced to 0
+    // at submit (handleSubmit), matching the previous parseInt||0 behaviour.
+    displayOrder: classData.displayOrder as number | '',
     isActive: classData.isActive,
     nextClassId: classData.nextClassId || '',
   })
@@ -84,7 +86,7 @@ export default function EditClassPanel({ classData, sections: initialSections, a
     }
     setError(null)
     setLoading(true)
-    const result = await updateClass(classData.id, { ...form, nextClassId: form.nextClassId || null })
+    const result = await updateClass(classData.id, { ...form, displayOrder: form.displayOrder === '' ? 0 : form.displayOrder, nextClassId: form.nextClassId || null })
     if (result.error) {
       setError(result.error)
       setLoading(false)
@@ -191,7 +193,7 @@ export default function EditClassPanel({ classData, sections: initialSections, a
             <input
               type="number"
               value={form.displayOrder}
-              onChange={(e) => setForm({...form, displayOrder: parseInt(e.target.value) || 0})}
+              onChange={(e) => setForm({...form, displayOrder: e.target.value === '' ? '' : (parseInt(e.target.value) || 0)})}
               className="m-input"
             />
           </label>

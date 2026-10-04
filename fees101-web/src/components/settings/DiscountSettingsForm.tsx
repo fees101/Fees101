@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { saveDiscountSettings } from '@/app/(app)/school/discounts/actions'
-import type { DiscountSettings, SiblingTier, ApproverRole } from '@/lib/queries/discounts'
+import type { DiscountSettings, ApproverRole } from '@/lib/queries/discounts'
 import FieldEditDrawer, { SectionLabel, CheckList, ChoiceList } from '@/components/settings/FieldEditDrawer'
 import Toast from '@/components/ui/Toast'
 
@@ -13,6 +13,10 @@ interface Props {
 }
 
 type EditKey = 'sibling' | 'staff' | 'approvers' | 'threshold'
+
+// Tier value is held as number | '' while editing so the percentage field can be
+// fully cleared; '' is coerced to a number only at submit (see saveEdit).
+type EditableTier = { value: number | ''; isPercentage: boolean }
 
 // Same square-edged toggle used on Reminders (ReminderSettingsForm.tsx) —
 // no rounded pill, ink when on, matching the Modernist styling elsewhere.
@@ -49,20 +53,21 @@ function tierLabel(index: number): string {
   return `${ordinals[index] || `${index + 2}th`} child`
 }
 
-function fmtTier(t: SiblingTier): string {
-  return t.isPercentage ? `${t.value}% off` : `₦${t.value.toLocaleString('en-NG')} off`
+function fmtTier(t: EditableTier): string {
+  const v = t.value === '' ? 0 : t.value
+  return t.isPercentage ? `${v}% off` : `₦${v.toLocaleString('en-NG')} off`
 }
 
 export default function DiscountSettingsForm({ settings, actorName }: Props) {
   const router = useRouter()
 
   const [form, setForm] = useState({
-    siblingTiers: settings.siblingTiers,
-    staffDiscountDefaultPct: settings.staffDiscountDefaultPct,
+    siblingTiers: settings.siblingTiers as EditableTier[],
+    staffDiscountDefaultPct: settings.staffDiscountDefaultPct as number | '',
     staffDiscountScope: settings.staffDiscountScope,
     approverRoles: settings.approval.approverRoles,
     thresholdEnabled: settings.approval.thresholdNaira !== null,
-    thresholdNaira: settings.approval.thresholdNaira ?? 100000,
+    thresholdNaira: (settings.approval.thresholdNaira ?? 100000) as number | '',
   })
   const [snapshot, setSnapshot] = useState(form)
   const [editing, setEditing] = useState<EditKey | null>(null)
@@ -97,7 +102,7 @@ export default function DiscountSettingsForm({ settings, actorName }: Props) {
     setError(null)
     setSaving(true)
     const result = await saveDiscountSettings({
-      siblingTiers: form.siblingTiers,
+      siblingTiers: form.siblingTiers.map(t => ({ ...t, value: t.value === '' ? 0 : t.value })),
       staffDiscountDefaultPct: Number(form.staffDiscountDefaultPct),
       staffDiscountScope: form.staffDiscountScope,
       approval: {
@@ -114,7 +119,7 @@ export default function DiscountSettingsForm({ settings, actorName }: Props) {
   }
 
   // Sibling tier editing helpers ------------------------------------------
-  function updateTier(index: number, patch: Partial<SiblingTier>) {
+  function updateTier(index: number, patch: Partial<EditableTier>) {
     const next = [...form.siblingTiers]
     next[index] = { ...next[index], ...patch }
     update({ siblingTiers: next })
@@ -141,7 +146,7 @@ export default function DiscountSettingsForm({ settings, actorName }: Props) {
       : `${fmtTier(form.siblingTiers[0])} +${form.siblingTiers.length - 1} more`
 
   const staffScopeLabel = form.staffDiscountScope === 'full_invoice' ? 'overall invoice' : 'discountable fees only'
-  const staffValue = form.staffDiscountDefaultPct > 0 ? `${form.staffDiscountDefaultPct}% off · ${staffScopeLabel}` : 'Off'
+  const staffValue = Number(form.staffDiscountDefaultPct) > 0 ? `${form.staffDiscountDefaultPct}% off · ${staffScopeLabel}` : 'Off'
 
   const roleNames = form.approverRoles.includes('bursar') ? ['Owner', 'Bursar'] : ['Owner']
   const approversValue = roleNames.length === 2 ? 'Owner and Bursar' : 'Owner'
@@ -171,7 +176,7 @@ export default function DiscountSettingsForm({ settings, actorName }: Props) {
           label="Staff children"
           desc="Applied to children of any staff member"
           value={staffValue}
-          valueTone={form.staffDiscountDefaultPct > 0 ? 'ink' : 'muted'}
+          valueTone={Number(form.staffDiscountDefaultPct) > 0 ? 'ink' : 'muted'}
           onEdit={() => openEdit('staff')}
         />
         <SettingRow
@@ -217,7 +222,7 @@ export default function DiscountSettingsForm({ settings, actorName }: Props) {
                   <span className="text-[14px]" style={{ fontWeight: 600, color: 'var(--color-ink)', width: 74 }}>{tierLabel(i)}</span>
                   <input
                     type="number" min={0} max={100} value={tier.value}
-                    onChange={(e) => updateTier(i, { value: Number(e.target.value) })}
+                    onChange={(e) => updateTier(i, { value: e.target.value === '' ? '' : Number(e.target.value) })}
                     className="m-input m-num"
                     style={{ width: 70, textAlign: 'right' }}
                   />
@@ -260,7 +265,7 @@ export default function DiscountSettingsForm({ settings, actorName }: Props) {
             <div className="flex items-center gap-2">
               <input
                 type="number" min={0} max={100} value={form.staffDiscountDefaultPct}
-                onChange={(e) => update({ staffDiscountDefaultPct: Number(e.target.value) })}
+                onChange={(e) => update({ staffDiscountDefaultPct: e.target.value === '' ? '' : Number(e.target.value) })}
                 className="m-input m-num"
                 style={{ width: 80, textAlign: 'right' }}
               />
@@ -342,7 +347,7 @@ export default function DiscountSettingsForm({ settings, actorName }: Props) {
               <input
                 type="number" min={0} step={1000} value={form.thresholdNaira}
                 disabled={!form.thresholdEnabled}
-                onChange={(e) => update({ thresholdNaira: Number(e.target.value) })}
+                onChange={(e) => update({ thresholdNaira: e.target.value === '' ? '' : Number(e.target.value) })}
                 className="m-input m-num"
                 style={{ width: 160, textAlign: 'right' }}
               />

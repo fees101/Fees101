@@ -29,7 +29,9 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
   const [form, setForm] = useState({
     name: '',
     sectionId: initialSections[0]?.id || '',
-    displayOrder: maxOrder + 1,
+    // number | '' so the field can be cleared while editing; '' is coerced to 0
+    // at submit (handleSubmit), matching the previous parseInt||0 behaviour.
+    displayOrder: (maxOrder + 1) as number | '',
     nextClassId: '' as string,
   })
   const [loading, setLoading] = useState(false)
@@ -85,7 +87,7 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
     }
     setError(null)
     setLoading(true)
-    const result = await addClass({ ...form, nextClassId: form.nextClassId || null })
+    const result = await addClass({ ...form, displayOrder: form.displayOrder === '' ? 0 : form.displayOrder, nextClassId: form.nextClassId || null })
     if (result.error) {
       setError(result.error)
       setLoading(false)
@@ -194,7 +196,7 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
             <input
               type="number"
               value={form.displayOrder}
-              onChange={(e) => setForm({...form, displayOrder: parseInt(e.target.value) || 0})}
+              onChange={(e) => setForm({...form, displayOrder: e.target.value === '' ? '' : (parseInt(e.target.value) || 0)})}
               className="m-input"
             />
             <p className="text-xs text-[var(--color-neutral-700)] mt-1">Lower numbers appear first in lists</p>

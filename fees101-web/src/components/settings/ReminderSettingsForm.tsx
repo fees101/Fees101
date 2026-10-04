@@ -60,13 +60,15 @@ export default function ReminderSettingsForm({ settings, actorName }: Props) {
   const [form, setForm] = useState({
     enabled: settings.enabled,
     advanceEnabled: settings.advanceDays !== null,
-    advanceDays: settings.advanceDays ?? 3,
+    // number | '' so the Custom field can be fully cleared while editing; '' is
+    // coerced back to a number at submit (persist), never sent as-is.
+    advanceDays: (settings.advanceDays ?? 3) as number | '',
     dueDayEnabled: settings.dueDayEnabled,
     overdueEnabled: settings.overdueEnabled,
     overdueIntervalUnit: settings.overdueIntervalUnit,
     overdueIntervalValue: settings.overdueIntervalValue,
     overdueCapped: settings.overdueMaxReminders !== null,
-    overdueMaxReminders: settings.overdueMaxReminders ?? 10,
+    overdueMaxReminders: (settings.overdueMaxReminders ?? 10) as number | '',
     emailEnabled: settings.channels.email,
   })
   const [snapshot, setSnapshot] = useState(form)
@@ -92,8 +94,8 @@ export default function ReminderSettingsForm({ settings, actorName }: Props) {
     setSnapshot(form)
     setError(null)
     setReason('')
-    if (key === 'advance') setAdvanceCustom(!ADVANCE_PRESETS.includes(form.advanceDays))
-    if (key === 'max') setMaxCustom(!MAX_PRESETS.includes(form.overdueMaxReminders))
+    if (key === 'advance') setAdvanceCustom(form.advanceDays === '' || !ADVANCE_PRESETS.includes(form.advanceDays))
+    if (key === 'max') setMaxCustom(form.overdueMaxReminders === '' || !MAX_PRESETS.includes(form.overdueMaxReminders))
     setEditing(key)
   }
 
@@ -118,6 +120,13 @@ export default function ReminderSettingsForm({ settings, actorName }: Props) {
 
   async function saveEdit() {
     setError(null)
+    // Don't let a blank/zero cap silently save as "stop after 0 reminders" -
+    // that quietly disables overdue reminders. Sending none must be a deliberate
+    // choice (turn the cap off), never an accidental empty field.
+    if (form.overdueCapped && (form.overdueMaxReminders === '' || Number(form.overdueMaxReminders) < 1)) {
+      setError('Enter at least 1 reminder, or turn the cap off to send them without a limit.')
+      return
+    }
     setSaving(true)
     const result = await persist(form, reason)
     setSaving(false)
@@ -280,7 +289,7 @@ export default function ReminderSettingsForm({ settings, actorName }: Props) {
                   label: 'Custom',
                   render: advanceCustom ? (
                     <div className="flex items-center gap-2" style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                      <input type="number" min={1} value={form.advanceDays} onChange={(e) => update({ advanceDays: Number(e.target.value) })} className="m-input w-20" />
+                      <input type="number" min={1} value={form.advanceDays} onChange={(e) => update({ advanceDays: e.target.value === '' ? '' : Number(e.target.value) })} className="m-input w-20" />
                       <span className="text-xs text-[var(--color-neutral-700)]">days before</span>
                     </div>
                   ) : undefined,
@@ -364,7 +373,7 @@ export default function ReminderSettingsForm({ settings, actorName }: Props) {
                   label: 'Custom',
                   render: maxCustom ? (
                     <div className="flex items-center gap-2" style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                      <input type="number" min={1} value={form.overdueMaxReminders} onChange={(e) => update({ overdueMaxReminders: Number(e.target.value) })} className="m-input w-20" />
+                      <input type="number" min={1} value={form.overdueMaxReminders} onChange={(e) => update({ overdueMaxReminders: e.target.value === '' ? '' : Number(e.target.value) })} className="m-input w-20" />
                       <span className="text-xs text-[var(--color-neutral-700)]">reminders</span>
                     </div>
                   ) : undefined,
