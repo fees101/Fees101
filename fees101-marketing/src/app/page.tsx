@@ -122,7 +122,7 @@ export default function HomePage() {
               className="flex flex-wrap gap-3"
             >
               <a href="mailto:support@fees101.com" className="m-btn m-btn-primary">
-                Talk to us
+                Request access
               </a>
               <Link href="/how-it-works" className="m-btn m-btn-outline">
                 See how it works
@@ -248,8 +248,8 @@ export default function HomePage() {
       </section>
 
       <ClosingCta
-        head="We're building Fees101 right now."
-        body="If you run a school in Nigeria and want early access, reach out — we'd love to hear from you."
+        head="Fees101 is live and onboarding schools now."
+        body="If you run a school in Nigeria and want to get started, request access and we'll set you up."
       />
     </>
   );

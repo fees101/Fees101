@@ -1,18 +1,19 @@
 # Fees101
 
-> Fees101 is a revenue operations platform for Nigerian schools: fee structures set once per term/class, automatic per-student invoicing with balances carried forward, a dedicated virtual bank account per student, automated payment reconciliation, and a live collection dashboard. Operated by FEES101 LTD (RC 9694725), registered in Bwari, FCT, Nigeria.
+> Fees101 is a revenue operations platform for Nigerian schools: fee structures are set once per term and class, each student is invoiced automatically with unpaid balances carried forward, every student gets a dedicated virtual bank account, payments are reconciled automatically, and a live dashboard shows collected versus outstanding. Operated by FEES101 LTD (RC 9694725), registered in Bwari, FCT, Nigeria.
 
-Fees101 does not hold school funds — payments settle directly to each school's own bank account through its licensed payment infrastructure partner. Pricing is ₦500 per active student per month, billed daily, with no setup fee or contract. As of this writing Fees101 is in active development and onboarding a limited number of schools rather than open for general sign-up.
+Fees101 does not hold school funds. Payments settle directly to each school's own bank account through a licensed payment infrastructure partner, and every payment is confirmed by a verified webhook before it is recorded, so a forged transfer alert creates no payment record. Siblings can share one family account, so a parent with several children pays once and the transfer is applied across each child's invoices. SMS notifications for new invoices and payment confirmations are sent automatically. Early-access pricing is a one-time setup fee of 10,000 naira (nonrefundable), then 500 naira per active student per in-session month. Schools get 65 free days every year (about two months) on a recurring 365-day cycle from onboarding, so a full year works out to about 5,000 naira per active student (roughly ten billed months), not twelve times the monthly rate. Billing is calculated daily on active students and collected automatically by bank direct debit, with no long-term contract. Fees101 is live and onboarding schools now by request access rather than instant self-service sign-up.
 
 ## Docs
 
-- [Pricing](https://www.fees101.com/pricing): the ₦500-per-active-student-per-month rate, billed daily, and what's included.
-- [Features](https://www.fees101.com/features): fee structures, invoicing, payments, notifications, and admin/scale features in detail.
-- [How it works](https://www.fees101.com/how-it-works): the step-by-step flow from setting a fee structure to a reconciled payment.
+- [How it works](https://www.fees101.com/how-it-works): the step-by-step flow from setting a fee structure to a reconciled payment, in six steps.
+- [Features](https://www.fees101.com/features): fee structures, per-student invoicing, dedicated virtual accounts, family accounts, automatic reconciliation, notifications, and admin and scale features in detail.
+- [Why Fees101](https://www.fees101.com/why-fees101): the specific problems it fixes, from forged transfer alerts to balances lost between terms, with the manual process compared against the Fees101 process.
+- [Pricing](https://www.fees101.com/pricing): the full early-access model. A one-time 10,000 naira setup fee (nonrefundable), then 500 naira per active student per in-session month, with 65 free days every year (about two months) recurring on a 365-day cycle from onboarding, so a year is about 5,000 naira per active student (roughly ten billed months), not twelve times the monthly rate. Billed daily on active students and collected automatically by bank direct debit. No long-term contract.
 - [About](https://www.fees101.com/about): why Fees101 was built and who operates it.
-- [FAQ](https://www.fees101.com/faq): common questions on payments, students/parents, security, and the account.
+- [FAQ](https://www.fees101.com/faq): common questions on payments, students and parents, security, and the account.
 
 ## Optional
 
-- [Privacy Policy](https://www.fees101.com/privacy): data handling under Nigeria's Data Protection Act (NDPA).
+- [Privacy Policy](https://www.fees101.com/privacy): data handling under Nigeria's Data Protection Act (NDPA), where the school is the data controller and Fees101 acts as processor.
 - [Terms of Service](https://www.fees101.com/terms): terms governing use of the platform.

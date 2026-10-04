@@ -1,6 +1,6 @@
 import { Reveal } from "@/components/Reveal";
 
-const REASSURANCE = ["No spam — just a launch note", "Be first to try it", "Straight to our team"];
+const REASSURANCE = ["Onboarding schools now", "65 free days every year", "Straight to our team"];
 
 export function ClosingCta({
   eyebrow = "Early access",

@@ -7,12 +7,17 @@ export const FAQS = [
   {
     category: "getting-started",
     q: "Is Fees101 live yet?",
-    a: "Fees101 is in active development and currently being rolled out with a small number of schools. We're not yet open for general sign-up, but we'd love to hear from schools interested in early access.",
+    a: "Yes. Fees101 is live and onboarding schools now. We work closely with each school as it comes on board, so access is by request rather than instant self-service sign-up.",
   },
   {
     category: "getting-started",
-    q: "How can my school get early access?",
-    a: "Reach out to support@fees101.com and we'll get you set up as part of our early onboarding.",
+    q: "How can my school get started?",
+    a: "Request access at support@fees101.com and we'll set your school up and walk you through onboarding.",
+  },
+  {
+    category: "getting-started",
+    q: "What does Fees101 cost?",
+    a: "Early-access pricing is a one-time setup fee of ₦10,000 to connect your school, then ₦500 per active student per in-session month. You get 65 free days every year (about two months) on a recurring 365-day cycle from onboarding, so a full year works out to about ₦5,000 per active student, roughly ten billed months rather than twelve. Billing is worked out daily on your active students and collected automatically by bank direct debit, with no long-term contract.",
   },
   {
     category: "payments",

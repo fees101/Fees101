@@ -1,0 +1,59 @@
+# Fees101 — full reference
+
+> Fees101 is a revenue operations platform for Nigerian schools. Fee structures are set once per term and class, each student is invoiced automatically with unpaid balances carried forward, every student gets a dedicated virtual bank account, payments are reconciled automatically, and a live dashboard shows collected versus outstanding. Operated by FEES101 LTD (RC 9694725), registered in Bwari, FCT, Nigeria. This file consolidates the substance of the main pages at https://www.fees101.com for machine reading. Early-access pricing is a one-time 10,000 naira setup fee plus 500 naira per active student per in-session month, with 65 free days recurring every year, so a year works out to about 5,000 naira per active student (roughly ten billed months), not twelve times the monthly rate.
+
+## What Fees101 is
+
+Fees101 is a revenue operations platform for Nigerian schools, not a general accounting tool and not a payment gateway. It sits between a school's fee structure and its bank account: it decides what each student owes, gives each student a way to pay that is automatically matched back to them, and keeps a live picture of what has been collected and what is outstanding.
+
+Fees101 never holds school funds. Payments settle directly to the school's own bank account through a licensed payment infrastructure partner.
+
+## How it works (six steps)
+
+1. Set up the school. An admin account is created and the school profile is set up: classes, terms, and staff access.
+2. Set the fee structure. Tuition and levies are set per class and per term, once. Every student in that class inherits it.
+3. Generate invoices. Per-student invoices are created automatically, with any prior outstanding balance carried forward.
+4. Parents pay as they always have. Nothing changes for the parent: the same bank app and the same transfer they already do. It lands in their child's own dedicated account instead of a shared, unlabeled one.
+5. Payments reconcile automatically. The payment is matched to the right student and invoice the moment it lands. No spreadsheets and no manual matching.
+6. Track collections live. Admin staff see collections and outstanding balances update in real time and know exactly who to remind.
+
+## Features
+
+Fee structures set once, applied everywhere. Tuition and levies are defined per class and per term. Every student in that class inherits the right structure automatically, so the same numbers are not re-entered for 40 students one at a time. Changes to a class's structure apply to every student in it. Historical terms stay untouched once invoiced.
+
+Per-student invoicing with carried-forward balances. Fees101 generates a per-student invoice from the class and term structure and carries forward any unpaid balance into the next invoice automatically. One invoice per student per billing cycle. Bulk invoice generation runs across an entire class or school.
+
+A dedicated virtual bank account for every student. Each student gets their own virtual bank account, provisioned through licensed payment infrastructure. Parents pay by transfer as they always have. There are no shared or ambiguous accounts, so every payment is matched to the right student and invoice automatically. Funds settle to the school's own account; Fees101 never holds school funds.
+
+Family accounts for siblings. Siblings are grouped under one shared family account, so a parent with several children can pay once and the transfer is applied across each child's invoices.
+
+Automatic notifications. SMS notifications for new invoices and payment confirmations go out automatically, so admin staff stop being the messenger. Notifications run on a provider-agnostic messaging layer, fully tested in a safe mock environment before any spend. WhatsApp is planned.
+
+Built to scale. A live collection dashboard shows what has been collected and what is outstanding. Bulk CSV import and automatic virtual-account provisioning (single or in bulk) mean onboarding a whole school is not weeks of manual data entry. The student directory is paginated and stays fast at hundreds of students. Schools connect their own payment provider credentials through self-service payment settings. Bulk imports and provisioning run in small batches with progress feedback so a 300-plus student school does not hit a server timeout; this was load-tested with a real 400-student import. If an admin navigates away mid-import, the background work stops cleanly rather than continuing silently or corrupting data.
+
+Security and compliance. Each school's own payment provider keys are stored encrypted at rest (AES-256-GCM), never in plaintext and never exposed to the browser. Payment and messaging providers sit behind stable internal interfaces, so adding or swapping a provider does not mean rewriting business logic. Data handling is built around Nigeria's Data Protection Act (NDPA): the school stays the data controller for its students' information and Fees101 acts strictly as a processor on the school's instruction.
+
+## Why Fees101 (problems it fixes)
+
+Reconciliation by hand. The old way: someone reads a single shared account statement and matches each transfer to a student by hand, often from a narration parents typed themselves. With Fees101: each student pays into their own dedicated virtual account, so every payment is matched to the right student and invoice automatically.
+
+Forged or edited payment proof. The old way: a transfer screenshot or bank SMS can be edited or forged, and a student can be marked paid before the money has settled. With Fees101: every payment is confirmed by a verified webhook from the licensed payment partner before it is recorded, so a forged alert creates no payment record.
+
+Outstanding balances that disappear. The old way: balances live in formulas someone has to maintain, and carrying an unpaid balance into next term is a manual copy that is easy to get wrong. With Fees101: each invoice tracks its own balance and any unpaid amount is carried forward to the next invoice automatically.
+
+Paying for several children. The old way: a parent with three children makes three transfers, or one lump sum that staff split across three students by hand. With Fees101: siblings share one family account, so a parent pays once and the transfer is applied across each child's invoices automatically.
+
+Chasing arrears. The old way: admin staff call or message parents one at a time, when there is time, and there usually is not. With Fees101: SMS notifications for new invoices and payment confirmations go out automatically, and a live collection dashboard shows what has been collected and what is outstanding at any moment, so staff know exactly who to remind.
+
+## Pricing
+
+Early-access pricing is published in full. A one-time setup fee of 10,000 naira (nonrefundable) connects the school, then recurring billing is 500 naira per active student per in-session month. Schools get 65 free days every year, about two months, on a recurring 365-day cycle anchored to onboarding, not a one-time trial. Because of that, a school is billed for roughly 300 days (about ten months) a year, so a full year works out to about 5,000 naira per active student, not twelve times the monthly rate. Billing is calculated daily and pro-rated on the number of active students, and it is collected automatically by bank direct debit. There is no long-term contract. These are the current early-access terms; general-availability pricing will be confirmed later. Fees101 is live and onboarding schools now: schools request access and are set up with the team, rather than instant self-service sign-up. To get started, contact support@fees101.com.
+
+## About and operator
+
+Fees101 is operated by FEES101 LTD (RC 9694725), registered in Bwari, FCT, Nigeria. Support is handled by the team directly, with no ticketing bot in between, at support@fees101.com.
+
+## Legal
+
+Privacy: data handling is built around Nigeria's Data Protection Act (NDPA); the school is the data controller and Fees101 is the processor. Full text at https://www.fees101.com/privacy.
+Terms: the terms governing use of the platform are at https://www.fees101.com/terms.

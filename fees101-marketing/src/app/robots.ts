@@ -15,9 +15,11 @@ const AI_CRAWLERS = [
   "ChatGPT-User", // ChatGPT live browsing on a user's behalf
   "PerplexityBot", // Perplexity index
   "Perplexity-User", // Perplexity live fetch on a user's behalf
-  "ClaudeBot", // Anthropic crawler
-  "Claude-Web", // Anthropic live browsing
-  "anthropic-ai", // Anthropic (legacy agent name)
+  "ClaudeBot", // Anthropic crawler (model development / training)
+  "Claude-User", // Anthropic user-initiated fetch (a Claude user's query pulls this page)
+  "Claude-SearchBot", // Anthropic search-indexing crawler (improves Claude search results)
+  "Claude-Web", // Anthropic (legacy live-browse agent, superseded by Claude-User; kept for older bots)
+  "anthropic-ai", // Anthropic (legacy agent name; kept for older bots)
   "Applebot-Extended", // Apple Intelligence content usage opt-in
   "Amazonbot", // Amazon (Alexa / AI) crawler
   "CCBot", // Common Crawl (feeds many models)
@@ -27,6 +29,12 @@ const AI_CRAWLERS = [
   "DuckAssistBot", // DuckDuckGo DuckAssist
   "YouBot", // You.com
 ];
+
+// Deliberately NOT listed: Brave Search's crawler. Brave powers Claude's web
+// citations, but Brave states its crawler "does not advertise a differentiated
+// user agent" (search.brave.com/help/brave-search-crawler), so there is no real
+// UA to allow. Brave only crawls pages that are crawlable by Googlebot, which
+// the catch-all "*" Allow: / rule below already satisfies. Do not invent one.
 
 export default function robots(): MetadataRoute.Robots {
   return {

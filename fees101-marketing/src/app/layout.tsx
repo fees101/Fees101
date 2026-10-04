@@ -76,8 +76,10 @@ const ORGANIZATION_JSON_LD = {
 };
 
 // SoftwareApplication schema — describes the Fees101 product so answer
-// engines can characterise what the software does. No price / no Offer:
-// pricing is deliberately unpublished (quoted per school).
+// engines can characterise what the software does. Early-access pricing is
+// public: the recurring per-active-student rate (₦500/student/month) and the
+// one-time ₦10,000 setup fee. The free period recurs yearly (~65 free days per
+// 365-day cycle), so a year is ~₦5,000/student (10 billed months), never 12x.
 const SOFTWARE_APPLICATION_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -86,9 +88,37 @@ const SOFTWARE_APPLICATION_JSON_LD = {
   operatingSystem: "Web",
   url: SITE_URL,
   description:
-    "Revenue operations platform for Nigerian schools. Fee structures per class and term, per-student invoicing with balances carried forward, a dedicated virtual bank account per student, automatic payment reconciliation and a live collection dashboard.",
+    "Revenue operations platform for Nigerian schools. Fee structures per class and term, per-student invoicing with balances carried forward, a dedicated virtual bank account per student, automatic payment reconciliation and a live collection dashboard. Early-access pricing: a one-time ₦10,000 setup fee, then ₦500 per active student per month, with 65 free days every year (about ₦5,000 per student a year, roughly ten billed months), billed daily and collected by bank direct debit.",
   inLanguage: "en-NG",
   areaServed: "NG",
+  offers: [
+    {
+      "@type": "Offer",
+      name: "Fees101 subscription (early access)",
+      priceCurrency: "NGN",
+      description:
+        "Recurring platform subscription, billed daily and pro-rated on active students, collected by bank direct debit. 65 free days every year (about two months), so a year is about ₦5,000 per active student, roughly ten billed months.",
+      priceSpecification: {
+        "@type": "UnitPriceSpecification",
+        price: "500",
+        priceCurrency: "NGN",
+        unitText: "per active student, per month",
+        referenceQuantity: {
+          "@type": "QuantitativeValue",
+          value: 1,
+          unitText: "active student",
+        },
+      },
+    },
+    {
+      "@type": "Offer",
+      name: "Fees101 one-time setup fee",
+      priceCurrency: "NGN",
+      price: "10000",
+      description:
+        "One-time, nonrefundable setup fee to connect a school to the platform.",
+    },
+  ],
   provider: {
     "@type": "Organization",
     name: SITE_NAME,
