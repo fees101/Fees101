@@ -12,7 +12,7 @@ export const FAQS = [
   {
     category: "getting-started",
     q: "How can my school get started?",
-    a: "Request access at support@fees101.com and we'll set your school up and walk you through onboarding.",
+    a: "Use the Request access button anywhere on the site to send us your school's details, or email support@fees101.com, and we'll set your school up and walk you through onboarding.",
   },
   {
     category: "getting-started",

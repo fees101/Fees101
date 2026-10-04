@@ -121,9 +121,9 @@ export default function HomePage() {
               transition={{ delay: 0.45, duration: 0.6 }}
               className="flex flex-wrap gap-3"
             >
-              <a href="mailto:support@fees101.com" className="m-btn m-btn-primary">
+              <Link href="/request-access" className="m-btn m-btn-primary">
                 Request access
-              </a>
+              </Link>
               <Link href="/how-it-works" className="m-btn m-btn-outline">
                 See how it works
               </Link>

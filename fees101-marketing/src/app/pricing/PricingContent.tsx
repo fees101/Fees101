@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Reveal, RevealStagger, RevealItem } from "@/components/Reveal";
 import { ClosingCta } from "@/components/ClosingCta";
 
@@ -183,9 +184,9 @@ export function PricingContent() {
               bank direct debit. You get {FREE_DAYS} days free every year, about two months.
             </p>
             <div>
-              <a href="mailto:support@fees101.com" className="m-btn m-btn-primary">
+              <Link href="/request-access" className="m-btn m-btn-primary">
                 Request access
-              </a>
+              </Link>
             </div>
           </div>
 
@@ -207,9 +208,9 @@ export function PricingContent() {
               long-term contract after that.
             </p>
             <div>
-              <a href="mailto:support@fees101.com" className="m-btn m-btn-outline">
+              <Link href="/request-access" className="m-btn m-btn-outline">
                 Talk to us
-              </a>
+              </Link>
             </div>
           </div>
         </div>

@@ -22,6 +22,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local env files (never commit secrets - repo is public)
+.env*
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

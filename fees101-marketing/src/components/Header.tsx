@@ -54,9 +54,9 @@ export function Header() {
         </nav>
 
         <div className="hidden md:block">
-          <a href="mailto:support@fees101.com" className="m-btn m-btn-primary">
-            Talk to us
-          </a>
+          <Link href="/request-access" className="m-btn m-btn-primary">
+            Request access
+          </Link>
         </div>
 
         <button
@@ -109,12 +109,13 @@ export function Header() {
                   {link.label}
                 </Link>
               ))}
-              <a
-                href="mailto:support@fees101.com"
+              <Link
+                href="/request-access"
+                onClick={() => setOpen(false)}
                 className="m-btn m-btn-primary mt-2 justify-center"
               >
-                Talk to us
-              </a>
+                Request access
+              </Link>
             </div>
           </motion.nav>
         )}
