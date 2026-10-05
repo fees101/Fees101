@@ -60,6 +60,10 @@ shows the amount; the parent pays; Paystack webhooks back. No app on the device.
    - `charge.success` — the money event (amount, reference, customer, card).
    - `paymentrequest.success` — the invoice-level confirmation (carries our ref).
    - failure path: `invoice.payment_failed` / no success within TTL.
+   - **✅ Confirmed by Paystack (2026-10-05, Deborah):** the `reference` we pass is in
+     **`data.reference`**, and any metadata we attach is returned in
+     **`response.metadata`** — **both present on `charge.success` AND
+     `paymentrequest.success`.** So we can match reliably from either event.
 6. **List terminals** — `GET /terminal` lets us auto-discover a school's registered
    `terminal_id`(s) from their key (no manual ID entry).
 
@@ -95,10 +99,13 @@ right provider per school. A Monnify school calling this path returns "not suppo
 Today: `charge.success` → `resolveDvaOwner(supabase, schoolId, customerCode)` →
 `applyProviderPayment`. **Terminal payments won't have a DVA customer_code match** —
 they carry **our `reference`**. So:
-1. On `charge.success` (and/or `paymentrequest.success`), **first try to match the
-   `reference`/`offline_reference` to a `terminal_payment_requests` row.** If found →
-   that's a terminal payment → apply to its `invoice_id` via the same
-   `apply_payment_to_invoice` RPC (gross credit, idempotent), mark the row `paid`.
+1. On `charge.success` (and/or `paymentrequest.success`), **first try to match on
+   `data.reference`** (Paystack-confirmed location) — and, as a belt-and-braces,
+   `response.metadata` (we'll also stash the invoice/request id there) — against a
+   `terminal_payment_requests` row. If found → that's a terminal payment → apply to its
+   `invoice_id` via the same `apply_payment_to_invoice` RPC (gross credit, idempotent),
+   mark the row `paid`. **Both events carry these fields (confirmed 2026-10-05), so
+   whichever arrives first can reconcile; the second is deduped by idempotency.**
 2. If no terminal-request match → fall through to the existing `resolveDvaOwner`
    DVA path (unchanged).
    This keeps DVA behaviour untouched and adds terminal as a parallel resolver —
