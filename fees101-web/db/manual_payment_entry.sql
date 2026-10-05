@@ -98,6 +98,7 @@ create policy "Record-manual-payments inserts requests"
 -- in-place edit of a recorded payment, no flipping rejected back to approved,
 -- no self-approval short-cut around the functions.
 drop policy if exists "Approve-manual-payments updates requests" on public.manual_payment_requests;
+drop policy if exists "Approve-manual-payments rejects requests" on public.manual_payment_requests;
 create policy "Approve-manual-payments rejects requests"
   on public.manual_payment_requests for update
   using (
