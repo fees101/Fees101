@@ -41,8 +41,11 @@ shows the amount; the parent pays; Paystack webhooks back. No app on the device.
 
 ### The Paystack flow (per Terminal API docs)
 1. **Create a payment request (invoice)** — `POST /paymentrequest` with amount,
-   customer, description, and **our own reference** we can resolve later. Returns an
-   `id` and an `offline_reference`. (Fires `paymentrequest.pending`.)
+   customer, description, and **our own reference / metadata** we can resolve later.
+   Returns an `id` and an `offline_reference`. (Fires `paymentrequest.pending`.)
+   **✅ Confirmed by Paystack (2026-10-05):** you *can* attach a reference/metadata
+   field when pushing a payment request, to tie the resulting charge back to internal
+   records — i.e. the whole reconciliation design in §3.3 is supported by their API.
 2. **Push to the device** — `POST /terminal/:terminal_id/event`:
    ```json
    { "type": "invoice", "action": "process",
@@ -154,18 +157,32 @@ rail** so behaviour is consistent.
 
 ---
 
-## 5. Testing strategy (no "buy and hope")
-1. **Server/webhook leg — synthetic, no device:** build the flow, then POST
-   **signed synthetic `charge.success` / `paymentrequest.success`** payloads carrying
-   a terminal `reference` to the local handler and assert the matching +
+## 5. Testing strategy — updated after Paystack correspondence (2026-10-05)
+**There is NO test/developer device available** (confirmed by Paystack twice, 2026-10-05):
+no self-serve test device, no email-request dev device, and the push-payment-request
+flow **requires a physical device even in test mode** (there is no device-free sandbox
+for the push leg). Paystack say they are "actively working on acquiring test devices"
+and will notify us — so plan without one for now.
+
+So the realistic path:
+1. **Server/webhook leg — synthetic, no device (do this now):** build the flow, then
+   POST **signed synthetic `charge.success` / `paymentrequest.success`** payloads
+   carrying a terminal `reference` to the local handler and assert matching +
    `apply_payment_to_invoice` + receipt — the **exact method already proven on the DVA
    + family-DVA webhooks.** Covers resolution, waterfall, idempotency, gross credit.
-2. **Real round-trip — developer device:** email **terminal@paystack.com** to request
-   a **developer/test MF960** (not self-serve; the test-mode dashboard button is
-   broken — see the bug note). Build during the 5–7 day delivery window. Then test
-   create → push → pay-on-device → webhook end-to-end in test mode.
-3. **Live:** order the live MF960 (~₦86k) from the Paystack dashboard, point webhook
-   at production, confirm one real transaction, then roll out.
+   This validates everything *except* the physical create→push→device round-trip.
+2. **Real round-trip — requires buying a LIVE device:** since no test unit exists,
+   validating the actual push-to-device + pay leg means ordering a **live MF960**
+   (₦86,000, store: https://paystack.shop/paystack-terminal-store; delivery 5–7 working
+   days Lagos/Abuja, 7–14 other states; registered Nigerian business only). A live
+   device charges real money, so test with a **tiny real amount** (e.g. ₦100) against a
+   real invoice, then refund/reconcile. Point the webhook at production.
+3. **Roll out** once the live round-trip is confirmed.
+
+> Trade-off to accept: the create-request + webhook-reconcile logic is fully testable
+> now without hardware; only the final "device lights up and takes a card" leg needs a
+> paid live device. That leg is thin and well-documented, so the risk of buying one
+> live unit to confirm it is low — but it is a real ₦86k commitment, not a free test.
 
 ---
 
