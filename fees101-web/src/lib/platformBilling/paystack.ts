@@ -68,7 +68,10 @@ export async function initializeMandateSetup(params: {
       amount: Math.round(params.amountNaira * 100),
       reference: params.reference,
       callback_url: params.callbackUrl,
-      channels: ['card', 'bank'],
+      // Bank direct-debit first (the preferred, reusable mandate rail), card as
+      // the in-checkout fallback. The reusable-card gate in the callback handles
+      // a card that can't actually establish a recurring mandate.
+      channels: ['bank', 'card'],
       metadata: { custom_filters: { recurring: true } },
     }),
   })

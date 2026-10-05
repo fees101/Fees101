@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { getSchoolsOverview } from '@/lib/queries'
+import { getSchoolsOverview, getSchoolsNotOnMandate } from '@/lib/queries'
 import { AlertTriangle, Building2, Users, ArrowRight } from '@/lib/icons'
 
 // The operator's morning screen — overview, never a raw list. See
@@ -16,6 +16,7 @@ const STATUS_TAG: Record<string, string> = {
 
 export default async function OverviewPage() {
   const schools = await getSchoolsOverview()
+  const offMandate = await getSchoolsNotOnMandate()
 
   const totalSchools = schools.length
   const totalStudents = schools.reduce((s, r) => s + r.studentCount, 0)
@@ -68,6 +69,33 @@ export default async function OverviewPage() {
                   <td style={{ fontWeight: 600 }}>{s.name}</td>
                   <td><span className={`tag ${STATUS_TAG[s.billingStatus] || 'tag'}`}><span className="dot" />{s.billingStatus.replace('_', ' ')}</span></td>
                   <td>{s.studentCount}</td>
+                  <td style={{ textAlign: 'right' }}><Link href={`/schools/${s.id}`} className="btn btn-ghost" style={{ padding: '4px 8px' }}>Open <ArrowRight size={13} /></Link></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Not on auto-debit mandate — the retention rail. Schools here have
+          connected billing but sit on bank transfer (DVA) or an inactive /
+          deactivated mandate, so the owner reaches out to move them onto
+          auto-debit. */}
+      <div className="panel" style={{ marginBottom: 26 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', borderBottom: '2px solid var(--rule)' }}>
+          <span style={{ fontWeight: 800 }}>Not on auto-debit mandate</span>
+          <Link href="/schools" className="btn btn-ghost" style={{ padding: '4px 8px' }}>All schools <ArrowRight size={14} /></Link>
+        </div>
+        {offMandate.length === 0 ? (
+          <div style={{ padding: '22px 16px', color: 'var(--muted)', fontSize: 13 }}>Every connected school is on an active auto-debit mandate.</div>
+        ) : (
+          <table>
+            <thead><tr><th>School</th><th>Current rail</th><th></th></tr></thead>
+            <tbody>
+              {offMandate.map(s => (
+                <tr key={s.id}>
+                  <td style={{ fontWeight: 600 }}>{s.name}</td>
+                  <td>{s.rail}</td>
                   <td style={{ textAlign: 'right' }}><Link href={`/schools/${s.id}`} className="btn btn-ghost" style={{ padding: '4px 8px' }}>Open <ArrowRight size={13} /></Link></td>
                 </tr>
               ))}

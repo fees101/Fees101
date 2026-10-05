@@ -120,12 +120,21 @@ export async function startDvaFallback(
     svc.from('schools').select('name').eq('id', ctx.schoolId).maybeSingle(),
     svc
       .from('platform_billing')
-      .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name')
+      .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name, dva_fallback_enabled')
       .eq('school_id', ctx.schoolId)
       .maybeSingle(),
   ])
   if (!owner?.email) return { error: 'No billing email on file for your account.' }
   if (existing?.billing_connected_at) return { error: 'Billing is already connected for this school.' }
+
+  // Self-serve bank-transfer is owner-gated: a school can't opt itself off the
+  // auto-debit mandate (the retention lock) unless Fees101 has enabled DVA for it
+  // from the console. Enforced here too, not just hidden in the UI, so a direct
+  // call can't bypass it. (The reusable-card auto-fallback in the callback is a
+  // separate, legitimate "no mandate possible" path and is not gated.)
+  if (existing?.dva_fallback_enabled !== true) {
+    return { error: 'Bank transfer isn’t enabled for your school yet. Contact Fees101 and we’ll switch it on for you.' }
+  }
 
   const amount = setupFeeNaira()
 

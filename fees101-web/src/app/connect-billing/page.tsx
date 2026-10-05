@@ -27,7 +27,7 @@ export default async function ConnectBillingPage({
   // Already connected? Don't show the step again.
   const { data: billing } = await svc
     .from('platform_billing')
-    .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name')
+    .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name, dva_fallback_enabled')
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
   if (billing?.billing_connected_at) redirect('/today')
@@ -50,6 +50,7 @@ export default async function ConnectBillingPage({
       isOwner={ctx.isOwner}
       initialErrorCode={errorCode || null}
       checkedForTransfer={checked === '1'}
+      dvaFallbackEnabled={billing?.dva_fallback_enabled === true}
       existingDva={
         billing?.platform_dva_account_number
           ? { accountNumber: billing.platform_dva_account_number, bankName: billing.platform_dva_bank_name || '' }

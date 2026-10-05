@@ -36,6 +36,7 @@ export default function ConnectBillingForm({
   initialErrorCode,
   existingDva,
   checkedForTransfer,
+  dvaFallbackEnabled,
 }: {
   schoolName: string
   setupFee: number
@@ -46,6 +47,10 @@ export default function ConnectBillingForm({
   initialErrorCode: string | null
   existingDva: { accountNumber: string; bankName: string } | null
   checkedForTransfer: boolean
+  // Owner-gated: the self-serve "pay by bank transfer instead" option only
+  // appears once Fees101 has enabled DVA for this school. Keeps schools on the
+  // auto-debit mandate (the retention lock) by default.
+  dvaFallbackEnabled: boolean
 }) {
   // Terms were already accepted server-side on the first attempt that brought
   // them back here with an error, or earlier when they got as far as a DVA —
@@ -224,7 +229,7 @@ export default function ConnectBillingForm({
               >
                 Or pay by bank transfer instead
               </button>
-            ) : error ? (
+            ) : error && dvaFallbackEnabled ? (
               <button
                 type="button"
                 onClick={handleDvaFallback}
@@ -233,6 +238,13 @@ export default function ConnectBillingForm({
               >
                 Can&apos;t get this to work? Use a bank transfer instead
               </button>
+            ) : error ? (
+              // Self-serve bank transfer is off for this school — don't dead-end a
+              // stuck owner; point them to us so we can help (and enable DVA if
+              // their bank/card genuinely can't do an auto-debit mandate).
+              <p className="text-[12.5px] leading-[1.5] text-[var(--color-neutral-700)] mt-3">
+                Still stuck? Reach out to Fees101 and we&apos;ll help you get {schoolName} connected.
+              </p>
             ) : null}
 
             <p className="text-[11px] leading-[1.5] text-[var(--color-neutral-700)] mt-4 pt-3" style={{ borderTop: '1px solid var(--color-neutral-300)' }}>

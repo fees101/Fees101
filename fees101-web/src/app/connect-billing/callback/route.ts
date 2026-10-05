@@ -49,9 +49,15 @@ export async function GET(request: NextRequest) {
   const now = new Date().toISOString()
 
   if (tx.status !== 'success') {
+    // The mandate checkout failed (card declined, bank not supported, abandoned).
+    // Auto-enable the self-serve bank-transfer fallback so the owner can pay by
+    // transfer instead without waiting on anyone — this is the scalable
+    // "eligibility" trigger: DVA unlocks itself from the checkout outcome, not an
+    // owner click. (DVA is self-penalising — manual transfers forever — so this
+    // isn't a lazy opt-out; a rational school still prefers the mandate.)
     await svc
       .from('platform_billing')
-      .update({ setup_fee_status: 'failed', updated_at: now })
+      .update({ setup_fee_status: 'failed', dva_fallback_enabled: true, updated_at: now })
       .eq('school_id', ctx.schoolId)
     return back('payment_failed')
   }
@@ -112,6 +118,10 @@ export async function GET(request: NextRequest) {
         setup_fee_status: 'paid',
         setup_fee_paid_at: now,
         billing_method: 'dva',
+        // This card genuinely can't hold a mandate, so DVA is now their rail —
+        // mark the self-serve fallback enabled too, so the state is consistent
+        // (and the switch-to-mandate path can still invite them back later).
+        dva_fallback_enabled: true,
         // Explicitly clear any mandate state — this authorization is not reusable.
         mandate_authorization_code: null,
         mandate_status: 'none',

@@ -10,6 +10,7 @@ import OwnerAccessPanel from './OwnerAccessPanel'
 import ImpersonatePanel from './ImpersonatePanel'
 import MandateBillingPanel from './MandateBillingPanel'
 import ManualPaymentEntryPanel from './ManualPaymentEntryPanel'
+import DvaFallbackPanel from './DvaFallbackPanel'
 
 function naira(n: number) {
   return '₦' + Math.round(n).toLocaleString('en-NG')
@@ -47,6 +48,18 @@ export default async function SchoolDetailPage({ params }: { params: Promise<{ i
           enabledByName={school.manualPaymentEntry.enabledByName}
           liabilityVersion={school.manualPaymentEntry.liabilityVersion}
           liabilityAcceptedAt={school.manualPaymentEntry.liabilityAcceptedAt}
+        />
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <DvaFallbackPanel
+          schoolId={school.id}
+          enabled={school.dvaFallback.enabled}
+          enabledAt={school.dvaFallback.enabledAt}
+          enabledById={school.dvaFallback.enabledById}
+          enabledByName={school.dvaFallback.enabledByName}
+          billingMethod={school.dvaFallback.billingMethod}
+          mandateStatus={school.dvaFallback.mandateStatus}
         />
       </div>
 

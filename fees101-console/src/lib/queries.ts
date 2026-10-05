@@ -114,6 +114,19 @@ export interface SchoolDetail {
     liabilityVersion: string | null
     liabilityAcceptedAt: string | null
   }
+  // Bank-transfer (DVA) fallback is a per-school flag on platform_billing that
+  // Fees101 staff turn on here. It gates the self-serve "pay by bank transfer"
+  // choice on /connect-billing. Off by default; the auto-debit mandate is the
+  // preferred rail. Read defensively so the detail page still renders if the
+  // gate migration has not run yet.
+  dvaFallback: {
+    enabled: boolean
+    enabledAt: string | null
+    enabledById: string | null
+    enabledByName: string | null
+    billingMethod: string
+    mandateStatus: string
+  }
 }
 
 export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | null> {
@@ -138,6 +151,19 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
       .eq('id', school.manual_payment_entry_enabled_by)
       .maybeSingle()
     enabledByName = enabler?.name ?? null
+  }
+
+  // Same cheap lookup for the admin who enabled the bank-transfer (DVA) fallback.
+  // billing is selected with '*', so dva_fallback_enabled_by is simply undefined
+  // if the gate migration has not been applied yet (defensive, no crash).
+  let dvaEnabledByName: string | null = null
+  if (billing?.dva_fallback_enabled_by) {
+    const { data: enabler } = await supabase
+      .from('platform_admins')
+      .select('name')
+      .eq('id', billing.dva_fallback_enabled_by)
+      .maybeSingle()
+    dvaEnabledByName = enabler?.name ?? null
   }
 
   return {
@@ -176,6 +202,14 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
       enabledByName,
       liabilityVersion: school.manual_payment_liability_version || null,
       liabilityAcceptedAt: school.manual_payment_liability_accepted_at || null,
+    },
+    dvaFallback: {
+      enabled: !!billing?.dva_fallback_enabled,
+      enabledAt: billing?.dva_fallback_enabled_at || null,
+      enabledById: billing?.dva_fallback_enabled_by || null,
+      enabledByName: dvaEnabledByName,
+      billingMethod: billing?.billing_method || 'mandate',
+      mandateStatus: billing?.mandate_status || 'none',
     },
   }
 }
@@ -313,6 +347,58 @@ export async function getMandateBillingSummary(schoolId: string): Promise<Mandat
       failureReason: c.failure_reason,
     })),
   }
+}
+
+export interface SchoolOffMandateRow {
+  id: string
+  name: string
+  // Which rail the school is on instead of an active auto-debit mandate, for a
+  // scannable outreach list.
+  rail: string
+}
+
+// Schools whose billing is connected but that are NOT on an active auto-debit
+// mandate — the retention rail. These are the schools the owner reaches out to.
+// A school counts as off-mandate when it is on the bank-transfer (DVA) rail, or
+// its mandate was deactivated, or its mandate is not active. Schools that have
+// not connected billing yet are excluded (nothing to chase). platform_billing
+// is read with '*' so the newer billing_method / mandate_deactivated_at columns
+// are read defensively and a missing column never crashes the overview.
+export async function getSchoolsNotOnMandate(): Promise<SchoolOffMandateRow[]> {
+  const supabase = createServiceRoleClient()
+
+  const [{ data: schools }, { data: billing }] = await Promise.all([
+    supabase.from('schools').select('id, name'),
+    supabase.from('platform_billing').select('*'),
+  ])
+
+  const nameBySchool = new Map((schools || []).map(s => [s.id, s.name as string]))
+
+  const rows: SchoolOffMandateRow[] = []
+  for (const b of billing || []) {
+    // Only chase schools that have actually connected billing.
+    if (!b.billing_connected_at) continue
+
+    const method = b.billing_method || 'mandate'
+    const mandateStatus = b.mandate_status || 'none'
+    const deactivated = !!b.mandate_deactivated_at
+    const onActiveMandate = method === 'mandate' && mandateStatus === 'active' && !deactivated
+    if (onActiveMandate) continue
+
+    const name = nameBySchool.get(b.school_id)
+    if (!name) continue
+
+    const rail =
+      method === 'dva'
+        ? 'Bank transfer (DVA)'
+        : deactivated
+          ? 'Mandate deactivated'
+          : `Mandate ${mandateStatus}`
+
+    rows.push({ id: b.school_id, name, rail })
+  }
+
+  return rows.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export async function getAllSchoolsCostToServe(): Promise<Map<string, SchoolUsage>> {
