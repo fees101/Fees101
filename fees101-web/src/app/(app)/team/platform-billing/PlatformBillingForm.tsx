@@ -48,7 +48,7 @@ export default function PlatformBillingForm({
     justSwitched
       ? 'Switched to automatic bank debit. The mandate becomes chargeable in a few hours.'
       : cardFallbackNotice
-        ? 'Your setup fee was received. That card couldn’t be used for automatic monthly debit, so you’re set up to pay by bank transfer for now. To skip manual transfers each month, you can enable automatic debit below — try again with a different card or your bank.'
+        ? 'Your setup payment went through — but that card can’t be used for automatic monthly billing, so we’ve set up bank transfer as a backup. For hands-off billing (so you never risk missing a payment), add a card that can be charged automatically, or your bank, using the option below.'
         : null,
   )
 
