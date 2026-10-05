@@ -47,17 +47,12 @@ export default async function ManualPaymentsPage() {
 
   const feature = await getManualPaymentFeatureState()
 
-  // Fees101 has not turned the feature on for this school.
+  // Fees101 has not turned the feature on for this school. Keep it fully hidden —
+  // a school shouldn't learn the feature exists before it asks for it — so send
+  // them back to the Approvals queue rather than showing a "reach out" notice
+  // that advertises it. The Manual payments tab is likewise hidden until enabled.
   if (!feature.enabled) {
-    return (
-      <>
-        <WorkspaceHeader workspaceKey="discounts" title="Approvals" />
-        <Notice title="Manual payment entry is not available yet">
-          Recording cash, POS and cheque payments is turned on for a school by Fees101. It is not switched on
-          for this school. If you need it, reach out and we will set it up.
-        </Notice>
-      </>
-    )
+    redirect('/discounts')
   }
 
   // Enabled, but the owner has not accepted the current responsibility note.

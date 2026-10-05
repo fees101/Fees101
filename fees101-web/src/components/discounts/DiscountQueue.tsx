@@ -92,6 +92,10 @@ interface Props {
   // When false, decision controls are hidden (see-discounts without
   // approve-discounts). The server actions enforce this regardless.
   canApprove: boolean
+  // Whether Fees101 has turned the manual-payment feature on for this school.
+  // The Manual payments tab stays fully hidden until then, so a school never
+  // learns the feature exists before it asks for it.
+  manualEnabled: boolean
 }
 
 interface RecurringGroup {
@@ -104,15 +108,17 @@ interface RecurringGroup {
   costInk: string
 }
 
-export default function DiscountQueue({ requests, recurring, decided, canApprove }: Props) {
+export default function DiscountQueue({ requests, recurring, decided, canApprove, manualEnabled }: Props) {
   const router = useRouter()
   const { permissions, isOwner } = usePermissions()
 
   // The Approvals workspace also owns the Manual payments surface. It lives at
   // its own route, so it's offered here as a header tab that navigates there
   // (alongside the in-place Queue/Recurring toggle) rather than an in-place
-  // view — shown only to staff who can reach it.
-  const canManual = isOwner || permissions.has('record-manual-payments') || permissions.has('approve-manual-payments')
+  // view — shown only to staff who can reach it AND only once Fees101 has
+  // enabled the feature for this school (gated server-side too). Kept hidden
+  // until then so a school never sees the feature advertised before it asks.
+  const canManual = manualEnabled && (isOwner || permissions.has('record-manual-payments') || permissions.has('approve-manual-payments'))
 
   // Always lands on Queue — the workspace's job is "what needs a decision",
   // not "what's already running", even when the queue happens to be empty.
