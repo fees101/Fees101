@@ -12,6 +12,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 import Toast from '@/components/ui/Toast'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import ChargeOnTerminalButton from '@/components/payments/ChargeOnTerminalButton'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import type { DiscountSettings } from '@/lib/queries/discounts'
 
@@ -304,6 +305,16 @@ export default function InvoiceDetailLayout({ invoice, discountSettings, autoApp
             >
               {sending ? 'Sending...' : sendLabel}
             </button>
+          )}
+
+          {invoice.status !== 'cancelled' && !invoice.carriedForwardToCycleName && invoice.outstandingAmount > 0 && (
+            <ChargeOnTerminalButton
+              studentId={invoice.studentId}
+              studentName={`${invoice.studentFirstName} ${invoice.studentLastName}`.trim()}
+              invoiceId={invoice.id}
+              outstanding={invoice.outstandingAmount}
+              triggerClassName="m-btn m-btn-ink w-full justify-start"
+            />
           )}
 
           <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="m-btn m-btn-ink w-full justify-start">

@@ -40,7 +40,7 @@ WITH (security_invoker = true) AS
     f.primary_parent_name                      AS parent_name,
     p.amount                                   AS amount,
     p.provider_reference::text                 AS reference,
-    NULL::text                                 AS channel,
+    p.method::text                             AS channel,
     p.match_status                             AS status,
     ru.name                                    AS actor_name
   FROM public.payments p

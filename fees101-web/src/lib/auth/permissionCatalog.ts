@@ -57,6 +57,8 @@ export const PERMISSIONS: PermissionDef[] = [
     description: 'Record a cash, POS or cheque payment that did not come through the automatic payment pipeline. Entries are applied immediately when recorded by the owner, otherwise they wait for an approver.' },
   { key: 'approve-manual-payments', group: 'DO', label: 'Approve manual payments',
     description: 'Approve or reject recorded cash/POS/cheque payments, and reverse ones already approved.' },
+  { key: 'charge-on-terminal', group: 'DO', label: 'Charge on card terminal',
+    description: 'Start an in-person card/USSD/transfer payment on the school’s Paystack Terminal from a student’s invoice. The amount is confirmed on the device and recorded automatically — nothing is keyed in by hand.' },
   { key: 'run-year-end', group: 'DO', label: 'Run year-end rollover',
     description: 'View and run the year-end rollover: close the year, promote students, and open the new session.' },
   { key: 'manage-school-profile', group: 'DO', label: 'Manage school profile',

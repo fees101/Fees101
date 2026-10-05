@@ -42,9 +42,6 @@ export default async function ActivityPage({ searchParams }: PageProps) {
   const sp = await searchParams
   const page = Math.max(1, parseInt(sp.page || '1', 10) || 1)
   const perPage = parseInt(sp.perPage || '50', 10) || 50
-  // App Shell defaults the Record to the last 7 days; "Term" scopes to the
-  // active billing cycle and "All" removes the date bound entirely.
-  const range: '7' | 'term' | 'all' = sp.range === 'all' ? 'all' : sp.range === 'term' ? 'term' : '7'
 
   // The active term's start date backs the "Term" preset.
   const { data: activeCycle } = await ctx.supabase
@@ -56,6 +53,12 @@ export default async function ActivityPage({ searchParams }: PageProps) {
     .limit(1)
     .single()
   const termFrom = activeCycle?.start_date ? String(activeCycle.start_date).slice(0, 10) : ''
+
+  // Default the Record to the active TERM (a school's natural window) rather than
+  // the last 7 days. An explicit ?range= always wins; with no active term to
+  // scope to, fall back to 7 days so the feed still has a sensible bound.
+  const range: '7' | 'term' | 'all' =
+    sp.range === 'all' ? 'all' : sp.range === '7' ? '7' : sp.range === 'term' ? 'term' : termFrom ? 'term' : '7'
 
   const from = range === 'all' ? undefined : range === 'term' ? termFrom || undefined : isoDaysAgo(7)
 

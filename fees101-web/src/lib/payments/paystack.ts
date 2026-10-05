@@ -16,7 +16,7 @@
 // student. Amounts are in kobo on the wire and converted to naira here.
 
 import crypto from 'crypto'
-import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction, DVATransactionSummary } from './types'
+import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction, DVATransactionSummary, TerminalInfo, CreatePaymentRequestParams, PaymentRequestResult, PushEventResult, TerminalEventStatus } from './types'
 import { isProviderDownError } from './providerErrors'
 import { fetchWithRateLimitRetry } from '@/lib/http/rateLimitedFetch'
 
@@ -206,5 +206,92 @@ export class PaystackProvider implements PaymentProvider {
     const headerBuf = Buffer.from(signatureHeader || '', 'utf8')
     if (computedBuf.length !== headerBuf.length) return false
     return crypto.timingSafeEqual(computedBuf, headerBuf)
+  }
+
+  // --- In-person card POS (Paystack Terminal) ---
+  // NOTE: unlike the DVA methods above, these were written from the Terminal API
+  // docs, NOT verified against a live device (we don't have one yet). The exact
+  // field a completed terminal charge echoes back is confirmed once a developer
+  // device arrives (terminal@paystack.com); until then createPaymentRequest
+  // captures every identifier Paystack returns and the webhook matches broadly.
+  supportsTerminal(): boolean {
+    return true
+  }
+
+  // GET /terminal — the school's registered devices, mapped defensively since
+  // Paystack's list shape has varied (id vs terminal_id, serial_number vs serial).
+  async listTerminals(): Promise<TerminalInfo[]> {
+    const { json } = await paystackRequest(this.creds.secretKey, 'GET', '/terminal?perPage=100')
+    if (!json?.status) return []
+    return (json.data || []).map((t: any) => ({
+      terminalId: String(t.terminal_id ?? t.id ?? ''),
+      serial: t.serial_number ?? t.serial ?? undefined,
+      name: t.name ?? t.device_name ?? undefined,
+      status: t.status ?? undefined,
+    })).filter((t: TerminalInfo) => t.terminalId)
+  }
+
+  // POST /paymentrequest — creates the invoice the device will collect against.
+  // Paystack mints its own request_code / offline_reference; we store both plus
+  // the id and match an inbound charge against any of them. Amounts are kobo.
+  async createPaymentRequest(params: CreatePaymentRequestParams): Promise<PaymentRequestResult> {
+    const body: Record<string, unknown> = {
+      amount: Math.round(params.amount * 100),
+      description: params.description || 'School fees',
+      currency: 'NGN',
+      // We confirm on-screen in-app and send our own receipt; no Paystack email.
+      send_notification: false,
+    }
+    if (params.customerCode) body.customer = params.customerCode
+    if (params.metadata) body.metadata = params.metadata
+    if (params.lineItems && params.lineItems.length > 0) {
+      body.line_items = params.lineItems.map((li) => ({
+        name: li.name,
+        amount: Math.round(li.amount * 100),
+      }))
+    }
+
+    const { json } = await paystackRequest(this.creds.secretKey, 'POST', '/paymentrequest', body)
+    if (!json?.status || !json?.data?.id) {
+      throw new Error(`Paystack createPaymentRequest failed: ${json?.message || 'unknown error'}`)
+    }
+    const d = json.data
+    return {
+      paymentRequestId: String(d.id),
+      offlineReference: String(d.offline_reference ?? d.request_code ?? d.id),
+      requestCode: d.request_code ? String(d.request_code) : undefined,
+    }
+  }
+
+  // POST /terminal/:id/event — queues the payment request to the device. A 200
+  // means queued, not received; getTerminalEventStatus confirms delivery.
+  async pushEventToTerminal(
+    terminalId: string,
+    params: { paymentRequestId: string; offlineReference: string }
+  ): Promise<PushEventResult> {
+    const { json } = await paystackRequest(
+      this.creds.secretKey,
+      'POST',
+      `/terminal/${encodeURIComponent(terminalId)}/event`,
+      {
+        type: 'invoice',
+        action: 'process',
+        data: { id: params.paymentRequestId, reference: params.offlineReference },
+      }
+    )
+    if (!json?.status) {
+      throw new Error(`Paystack pushEventToTerminal failed: ${json?.message || 'unknown error'}`)
+    }
+    return { eventId: json.data?.id ? String(json.data.id) : null, queued: true }
+  }
+
+  // GET /terminal/:id/event/:eventId — did the device actually receive the event.
+  async getTerminalEventStatus(terminalId: string, eventId: string): Promise<TerminalEventStatus> {
+    const { json } = await paystackRequest(
+      this.creds.secretKey,
+      'GET',
+      `/terminal/${encodeURIComponent(terminalId)}/event/${encodeURIComponent(eventId)}`
+    )
+    return { delivered: json?.data?.delivered === true }
   }
 }

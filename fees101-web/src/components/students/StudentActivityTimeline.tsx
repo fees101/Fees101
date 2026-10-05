@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatPaymentMethod } from '@/lib/paymentMethod'
+import { paymentChannelLabel } from '@/lib/paymentMethod'
 import { formatDateTime } from '@/lib/format/date'
 
 interface StudentActivityTimelineProps {
@@ -55,7 +55,10 @@ export default async function StudentActivityTimeline({
       id: `payment-${payment.id}`,
       type: 'payment',
       description: `${formatNaira(Number(payment.amount))} received from ${parentName}`,
-      detail: payment.provider_reference ? `Receipt #${payment.provider_reference}` : formatPaymentMethod(payment.method),
+      // Lead with the channel (how it was paid), then the receipt reference.
+      detail: [paymentChannelLabel(payment.method), payment.provider_reference ? `Receipt #${payment.provider_reference}` : null]
+        .filter(Boolean)
+        .join(' · '),
       timestamp: payment.paid_at,
     })
   })

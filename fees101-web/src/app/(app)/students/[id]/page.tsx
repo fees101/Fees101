@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
 import StudentActivityTimeline from '@/components/students/StudentActivityTimeline'
 import GenerateInvoiceButton from '@/components/students/GenerateInvoiceButton'
@@ -95,7 +96,6 @@ export default async function StudentDetailPage({ params }: PageProps) {
   }
 
   const termLabel = (student.currentTermName || 'This term').toUpperCase()
-  const invLabel = inv?.invoiceNumber ? ` · ${inv.invoiceNumber}` : ''
 
   // Record panel — status reads as uppercase colour-carrying text, never green
   // (green is reserved for money that arrived, per the design gate).
@@ -197,7 +197,20 @@ export default async function StudentDetailPage({ params }: PageProps) {
             <div className="m-panel">
               <div className="flex items-baseline justify-between gap-3 mb-1">
                 <h3 className="text-[22px] font-extrabold">This term</h3>
-                <span className="text-[12px] tracking-[0.08em] text-[var(--color-neutral-700)]">{termLabel}{invLabel}</span>
+                <span className="text-[12px] tracking-[0.08em] text-[var(--color-neutral-700)]">
+                  {termLabel}
+                  {inv?.invoiceNumber && (
+                    <>
+                      {' · '}
+                      <Link
+                        href={`/money/invoices/${inv.id}`}
+                        className="underline underline-offset-2 hover:text-[var(--color-ink)]"
+                      >
+                        {inv.invoiceNumber}
+                      </Link>
+                    </>
+                  )}
+                </span>
               </div>
               <p className="text-[14px] text-[var(--color-neutral-800)] mb-3.5">
                 What was billed, and what has been paid against it.

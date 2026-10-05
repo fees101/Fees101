@@ -8,6 +8,7 @@
 
 import { getPaymentProviderForSchool } from './getProvider'
 import { applyProviderPayment } from './applyPayment'
+import { expireStaleTerminalRequests } from './terminal'
 
 export interface ReconcileResult {
   schoolId: string
@@ -15,16 +16,26 @@ export interface ReconcileResult {
   familiesChecked: number
   transactionsChecked: number
   applied: number
+  terminalRequestsExpired: number
   errors: string[]
 }
 
 export async function reconcileSchool(schoolId: string, supabase: any): Promise<ReconcileResult> {
-  const result: ReconcileResult = { schoolId, studentsChecked: 0, familiesChecked: 0, transactionsChecked: 0, applied: 0, errors: [] }
+  const result: ReconcileResult = { schoolId, studentsChecked: 0, familiesChecked: 0, transactionsChecked: 0, applied: 0, terminalRequestsExpired: 0, errors: [] }
 
   const provider = await getPaymentProviderForSchool(schoolId, supabase)
   if (!provider) {
     result.errors.push('No payment provider configured for this school')
     return result
+  }
+
+  // Expire any in-person terminal charges that were pushed but never completed
+  // (parent walked away, device went offline) so their rows don't sit "waiting"
+  // forever. Independent of the DVA sweep below — runs even if there are no DVAs.
+  try {
+    result.terminalRequestsExpired = await expireStaleTerminalRequests(schoolId, supabase)
+  } catch (err: any) {
+    result.errors.push(`terminal expiry sweep failed: ${err?.message || 'unknown error'}`)
   }
 
   const { data: students } = await supabase

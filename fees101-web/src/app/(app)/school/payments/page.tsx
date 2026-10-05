@@ -2,6 +2,7 @@ import { headers } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
 import SettingsPageShell from '@/components/settings/SettingsPageShell'
 import PaymentSettingsForm from '@/components/settings/PaymentSettingsForm'
+import TerminalsSettingsPanel from '@/components/settings/TerminalsSettingsPanel'
 import RealtimeRefresh from '@/components/realtime/RealtimeRefresh'
 import AccessDenied from '@/components/layout/AccessDenied'
 import { getPaymentSettings } from '@/lib/queries/payments'
@@ -47,6 +48,7 @@ export default async function PaymentsSettingsPage() {
         />
       )}
       <PaymentSettingsForm settings={settings} webhookBase={webhookBase} actorName={actor?.name || 'You'} />
+      {settings.provider === 'paystack' && <TerminalsSettingsPanel />}
     </SettingsPageShell>
   )
 }

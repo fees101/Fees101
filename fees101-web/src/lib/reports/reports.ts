@@ -3,6 +3,7 @@ import { getAuthContext } from '@/lib/auth/permissions'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { actionLabel } from '@/lib/audit/auditLogLabels'
 import { FINANCIAL_REPORT_TYPES } from '@/lib/auth/permissionCatalog'
+import { formatPaymentMethod } from '@/lib/paymentMethod'
 import { toCSV, type CsvValue } from './csv'
 
 // ---------------------------------------------------------------------------
@@ -161,7 +162,7 @@ async function buildCollections(supabase: any, schoolId: string, p: ReportParams
     const s = students.get(pay.student_id)
     return [
       (pay.paid_at || '').slice(0, 10), s?.admission_number ?? '', name(s),
-      className.get(s?.class_id) ?? '', money(pay.amount), pay.method ?? '',
+      className.get(s?.class_id) ?? '', money(pay.amount), pay.method ? formatPaymentMethod(pay.method) : '',
       pay.sender_name ?? '', pay.match_status ?? '', pay.receipt_number_external ?? '', pay.notes ?? '',
     ]
   })

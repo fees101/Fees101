@@ -20,6 +20,7 @@ import { sendInvoiceUpdateNotice } from '@/app/(app)/money/invoices/actions'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
 import Toast from '@/components/ui/Toast'
+import ChargeOnTerminalButton from '@/components/payments/ChargeOnTerminalButton'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import { formatDate } from '@/lib/format/date'
 import type { ReactNode } from 'react'
@@ -475,6 +476,16 @@ export default function StudentFeesTab({ data, moveCreditSlot }: Props) {
                 )}
               </div>
             </div>
+            {existingInvoice.outstandingAmount > 0 && (
+              <div className="mt-3">
+                <ChargeOnTerminalButton
+                  studentId={data.student.id}
+                  studentName={`${data.student.firstName} ${data.student.lastName}`.trim()}
+                  invoiceId={existingInvoice.id}
+                  outstanding={existingInvoice.outstandingAmount}
+                />
+              </div>
+            )}
           </div>
         )}
 

@@ -1,5 +1,6 @@
 import { getAuthContext } from '@/lib/auth/permissions'
 import { getCollectedForDateRange } from './fees'
+import { paymentChannelLabel } from '@/lib/paymentMethod'
 
 export async function getDashboardKPIs() {
   const ctx = await getAuthContext()
@@ -292,6 +293,7 @@ export async function getRecentActivity(limit: number = 7, showFinancials: boole
         id,
         amount,
         paid_at,
+        method,
         students!inner(
           first_name,
           last_name,
@@ -341,11 +343,14 @@ export async function getRecentActivity(limit: number = 7, showFinancials: boole
     // the transfer paid for, same "type · detail" grammar as the invoice line
     // below, so a reader never has to open the row to know who it was for.
     const forChild = studentName ? ` · for ${studentName}` : ''
+    // Say how the money arrived (Transfer / Card terminal / Cash…) on-screen,
+    // not just in the CSV — a reader shouldn't have to guess the channel.
+    const channel = paymentChannelLabel((p as { method?: string }).method)
     return {
       id: p.id,
       type: 'payment' as const,
       name: parentName,
-      line: (showFinancials ? `₦${Number(p.amount).toLocaleString('en-NG')} received` : 'Payment received') + forChild,
+      line: (showFinancials ? `₦${Number(p.amount).toLocaleString('en-NG')} received` : 'Payment received') + forChild + (channel ? ` · ${channel}` : ''),
       tone: 'ledger' as const,
       timestamp: p.paid_at,
     }

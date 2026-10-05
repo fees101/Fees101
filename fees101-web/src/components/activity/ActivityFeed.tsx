@@ -111,10 +111,13 @@ export default function ActivityFeed({
 
   function navigate(patch: Record<string, string>) {
     const params = new URLSearchParams({ page: '1', perPage: String(perPage), category, range, search, ...patch })
+    // The Record defaults to the active term (or 7 days when there's no term to
+    // scope to); drop that default from the URL so a clean link stays clean.
+    const defaultRange = termFrom ? 'term' : '7'
     for (const key of Array.from(params.keys())) {
       const v = params.get(key)
-      // Drop defaults so the URL stays clean: category "all", range "7", empties.
-      if (!v || (key === 'category' && v === 'all') || (key === 'range' && v === '7') || (key === 'perPage' && v === '50')) params.delete(key)
+      // Drop defaults so the URL stays clean: category "all", the default range, empties.
+      if (!v || (key === 'category' && v === 'all') || (key === 'range' && v === defaultRange) || (key === 'perPage' && v === '50')) params.delete(key)
     }
     router.push(params.toString() ? `${pathname}?${params.toString()}` : pathname)
   }

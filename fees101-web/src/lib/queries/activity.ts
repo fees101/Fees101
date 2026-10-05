@@ -1,4 +1,5 @@
 import { getAuthContext } from '@/lib/auth/permissions'
+import { paymentChannelLabel } from '@/lib/paymentMethod'
 import {
   isActivityCategory,
   eventTypeLabel,
@@ -78,6 +79,7 @@ function describe(row: FeedRow): { title: string; subtitle: string } {
         title: 'Payment received',
         subtitle:
           `From ${parent} for ${student}${cls}` +
+          (row.channel ? ` · ${paymentChannelLabel(row.channel)}` : '') +
           (ref ? ` · Receipt #${ref}` : '') +
           (row.actor_name ? ` · Recorded by ${row.actor_name}` : ' · Automatic'),
       }

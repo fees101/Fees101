@@ -34,6 +34,10 @@ interface ApplyPaymentParams {
   providerReference: string
   providerTransactionId: string
   paidAt: string
+  // Ledger method stamped on the payments row(s). Defaults to the DVA/transfer
+  // rail; the in-person Terminal rail passes 'provider_terminal' so a card
+  // payment taken at the desk is distinguishable from a bank transfer.
+  method?: string
 }
 
 // Looks up which owner (a single student, or a family) a provider's
@@ -65,6 +69,65 @@ export async function resolveDvaOwner(
   return null
 }
 
+// Matches an inbound charge to an open terminal_payment_requests row (an
+// in-person Terminal charge the bursar pushed). A completed terminal charge
+// carries one of several identifiers depending on the device/event; we stored
+// all of them on the row at push time and match the webhook against any —
+// our own reference, Paystack's offline_reference, request_code, or the
+// payment-request id. Returns the row so the processor can both apply the
+// money (by the row's student/family, via the normal waterfall) and flip the
+// row to 'paid' for the UI. Tried BEFORE the DVA customer_code fallback so a
+// terminal charge that also happens to carry a known customer_code is still
+// recognised as a terminal payment and its row is closed out.
+export async function resolveTerminalPaymentRequest(
+  supabase: any,
+  schoolId: string,
+  candidates: { reference?: string; offlineReference?: string; requestCode?: string; paymentRequestId?: string }
+): Promise<{
+  id: string
+  studentId: string | null
+  familyId: string | null
+  invoiceId: string | null
+  status: string
+  amount: number
+} | null> {
+  // Look each key up with a scoped equality query (never a query string built
+  // from webhook-supplied values). Strongest/unique key first — our own
+  // `reference` — then Paystack's echoed identifiers. First hit wins. Every
+  // lookup is pinned to this school, so a signature-valid payload can never
+  // reach another school's row.
+  const lookups: Array<[string, string | undefined]> = [
+    ['reference', candidates.reference],
+    ['offline_reference', candidates.offlineReference],
+    ['request_code', candidates.requestCode],
+    ['paystack_payment_request_id', candidates.paymentRequestId],
+  ]
+
+  for (const [column, value] of lookups) {
+    if (!value) continue
+    const { data: row } = await supabase
+      .from('terminal_payment_requests')
+      .select('id, student_id, family_id, invoice_id, status, amount')
+      .eq('school_id', schoolId)
+      .eq(column, value)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (row) {
+      return {
+        id: row.id,
+        studentId: row.student_id ?? null,
+        familyId: row.family_id ?? null,
+        invoiceId: row.invoice_id ?? null,
+        status: row.status,
+        amount: Number(row.amount) || 0,
+      }
+    }
+  }
+
+  return null
+}
+
 export interface AppliedInvoicePayment {
   invoiceId: string
   paymentId: string
@@ -80,6 +143,7 @@ export async function applyProviderPayment(
     supabase, schoolId, studentId, familyId, amountPaid, settlementAmount,
     provider, providerReference, providerTransactionId, paidAt,
   } = params
+  const method = params.method || 'provider_dva'
 
   if ((studentId && familyId) || (!studentId && !familyId)) {
     throw new Error('applyProviderPayment requires exactly one of studentId or familyId')
@@ -265,13 +329,18 @@ export async function applyProviderPayment(
         p_school_id: schoolId,
         p_student_id: invoice.student_id,
         p_amount_available: remaining,
-        p_method: 'provider_dva',
+        p_method: method,
         p_provider: provider,
         p_provider_reference: providerReference,
         p_provider_transaction_id: providerTransactionId,
         p_paid_at: paidAt,
         p_notes: notes, // cryptographically verified — no manual review needed
         p_provider_fee: nextProviderFee(),
+        // Pass this explicitly (null = automated, no staff attribution) so the
+        // call resolves to the 12-arg apply_payment_to_invoice. db/manual_payment_entry.sql
+        // added that overload alongside the older 11-arg one; an 11-arg call now
+        // matches BOTH and Postgres refuses ("could not choose the best candidate").
+        p_recorded_by: null,
       })
       .single()
 
@@ -443,13 +512,15 @@ export async function applyProviderPayment(
       p_school_id: schoolId,
       p_student_id: creditTargetStudentId,
       p_amount: remaining,
-      p_method: 'provider_dva',
+      p_method: method,
       p_provider: provider,
       p_provider_reference: providerReference,
       p_provider_transaction_id: providerTransactionId,
       p_paid_at: paidAt,
       p_notes: `${notes}; overpayment applied to student credit balance`,
       p_provider_fee: nextProviderFee(),
+      // Same overload disambiguation as apply_payment_to_invoice above.
+      p_recorded_by: null,
     })
 
     if (error) throw new Error(`Failed to record credit-balance payment: ${error.message}`)
