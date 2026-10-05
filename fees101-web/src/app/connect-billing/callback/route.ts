@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthContext } from '@/lib/auth/permissions'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
-import { verifyTransaction } from '@/lib/platformBilling/paystack'
+import { verifyTransaction, provisionPlatformDva } from '@/lib/platformBilling/paystack'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { FREE_DAYS } from '@/lib/platformBilling/config'
 
@@ -56,8 +56,101 @@ export async function GET(request: NextRequest) {
     return back('payment_failed')
   }
 
-  const authCode = tx.authorization?.authorization_code || null
+  const auth = tx.authorization
+  const authCode = auth?.authorization_code || null
+  // Paystack confirmed (2026-10-05): a card authorization's reusability is NOT
+  // guaranteed by its scheme (Visa/Mastercard/Verve) — it's the `reusable` flag
+  // on the returned authorization, and it depends on the issuer + its tokenisation.
+  // A NON-reusable authorization cannot be charged again, so storing it as a
+  // mandate would make every recurring debit fail silently (caught only much later
+  // by the dunning ladder). Only treat it as a usable mandate when it is actually
+  // reusable. Otherwise the setup fee is still paid, so we put the school on the
+  // DVA (bank-transfer) rail for their monthly bills rather than a dead mandate.
+  const mandateUsable = !!authCode && auth?.reusable === true
 
+  // The setup-fee charge is recorded once, on whichever rail we land on.
+  const recordSetupCharge = () =>
+    svc.from('platform_billing_charges').insert({
+      school_id: ctx.schoolId,
+      amount: (tx.amount || 0) / 100,
+      status: 'success',
+      paystack_reference: reference,
+      method: 'direct_debit',
+      paid_at: now,
+      charged_by: 'setup_fee',
+    })
+
+  // FREE_DAYS is imported to keep the free-period contract visible at the point
+  // the clock starts; the accrual engine applies it off onboarding_at.
+  void FREE_DAYS
+
+  if (!mandateUsable) {
+    // Non-reusable card (or, defensively, no auth code): the setup fee was paid on
+    // this card, but it can't be charged monthly. Provision the Fees101 DVA now so
+    // the school has a working monthly rail, and set billing_connected_at directly
+    // (we don't ask for a setup-fee transfer to unlock — unlike the plain DVA
+    // fallback — because the fee was already collected on the card here).
+    const { data: school } = await svc
+      .from('schools').select('name').eq('id', ctx.schoolId).maybeSingle()
+
+    let dva: { reference: string; accountNumber: string; bankName: string; bankCode: string } | null = null
+    try {
+      dva = await provisionPlatformDva({
+        schoolId: ctx.schoolId,
+        schoolName: school?.name || 'School',
+        email: tx.customer?.email || billing.mandate_email || '',
+      })
+    } catch {
+      // Couldn't provision the DVA right now. Still let them in (the fee is paid);
+      // billing settings can re-provision. Do NOT store the dead mandate.
+      dva = null
+    }
+
+    await svc
+      .from('platform_billing')
+      .update({
+        setup_fee_status: 'paid',
+        setup_fee_paid_at: now,
+        billing_method: 'dva',
+        // Explicitly clear any mandate state — this authorization is not reusable.
+        mandate_authorization_code: null,
+        mandate_status: 'none',
+        mandate_authorized_at: null,
+        mandate_email: tx.customer?.email || billing.mandate_email,
+        ...(dva
+          ? {
+              platform_dva_reference: dva.reference,
+              platform_dva_account_number: dva.accountNumber,
+              platform_dva_bank_name: dva.bankName,
+              platform_dva_bank_code: dva.bankCode,
+              platform_dva_created_at: now,
+            }
+          : {}),
+        onboarding_at: billing.onboarding_at || now, // free-period day 0
+        billing_connected_at: now, // the entry-gate flag (setup fee is paid)
+        updated_at: now,
+      })
+      .eq('school_id', ctx.schoolId)
+
+    await recordSetupCharge()
+
+    await logAuditEvent(svc, {
+      schoolId: ctx.schoolId,
+      actorId: ctx.userId,
+      action: 'platform_billing.connected',
+      summary: dva
+        ? 'Connected platform billing via bank transfer (card not reusable for automatic debit)'
+        : 'Connected platform billing; card not reusable for automatic debit — bank-transfer account pending',
+    })
+
+    // Land on billing settings so they immediately see their bank-transfer account
+    // and the reason their card wasn't used for automatic debit.
+    return NextResponse.redirect(
+      new URL('/team/platform-billing?notice=card_fallback', request.url),
+    )
+  }
+
+  // Reusable mandate — the normal automatic-bank-debit path.
   await svc
     .from('platform_billing')
     .update({
@@ -69,32 +162,18 @@ export async function GET(request: NextRequest) {
       billing_method: 'mandate',
       mandate_authorization_code: authCode,
       mandate_email: tx.customer?.email || billing.mandate_email,
-      // A bank/recurring charge that succeeds yields a reusable mandate; it's
-      // 'pending' until Paystack activates it (~3h). If no auth code came back
-      // (shouldn't happen on the recurring flow), leave the mandate unset so a
-      // later step can re-establish it — the setup fee still unlocks the app.
-      mandate_status: authCode ? 'pending' : 'none',
-      mandate_authorized_at: authCode ? now : null,
+      // A reusable bank/recurring authorization is 'pending' until Paystack
+      // activates it (~3h); verifyAuthorizationStatus confirms it before the first
+      // debit 65+ days out.
+      mandate_status: 'pending',
+      mandate_authorized_at: now,
       onboarding_at: billing.onboarding_at || now, // free-period day 0
       billing_connected_at: now, // the entry-gate flag
       updated_at: now,
     })
     .eq('school_id', ctx.schoolId)
 
-  // Record the setup charge in the shared charge history (amount back to naira).
-  await svc.from('platform_billing_charges').insert({
-    school_id: ctx.schoolId,
-    amount: (tx.amount || 0) / 100,
-    status: 'success',
-    paystack_reference: reference,
-    method: 'direct_debit',
-    paid_at: now,
-    charged_by: 'setup_fee',
-  })
-
-  // FREE_DAYS is imported to keep the free-period contract visible at the point
-  // the clock starts; the accrual engine applies it off onboarding_at.
-  void FREE_DAYS
+  await recordSetupCharge()
 
   await logAuditEvent(svc, {
     schoolId: ctx.schoolId,

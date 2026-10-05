@@ -10,6 +10,8 @@ const ERROR_COPY: Record<string, string> = {
   verify_failed: 'We could not confirm the payment with Paystack. Please try again.',
   payment_failed: 'The payment did not go through. No charge was made, please try again.',
   no_mandate: 'Paystack did not return a reusable mandate. Please try again.',
+  card_not_reusable:
+    'That card can’t be used for automatic monthly debit (your bank/card didn’t return a reusable authorization). You’re still set up to pay by bank transfer.',
 }
 
 function fmtDate(iso: string | null): string {
@@ -26,6 +28,7 @@ export default function PlatformBillingForm({
   dvaBankName,
   initialErrorCode,
   justSwitched,
+  cardFallbackNotice,
 }: {
   billingMethod: 'mandate' | 'dva'
   mandateStatus: string | null
@@ -35,13 +38,18 @@ export default function PlatformBillingForm({
   dvaBankName: string | null
   initialErrorCode: string | null
   justSwitched: boolean
+  cardFallbackNotice: boolean
 }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(
     initialErrorCode ? ERROR_COPY[initialErrorCode] || 'Something went wrong. Please try again.' : null,
   )
   const [notice] = useState<string | null>(
-    justSwitched ? 'Switched to automatic bank debit. The mandate becomes chargeable in a few hours.' : null,
+    justSwitched
+      ? 'Switched to automatic bank debit. The mandate becomes chargeable in a few hours.'
+      : cardFallbackNotice
+        ? 'Your setup fee was received. Your card can’t be used for automatic monthly debit, so you’re set up to pay each month by bank transfer to the account below.'
+        : null,
   )
 
   async function handleSwitchToMandate() {

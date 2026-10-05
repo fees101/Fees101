@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: 'Platform billing' }
 export default async function PlatformBillingSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; switched?: string }>
+  searchParams: Promise<{ error?: string; switched?: string; notice?: string }>
 }) {
   const params = await searchParams
   const ctx = await getAuthContext()
@@ -53,6 +53,7 @@ export default async function PlatformBillingSettingsPage({
         dvaBankName={billing.platform_dva_bank_name}
         initialErrorCode={params.error ?? null}
         justSwitched={params.switched === 'mandate'}
+        cardFallbackNotice={params.notice === 'card_fallback'}
       />
     </SettingsPageShell>
   )

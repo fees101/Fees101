@@ -50,9 +50,40 @@ export async function GET(request: NextRequest) {
   if (tx.status !== 'success') return back('payment_failed')
 
   const authCode = tx.authorization?.authorization_code || null
-  if (!authCode) return back('no_mandate')
+  // Only switch to auto-debit when the authorization is actually REUSABLE.
+  // Paystack confirmed (2026-10-05) reusability is issuer/tokenisation-dependent,
+  // not guaranteed by scheme — a non-reusable card can't be charged monthly, so
+  // switching would store a dead mandate and break every future debit. In that
+  // case keep the school on their existing DVA/bank-transfer rail.
+  const mandateUsable = !!authCode && tx.authorization?.reusable === true
 
   const now = new Date().toISOString()
+
+  // The validation charge happened on the card either way — record it for the
+  // charge history / reconciliation before branching.
+  await svc.from('platform_billing_charges').insert({
+    school_id: ctx.schoolId,
+    amount: (tx.amount || 0) / 100,
+    status: 'success',
+    paystack_reference: reference,
+    method: 'direct_debit',
+    paid_at: now,
+    charged_by: 'mandate_switch',
+  })
+
+  if (!mandateUsable) {
+    // No usable mandate — do NOT change billing_method; the school stays on DVA.
+    await logAuditEvent(svc, {
+      schoolId: ctx.schoolId,
+      actorId: ctx.userId,
+      action: 'platform_billing.method_change_failed',
+      summary: authCode
+        ? 'Switch to automatic bank debit failed — card not reusable; remained on bank transfer'
+        : 'Switch to automatic bank debit failed — no mandate returned; remained on bank transfer',
+    })
+    return back(authCode ? 'card_not_reusable' : 'no_mandate')
+  }
+
   await svc
     .from('platform_billing')
     .update({
@@ -65,16 +96,6 @@ export async function GET(request: NextRequest) {
       updated_at: now,
     })
     .eq('school_id', ctx.schoolId)
-
-  await svc.from('platform_billing_charges').insert({
-    school_id: ctx.schoolId,
-    amount: (tx.amount || 0) / 100,
-    status: 'success',
-    paystack_reference: reference,
-    method: 'direct_debit',
-    paid_at: now,
-    charged_by: 'mandate_switch',
-  })
 
   await logAuditEvent(svc, {
     schoolId: ctx.schoolId,
