@@ -184,6 +184,14 @@ So the realistic path:
    days Lagos/Abuja, 7–14 other states; registered Nigerian business only). A live
    device charges real money, so test with a **tiny real amount** (e.g. ₦100) against a
    real invoice, then refund/reconcile. Point the webhook at production.
+   - **✅ Paystack confirmed (2026-10-05) buying a live device and running test
+     transactions on it is allowed** — but the account **can be flagged** by their
+     fraud monitoring if we're careless. Their cautions, so we test cleanly:
+     keep **amounts small**, use **valid real cards** (not invalid/expired/blocked —
+     repeated failed card attempts trip fraud checks), avoid **unusual patterns**
+     (high-volume low-value or rapid successive charges), and keep **customer details
+     consistent** with the business. In short: a few small, real, spaced-out
+     transactions — not a stress-test hammering the device.
 3. **Roll out** once the live round-trip is confirmed.
 
 > Trade-off to accept: the create-request + webhook-reconcile logic is fully testable
