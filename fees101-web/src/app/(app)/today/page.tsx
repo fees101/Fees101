@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { getDashboardKPIs, getCollectionByClass, getRecentActivity } from '@/lib/queries/dashboard'
+import { getDashboardKPIs, getCollectionByClass, getRecentActivity, getNeedsYouAttention } from '@/lib/queries/dashboard'
 import CollectionChart from '@/components/dashboard/CollectionChart'
 import RecentActivity from '@/components/dashboard/RecentActivity'
 import NoWidgetsFallback from '@/components/dashboard/NoWidgetsFallback'
@@ -35,12 +35,14 @@ export default async function Dashboard() {
   const canManageInvoices = can(authCtx, 'manage-invoices')
   const canSeeInvoices = can(authCtx, 'see-invoices')
   const canSeeStudents = can(authCtx, 'see-students')
+  const canManageStudents = can(authCtx, 'manage-students')
+  const canApproveManualPayments = can(authCtx, 'approve-manual-payments')
   const canManagePaymentConfig = can(authCtx, 'manage-payment-config')
   // Whether this viewer holds any permission that can put a row in "Needs you".
   // Drives the empty-state copy: someone who carries queue actions but has a
   // clear queue reads "Nothing is waiting on you", while someone whose role
   // never queues anything is told so plainly rather than shown a blank space.
-  const carriesQueueActions = canSeeInvoices || canManageInvoices || canApproveDiscounts || canSeeStudents
+  const carriesQueueActions = canSeeInvoices || canManageInvoices || canApproveDiscounts || canSeeStudents || canManageStudents || canApproveManualPayments || canSeeActivity
 
   const permissions = authCtx?.permissions ?? new Set<string>()
   const isOwner = authCtx?.isOwner ?? false
@@ -55,10 +57,19 @@ export default async function Dashboard() {
     if (scoped.length === 1) redirect(scoped[0].href)
   }
 
-  const [kpis, classData, activity] = await Promise.all([
+  const [kpis, classData, activity, attention] = await Promise.all([
     getDashboardKPIs(),
     showFinancials ? getCollectionByClass() : Promise.resolve([]),
     canSeeActivity ? getRecentActivity(7, showFinancials) : Promise.resolve([]),
+    // Operational attention items run alongside the finance KPIs. Each sub-query
+    // only fires for a viewer who holds the permission that would let them act
+    // on it, so a limited role never triggers a query it can't use.
+    getNeedsYouAttention({
+      flagged: canSeeActivity,
+      unreachable: canManageStudents,
+      manual: canApproveManualPayments,
+      staleStudents: canSeeInvoices,
+    }),
   ])
 
   const hasTerm = Boolean(kpis.currentCycleName)
@@ -70,6 +81,22 @@ export default async function Dashboard() {
   // green — green is reserved for money that actually arrived.
   const needsYou: NeedsYouItem[] = []
 
+  // Payment anomalies lead the queue: a flagged amount or a terminal mismatch
+  // is the one thing here that can mean money already went wrong, not just money
+  // owed. Count is the unread payment-anomaly notifications; "Mark reviewed" in
+  // the row clears them (admin_notifications read_at), so it self-clears.
+  if (canSeeActivity && attention.flaggedPaymentsCount > 0) {
+    needsYou.push({
+      key: 'flagged-payments',
+      title: `${plural(attention.flaggedPaymentsCount, 'payment')} flagged for review`,
+      subtitle: 'Came through but looked unusual. Check them or mark reviewed.',
+      amount: null,
+      status: 'Review',
+      href: '/today/record?category=payments',
+      reviewFlaggedCount: attention.flaggedPaymentsCount,
+    })
+  }
+
   if (canSeeInvoices && kpis.overdue14Count > 0) {
     needsYou.push({
       key: 'overdue',
@@ -78,6 +105,32 @@ export default async function Dashboard() {
       amount: kpis.overdue14Amount,
       status: 'Overdue',
       href: '/money/invoices',
+    })
+  }
+  // Money on the books against a student who has already left — it won't collect
+  // itself; the invoice wants cancelling or chasing. Clears when the invoice is
+  // cancelled/settled or the student is reactivated.
+  if (canSeeInvoices && attention.staleStudentInvoiceCount > 0) {
+    needsYou.push({
+      key: 'stale-student-invoices',
+      title: `${plural(attention.staleStudentInvoiceCount, 'open invoice')} on students who left`,
+      subtitle: 'Still owing on a withdrawn or graduated student.',
+      amount: attention.staleStudentInvoiceAmount,
+      status: 'Open invoice',
+      href: '/money/invoices',
+    })
+  }
+  // Families nobody can reach: every channel tried most recently failed, so an
+  // invoice or reminder cannot land until their phone/email is fixed. Clears
+  // automatically once a later message to the family delivers.
+  if (canManageStudents && attention.unreachableFamiliesCount > 0) {
+    needsYou.push({
+      key: 'unreachable-families',
+      title: `${attention.unreachableFamiliesCount} ${attention.unreachableFamiliesCount === 1 ? 'family' : 'families'} you can't reach`,
+      subtitle: 'Recent messages failed on every channel. Check their phone and email.',
+      amount: null,
+      status: 'No contact',
+      href: '/students',
     })
   }
   if (canManageInvoices && kpis.needsResendCount > 0) {
@@ -99,6 +152,19 @@ export default async function Dashboard() {
       amount: kpis.pendingApprovalsAmount,
       status: 'Pending',
       href: '/discounts',
+    })
+  }
+  // Manual (cash/POS/cheque) payment requests waiting for an approver — only when
+  // the feature is actually live for the school. Clears as each is approved or
+  // rejected. Sits with the other approvals, below the discount queue.
+  if (canApproveManualPayments && attention.manualPaymentEntryEnabled && attention.manualPaymentsPendingCount > 0) {
+    needsYou.push({
+      key: 'manual-payments',
+      title: `${plural(attention.manualPaymentsPendingCount, 'manual payment')} awaiting approval`,
+      subtitle: 'Cash, POS or cheque entries recorded by staff.',
+      amount: null,
+      status: 'Pending',
+      href: '/discounts/manual-payments',
     })
   }
   if (canManageInvoices && kpis.cycleNeverInvoiced && kpis.currentCycleId) {

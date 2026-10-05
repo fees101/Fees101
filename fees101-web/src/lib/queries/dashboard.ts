@@ -1,6 +1,7 @@
 import { getAuthContext } from '@/lib/auth/permissions'
 import { getCollectedForDateRange } from './fees'
 import { paymentChannelLabel } from '@/lib/paymentMethod'
+import { FLAGGED_PAYMENT_NOTIFICATION_TYPES } from '@/lib/notifications/flaggedPaymentTypes'
 
 export async function getDashboardKPIs() {
   const ctx = await getAuthContext()
@@ -376,4 +377,121 @@ export async function getRecentActivity(limit: number = 7, showFinancials: boole
   return events
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, limit)
+}
+
+// Operational "attention" items for the dashboard's "Needs you" panel that sit
+// alongside the finance ones already derived from getDashboardKPIs. Each count
+// is aggregated (never a per-event list), derived live so it auto-clears when
+// the underlying issue is resolved, and only fetched when the caller passes the
+// matching flag (so a viewer without the permission never triggers the query).
+//
+// Kept separate from getDashboardKPIs so the existing finance queue is
+// untouched; the page runs the two in parallel.
+export interface NeedsYouAttention {
+  // Unread payment-anomaly notifications (suspicious amount / terminal
+  // mismatch / terminal repeat) awaiting a human's eye.
+  flaggedPaymentsCount: number
+  // Families whose latest outbound message on every channel they've been
+  // contacted on failed — nobody at the school can currently reach them.
+  unreachableFamiliesCount: number
+  // Pending manual (cash/POS/cheque) payment requests, and whether the feature
+  // is even live for the school (the row is suppressed when it isn't).
+  manualPaymentsPendingCount: number
+  manualPaymentEntryEnabled: boolean
+  // Still-owing invoices belonging to withdrawn or graduated students — money
+  // that won't collect itself; the invoice wants cancelling or chasing.
+  staleStudentInvoiceCount: number
+  staleStudentInvoiceAmount: number
+}
+
+export async function getNeedsYouAttention(opts: {
+  flagged: boolean
+  unreachable: boolean
+  manual: boolean
+  staleStudents: boolean
+}): Promise<NeedsYouAttention> {
+  const empty: NeedsYouAttention = {
+    flaggedPaymentsCount: 0,
+    unreachableFamiliesCount: 0,
+    manualPaymentsPendingCount: 0,
+    manualPaymentEntryEnabled: false,
+    staleStudentInvoiceCount: 0,
+    staleStudentInvoiceAmount: 0,
+  }
+
+  const ctx = await getAuthContext()
+  if (!ctx || !ctx.schoolId) return empty
+  const { supabase, schoolId } = ctx
+
+  // Unreachable families is computed in SQL (needs_you_unreachable_families,
+  // db/needs_you_unreachable_families.sql) to avoid pulling every message_logs
+  // row into Node. If the migration hasn't been run yet the rpc errors — the
+  // dashboard must not crash, so a missing function just yields a 0 count.
+  const unreachablePromise: Promise<number> = opts.unreachable
+    ? (async () => {
+        try {
+          const { data, error } = await supabase.rpc('needs_you_unreachable_families', { p_school_id: schoolId })
+          if (error) return 0
+          return Number(data) || 0
+        } catch {
+          return 0
+        }
+      })()
+    : Promise.resolve(0)
+
+  // Manual payments: only meaningful when the feature is switched on for the
+  // school, so check the flag first and skip the queue query entirely if off.
+  const manualPromise: Promise<{ enabled: boolean; count: number }> = opts.manual
+    ? (async () => {
+        const { data: school } = await supabase
+          .from('schools')
+          .select('manual_payment_entry_enabled')
+          .eq('id', schoolId)
+          .maybeSingle()
+        if (school?.manual_payment_entry_enabled !== true) return { enabled: false, count: 0 }
+        const { count } = await supabase
+          .from('manual_payment_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', schoolId)
+          .eq('status', 'pending')
+        return { enabled: true, count: count || 0 }
+      })()
+    : Promise.resolve({ enabled: false, count: 0 })
+
+  const [flaggedRes, staleRes, unreachableCount, manual] = await Promise.all([
+    opts.flagged
+      ? supabase
+          .from('admin_notifications')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', schoolId)
+          .is('read_at', null)
+          .in('type', FLAGGED_PAYMENT_NOTIFICATION_TYPES as unknown as string[])
+      : Promise.resolve({ count: 0 } as { count: number | null }),
+    // Open invoices on students who have left (withdrawn/graduated). Bounded by
+    // how many such students carry debt — small in practice; select the amounts
+    // so the money figure and the count come from the same rows.
+    opts.staleStudents
+      ? supabase
+          .from('invoices')
+          .select('outstanding_amount, students!inner(status)')
+          .eq('school_id', schoolId)
+          .neq('status', 'cancelled')
+          .gt('outstanding_amount', 0)
+          .in('students.status', ['withdrawn', 'graduated'])
+      : Promise.resolve({ data: [] as { outstanding_amount: number | null }[] }),
+    unreachablePromise,
+    manualPromise,
+  ])
+
+  const staleRows = (staleRes as { data: { outstanding_amount: number | null }[] | null }).data || []
+  const staleStudentInvoiceAmount = staleRows.reduce((sum, inv) => sum + Number(inv.outstanding_amount || 0), 0)
+
+  return {
+    flaggedPaymentsCount: (flaggedRes as { count: number | null }).count || 0,
+    unreachableFamiliesCount: unreachableCount,
+    manualPaymentsPendingCount: manual.count,
+    manualPaymentEntryEnabled: manual.enabled,
+    staleStudentInvoiceCount: staleRows.length,
+    staleStudentInvoiceAmount,
+  }
 }
