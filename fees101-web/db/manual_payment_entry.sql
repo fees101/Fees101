@@ -599,9 +599,11 @@ begin
 
   -- Read the original payment row. It must be a manual entry this feature wrote
   -- (no provider) -- the structural guarantee that a provider/DVA payment can
-  -- never be reversed through here.
-  select amount, invoice_id, provider into v_pay_amount, v_pay_invoice, v_pay_provider
-  from payments where id = v_orig.payment_id;
+  -- never be reversed through here. Columns are qualified with the table alias
+  -- because this function's RETURNS TABLE declares an OUT column `invoice_id`,
+  -- which would otherwise make a bare `invoice_id` ambiguous here.
+  select p.amount, p.invoice_id, p.provider into v_pay_amount, v_pay_invoice, v_pay_provider
+  from payments p where p.id = v_orig.payment_id;
   if v_pay_provider is not null then
     raise exception 'Only manually recorded payments can be reversed';
   end if;

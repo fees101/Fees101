@@ -82,7 +82,7 @@ export const sections: NavSection[] = [
       },
       {
         href: '/discounts',
-        label: 'Approvals',
+        label: 'Discounts',
         perm: ['see-discounts', 'approve-discounts'],
         icon: ['M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z'],
       },
@@ -191,6 +191,11 @@ export interface Workspace {
   // both live under /school resolve to the more specific one.
   match: string[]
   modes: NavMode[]
+  // A per-school feature flag this workspace is gated on, on top of its modes'
+  // permissions. The sidebar hides the workspace entirely when the flag is off
+  // (see Sidebar's `visible` filter), so a school never sees the feature
+  // advertised before Fees101 turns it on. Undefined = not feature-gated.
+  featureFlag?: 'manualPayments'
 }
 
 export const workspaces: Workspace[] = [
@@ -248,11 +253,28 @@ export const workspaces: Workspace[] = [
   },
   {
     key: 'discounts',
-    label: 'Approvals',
+    label: 'Discounts',
     group: 'Operate',
-    match: ['/discounts', '/discounts/manual-payments'],
+    match: ['/discounts'],
     modes: [
-      { href: '/discounts', label: 'Queue', perm: ['see-discounts', 'approve-discounts'] },
+      // One landing route; its Queue/Recurring sub-toggle is DiscountQueue's own
+      // client state (passed as WorkspaceHeader `tabs`), not separate routes.
+      { href: '/discounts', label: 'Discounts', perm: ['see-discounts', 'approve-discounts'] },
+    ],
+  },
+  {
+    // Lives under /discounts/manual-payments, but is its own sidebar workspace.
+    // Its match prefix is longer than the Discounts workspace's '/discounts', so
+    // activeWorkspaceKey resolves this route to 'manual-payments', not
+    // 'discounts'. Feature-gated: hidden until Fees101 enables manual payments
+    // for the school (featureFlag), and then only for a role with a
+    // manual-payment permission.
+    key: 'manual-payments',
+    label: 'Manual payments',
+    group: 'Operate',
+    match: ['/discounts/manual-payments'],
+    featureFlag: 'manualPayments',
+    modes: [
       { href: '/discounts/manual-payments', label: 'Manual payments', perm: ['record-manual-payments', 'approve-manual-payments'] },
     ],
   },

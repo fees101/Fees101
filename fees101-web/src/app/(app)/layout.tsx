@@ -5,6 +5,7 @@ import { PermissionsProvider } from '@/lib/auth/PermissionsProvider'
 import { ActiveJobsProvider } from '@/lib/jobs/ActiveJobsProvider'
 import { getScheduledDeletion } from '@/lib/dataPrivacy/deletion'
 import { getBillingGateState } from '@/lib/platformBilling/config'
+import { getManualPaymentFeatureState } from '@/lib/queries/manualPayments'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { redirect } from 'next/navigation'
 
@@ -119,6 +120,7 @@ export default async function AppLayout({
     { data: jobRows },
     { count: studentsCount },
     { count: pendingDiscountsCount },
+    manualFeature,
   ] = await Promise.all([
     // Billing entry gate, folded into this batch so it costs no extra serial
     // round-trip (a single PK lookup on platform_billing). A school that hasn't
@@ -169,6 +171,10 @@ export default async function AppLayout({
       .select('id', { count: 'exact', head: true })
       .eq('school_id', schoolId || '')
       .eq('status', 'pending'),
+    // Whether the per-school manual-payment feature is on, deciding if the
+    // Manual payments workspace shows in the rail at all. Defensive: a failure
+    // here must never take down the whole app shell, so default to off.
+    getManualPaymentFeatureState().catch(() => null),
   ])
 
   // Billing gate: a school that hasn't paid the setup fee / connected its
@@ -200,10 +206,12 @@ export default async function AppLayout({
   // invoices generated today), the "N today" the STREAM footer shows.
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
   const todayIso = todayStart.toISOString()
+  const manualPaymentsEnabled = manualFeature?.enabled === true
   const [
     { count: invoicesIssuedCount },
     { count: paymentsTodayCount },
     { count: invoicesTodayCount },
+    { count: pendingManualPaymentsCount },
   ] = await Promise.all([
     currentCycle
       ? supabase
@@ -224,12 +232,23 @@ export default async function AppLayout({
       .select('id', { count: 'exact', head: true })
       .eq('school_id', schoolId || '')
       .gte('generated_at', todayIso),
+    // Pending manual-payment approvals, for the Manual payments workspace count.
+    // Only worth the query when the feature is on (the workspace is hidden
+    // otherwise); defaults to 0 so navCounts never shows a stray figure.
+    manualPaymentsEnabled
+      ? supabase
+          .from('manual_payment_requests')
+          .select('id', { count: 'exact', head: true })
+          .eq('school_id', schoolId || '')
+          .eq('status', 'pending')
+      : Promise.resolve({ count: 0 }),
   ])
 
   const navCounts: Record<string, number> = {
     students: studentsCount || 0,
     money: invoicesIssuedCount || 0,
     discounts: pendingDiscountsCount || 0,
+    'manual-payments': pendingManualPaymentsCount || 0,
   }
   const streamCount = (paymentsTodayCount || 0) + (invoicesTodayCount || 0)
 
@@ -310,6 +329,7 @@ export default async function AppLayout({
               notifications={notifications}
               navCounts={navCounts}
               streamCount={streamCount}
+              manualPaymentsEnabled={manualPaymentsEnabled}
             />
             {/* pt-14 clears the fixed mobile top bar; the desktop rail is in-flow. */}
             <main className="flex-1 min-w-0 pt-14 lg:pt-0">

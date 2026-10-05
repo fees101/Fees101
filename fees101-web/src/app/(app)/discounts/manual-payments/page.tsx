@@ -39,7 +39,7 @@ export default async function ManualPaymentsPage() {
   if (!canRecord && !canApprove) {
     return (
       <>
-        <WorkspaceHeader workspaceKey="discounts" title="Approvals" />
+        <WorkspaceHeader workspaceKey="manual-payments" title="Manual payments" />
         <AccessDenied ctx={ctx} label="record or approve manual payments" />
       </>
     )
@@ -49,8 +49,9 @@ export default async function ManualPaymentsPage() {
 
   // Fees101 has not turned the feature on for this school. Keep it fully hidden —
   // a school shouldn't learn the feature exists before it asks for it — so send
-  // them back to the Approvals queue rather than showing a "reach out" notice
-  // that advertises it. The Manual payments tab is likewise hidden until enabled.
+  // them to the Discounts workspace rather than showing a "reach out" notice
+  // that advertises it. The Manual payments sidebar item is likewise hidden
+  // until enabled.
   if (!feature.enabled) {
     redirect('/discounts')
   }
@@ -60,14 +61,14 @@ export default async function ManualPaymentsPage() {
     if (ctx.isOwner) {
       return (
         <>
-          <WorkspaceHeader workspaceKey="discounts" title="Approvals" />
+          <WorkspaceHeader workspaceKey="manual-payments" title="Manual payments" />
           <ManualPaymentLiabilityGate version={feature.currentVersion} />
         </>
       )
     }
     return (
       <>
-        <WorkspaceHeader workspaceKey="discounts" title="Approvals" />
+        <WorkspaceHeader workspaceKey="manual-payments" title="Manual payments" />
         <Notice title="Manual payment entry is not ready yet">
           The school owner needs to review and accept a short responsibility note before cash, POS and cheque
           payments can be recorded here. Ask them to sign in and open this page.
@@ -83,10 +84,10 @@ export default async function ManualPaymentsPage() {
 
   return (
     <>
-      {/* showTabs is off so the header does not render the Approvals route-mode
-          tabs here: the workspace below owns the single tab bar (Record /
+      {/* showTabs is off so the header does not render the workspace's single
+          route-mode tab here: the workspace below owns the one tab bar (Record /
           Pending / History), avoiding two competing tab bars on this page. */}
-      <WorkspaceHeader workspaceKey="discounts" title="Approvals" showTabs={false} />
+      <WorkspaceHeader workspaceKey="manual-payments" title="Manual payments" showTabs={false} />
       {ctx.schoolId && (
         <RealtimeRefresh
           subscriptions={[{ table: 'manual_payment_requests', filter: `school_id=eq.${ctx.schoolId}` }]}

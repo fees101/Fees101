@@ -26,17 +26,23 @@ interface SidebarProps {
   currentTermId?: string | null
   notifications?: AdminNotificationItem[]
   // Per-workspace counts shown in the nav's right column (keyed by workspace
-  // key: students, money, discounts). A workspace with no entry shows nothing.
+  // key: students, money, discounts, manual-payments). A workspace with no
+  // entry shows nothing.
   navCounts?: Record<string, number>
   // Today's activity total for the RECORD footer ("N today").
   streamCount?: number
+  // Whether Fees101 has turned the manual-payment feature on for this school.
+  // When false, the feature-gated Manual payments workspace is dropped from the
+  // rail entirely (its route stays reachable but hidden), so a school never
+  // sees it advertised before it asks.
+  manualPaymentsEnabled?: boolean
 }
 
 const GROUPS: WorkspaceGroup[] = ['Operate', 'Configure']
 
 export default function Sidebar({
   userName, userEmail, userRole, schoolName, schoolLogoUrl, notifications = [],
-  navCounts = {}, streamCount = 0,
+  navCounts = {}, streamCount = 0, manualPaymentsEnabled = false,
 }: SidebarProps) {
   const pathname = usePathname()
   const { permissions, isOwner } = usePermissions()
@@ -47,8 +53,11 @@ export default function Sidebar({
   useEffect(() => { setMobileOpen(false) }, [pathname])
 
   // Each workspace resolves to the first mode this role can actually reach; a
-  // workspace with no reachable mode drops out of the rail entirely.
+  // workspace with no reachable mode drops out of the rail entirely. A
+  // feature-gated workspace is also dropped when its flag is off, regardless of
+  // permissions.
   const visible = workspaces
+    .filter(ws => ws.featureFlag !== 'manualPayments' || manualPaymentsEnabled)
     .map(ws => ({ ws, href: workspaceLanding(ws, permissions, isOwner) }))
     .filter((w): w is { ws: Workspace; href: string } => w.href !== null)
 

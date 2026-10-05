@@ -16,6 +16,13 @@ import { sendManualPaymentReceipt, sendManualPaymentCorrection } from '@/lib/pay
 // the page chose to render.
 
 const METHODS = new Set(['cash', 'pos', 'cheque', 'other'])
+// A manual entry must carry a real reference as proof it happened (a teller/POS/
+// cheque number or the parent's bank-notification id), and a reversal must carry
+// a real reason — both long enough to be meaningful, not a single junk character.
+// Enforced server-side (here) for everyone, owner included, so it can't be
+// bypassed from the client.
+const MIN_REFERENCE_LENGTH = 3
+const MIN_REVERSAL_REASON_LENGTH = 5
 const DEPOSITS = new Set(['school_bank', 'paystack_dva', 'other'])
 
 type ActionResult = { success: true } | { error: string }
@@ -316,6 +323,10 @@ export async function requestManualPayment(input: RecordManualPaymentInput): Pro
   if (!METHODS.has(input.method)) return { error: 'Choose how the payment was made.' }
   if (!DEPOSITS.has(input.depositedTo)) return { error: 'Choose where the money was deposited.' }
   if (!input.studentId) return { error: 'Choose a student.' }
+  const depositReference = (input.depositReference || '').trim()
+  if (depositReference.length < MIN_REFERENCE_LENGTH) {
+    return { error: `Add a payment reference of at least ${MIN_REFERENCE_LENGTH} characters (a teller, POS, cheque or bank-notification number) as proof of the payment.` }
+  }
 
   const { supabase, schoolId, userId } = ctx
 
@@ -353,7 +364,7 @@ export async function requestManualPayment(input: RecordManualPaymentInput): Pro
       amount,
       method: input.method,
       deposited_to: input.depositedTo,
-      deposit_reference: input.depositReference?.trim() || null,
+      deposit_reference: depositReference,
       notes: input.notes?.trim() || null,
       status: 'pending',
       requested_by: userId,
@@ -472,7 +483,7 @@ export async function requestReversal(originalId: string, reason: string): Promi
   const gate = await featureGateError(ctx)
   if (gate) return { error: gate }
 
-  if (!reason.trim()) return { error: 'A reason is required to reverse a payment.' }
+  if (reason.trim().length < MIN_REVERSAL_REASON_LENGTH) return { error: `Give a reason of at least ${MIN_REVERSAL_REASON_LENGTH} characters for the reversal, so there is a clear record of why.` }
 
   const { supabase, schoolId, userId } = ctx
 
@@ -516,9 +527,20 @@ export async function requestReversal(originalId: string, reason: string): Promi
       requested_by_name: requestedByName,
       reversal_of: originalId,
     })
-    .select('id')
+    .select('id, student_id, invoice_id, amount, method, deposit_reference, notes, requested_by, requested_by_name, requested_at, reversal_of')
     .single()
   if (error || !inserted) return { error: error?.message || 'Could not raise the reversal.' }
+
+  // The owner is the final authority with no one above them to approve, so their
+  // own reversal applies immediately — the same auto-approve the owner already
+  // gets when recording a regular manual payment, kept consistent here. A
+  // non-owner's reversal still waits for a second approver (separation of duties
+  // is exactly what you want when undoing recorded money).
+  if (ctx.isOwner) {
+    const result = await applyApprovedReversal(ctx, inserted as RequestRow)
+    revalidatePath('/discounts/manual-payments')
+    return result
+  }
 
   await logAuditEvent(supabase, {
     schoolId,

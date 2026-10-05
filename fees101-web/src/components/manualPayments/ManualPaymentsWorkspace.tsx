@@ -203,6 +203,7 @@ function RecordForm({ onDone, onError }: { onDone: (msg: string) => void; onErro
     if (!student) { setError('Choose a student first.'); return }
     const amt = Number(amount)
     if (!Number.isFinite(amt) || amt <= 0) { setError('Enter an amount greater than zero.'); return }
+    if (reference.trim().length < 3) { setError('Add a payment reference (at least 3 characters) as proof of the payment — a teller, POS, cheque or bank-notification number.'); return }
 
     setBusy(true)
     const r = await requestManualPayment({
@@ -324,8 +325,8 @@ function RecordForm({ onDone, onError }: { onDone: (msg: string) => void; onErro
           </select>
         </div>
         <div>
-          <label htmlFor="mp-reference" className="m-label">Reference (optional)</label>
-          <input id="mp-reference" className="m-input" value={reference} onChange={e => setReference(e.target.value)} placeholder="Teller, POS or cheque number" />
+          <label htmlFor="mp-reference" className="m-label">Reference</label>
+          <input id="mp-reference" className="m-input" value={reference} onChange={e => setReference(e.target.value)} placeholder="Teller, POS, cheque or bank-notification number" />
         </div>
       </div>
 
@@ -512,7 +513,9 @@ function HistoryList({
   const [error, setError] = useState<string | null>(null)
 
   async function reverse(id: string) {
-    setError(null); setBusyId(id)
+    setError(null)
+    if (reason.trim().length < 5) { setError('Give a reason of at least 5 characters for the reversal.'); return }
+    setBusyId(id)
     const r = await requestReversal(id, reason)
     setBusyId(null)
     if ('error' in r) { setError(r.error); onResult(false, r.error); return }

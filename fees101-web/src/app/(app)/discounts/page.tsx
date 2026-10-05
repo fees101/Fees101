@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 import { getPendingDiscountRequests, getActiveRecurringDiscounts, getRecentDecidedDiscountRequests } from '@/lib/queries/discountRequests'
-import { getManualPaymentFeatureState } from '@/lib/queries/manualPayments'
 import DiscountQueue from '@/components/discounts/DiscountQueue'
 import DiscountsRealtimeRefresh from '@/components/discounts/DiscountsRealtimeRefresh'
 import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
@@ -29,11 +28,10 @@ export default async function DiscountsPage() {
   // server-side in discounts/actions.ts.
   const canApprove = can(ctx, 'approve-discounts')
 
-  const [requests, recurring, decided, manualFeature] = await Promise.all([
+  const [requests, recurring, decided] = await Promise.all([
     getPendingDiscountRequests(),
     getActiveRecurringDiscounts(),
     getRecentDecidedDiscountRequests(),
-    getManualPaymentFeatureState(),
   ])
 
   return (
@@ -44,7 +42,7 @@ export default async function DiscountsPage() {
           toggle is client state, not a route, so it's passed through as
           WorkspaceHeader's `tabs` prop rather than navConfig modes, keeping
           the same merged title-rule-tabs treatment every other page gets. */}
-      <DiscountQueue requests={requests} recurring={recurring} decided={decided} canApprove={canApprove} manualEnabled={manualFeature.enabled} />
+      <DiscountQueue requests={requests} recurring={recurring} decided={decided} canApprove={canApprove} />
     </>
   )
 }
