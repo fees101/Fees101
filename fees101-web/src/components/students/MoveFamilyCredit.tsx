@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { reallocateFamilyCredit } from '@/app/(app)/students/[id]/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import Toast from '@/components/ui/Toast'
+import Select from '@/components/ui/Select'
 
 interface Sibling {
   id: string
@@ -94,28 +95,30 @@ export default function MoveFamilyCredit({ studentId, studentName, studentCredit
               </p>
 
               <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-700)] block mb-1">From</label>
-              <select
+              <Select
                 value={fromId}
-                onChange={e => {
-                  setFromId(e.target.value)
-                  if (e.target.value === toId) setToId(holders.find(h => h.id !== e.target.value)?.id ?? '')
+                onChange={v => {
+                  setFromId(v)
+                  if (v === toId) setToId(holders.find(h => h.id !== v)?.id ?? '')
                 }}
-                className="m-select w-full box-border mb-3"
-              >
-                {holders.map(h => (
-                  <option key={h.id} value={h.id} disabled={h.creditBalance <= 0}>
-                    {h.name} — {formatNaira(h.creditBalance)} available
-                  </option>
-                ))}
-              </select>
+                className="w-full box-border mb-3"
+                ariaLabel="From"
+                options={holders.map(h => ({
+                  value: h.id,
+                  label: `${h.name} — ${formatNaira(h.creditBalance)} available`,
+                  disabled: h.creditBalance <= 0,
+                }))}
+              />
 
               <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-700)] block mb-1">To</label>
-              <select value={toId} onChange={e => setToId(e.target.value)} className="m-select w-full box-border mb-3">
-                <option value="" disabled>Choose a sibling</option>
-                {toOptions.map(h => (
-                  <option key={h.id} value={h.id}>{h.name}</option>
-                ))}
-              </select>
+              <Select
+                value={toId}
+                onChange={setToId}
+                className="w-full box-border mb-3"
+                placeholder="Choose a sibling"
+                ariaLabel="To"
+                options={toOptions.map(h => ({ value: h.id, label: h.name }))}
+              />
 
               <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-700)] block mb-1">Amount</label>
               <input

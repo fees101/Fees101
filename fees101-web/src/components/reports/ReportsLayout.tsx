@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import type { ScopeSession, ScopeCycle, DownloadRow } from '@/lib/reports/reports'
 import ExportCsvButton from './ExportCsvButton'
+import Select from '@/components/ui/Select'
 import { formatDate, formatDateTime } from '@/lib/format/date'
 
 // ---------------------------------------------------------------------------
@@ -224,14 +225,16 @@ export default function ReportsLayout({
             <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-700)]">Download history</h2>
             <label className="flex items-center gap-2 text-sm">
               <span className="text-[var(--color-neutral-700)]">Show</span>
-              <select
+              <Select
                 value={reportType}
-                onChange={e => navigate({ reportType: e.target.value, page: '1' })}
-                className="m-select w-auto"
-              >
-                <option value="all">All reports</option>
-                {visibleReports.map(r => <option key={r.type} value={r.type}>{r.title}</option>)}
-              </select>
+                onChange={v => navigate({ reportType: v, page: '1' })}
+                className="w-auto"
+                ariaLabel="Show reports"
+                options={[
+                  { value: 'all', label: 'All reports' },
+                  ...visibleReports.map(r => ({ value: r.type, label: r.title })),
+                ]}
+              />
             </label>
           </div>
 
@@ -343,19 +346,26 @@ function ScopePanel({ def, sessions, cycles }: { def: ReportDef; sessions: Scope
         <div className="flex-1 min-w-[220px]">
           <span className="m-label">Scope</span>
           {def.scope === 'cycle' && (
-            <select value={cycleScope} onChange={e => setCycleScope(e.target.value)} className="m-select">
-              <option value="all">All history</option>
-              {sessions.length > 0 && (
-                <optgroup label="Whole session">
-                  {sessions.map(s => <option key={s.id} value={`session:${s.id}`}>{s.name}</option>)}
-                </optgroup>
-              )}
-              {cycles.length > 0 && (
-                <optgroup label="Single term">
-                  {cycles.map(c => <option key={c.id} value={`cycle:${c.id}`}>{c.name}</option>)}
-                </optgroup>
-              )}
-            </select>
+            <Select
+              value={cycleScope}
+              onChange={v => setCycleScope(v)}
+              ariaLabel="Scope"
+              options={[
+                { value: 'all', label: 'All history' },
+                ...(sessions.length > 0
+                  ? [
+                      { value: '__grp_session', label: 'Whole session', disabled: true },
+                      ...sessions.map(s => ({ value: `session:${s.id}`, label: s.name })),
+                    ]
+                  : []),
+                ...(cycles.length > 0
+                  ? [
+                      { value: '__grp_cycle', label: 'Single term', disabled: true },
+                      ...cycles.map(c => ({ value: `cycle:${c.id}`, label: c.name })),
+                    ]
+                  : []),
+              ]}
+            />
           )}
 
           {def.scope === 'dates' && (
@@ -366,9 +376,7 @@ function ScopePanel({ def, sessions, cycles }: { def: ReportDef; sessions: Scope
           )}
 
           {def.scope === 'status' && (
-            <select value={status} onChange={e => setStatus(e.target.value)} className="m-select">
-              {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            <Select value={status} onChange={v => setStatus(v)} ariaLabel="Status" options={STATUS_OPTIONS} />
           )}
 
           {def.scope === 'none' && (

@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { addStudent } from '@/app/(app)/students/actions'
+import Select from '@/components/ui/Select'
 
 interface Class {
   id: string
@@ -26,6 +27,7 @@ export default function AddStudentModal({ classes, onClose, onSuccess }: AddStud
   // a generic form-foot error.
   const [admissionConflict, setAdmissionConflict] = useState<{ message: string; id: string; name: string } | null>(null)
   const [showSecondary, setShowSecondary] = useState(false)
+  const [classId, setClassId] = useState('')
   const [confirmFamily, setConfirmFamily] = useState<{ input: Parameters<typeof addStudent>[0]; existingFamilyName: string } | null>(null)
 
   async function submit(input: Parameters<typeof addStudent>[0]) {
@@ -60,12 +62,16 @@ export default function AddStudentModal({ classes, onClose, onSuccess }: AddStud
   // admission number) comes back — exactly when they need it kept to fix it.
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (!classId) {
+      setError('Choose a class for this student.')
+      return
+    }
     const formData = new FormData(e.currentTarget)
     await submit({
       firstName: formData.get('firstName') as string,
       lastName: formData.get('lastName') as string,
       admissionNumber: formData.get('admissionNumber') as string,
-      classId: formData.get('classId') as string,
+      classId,
       admissionDate: formData.get('admissionDate') as string,
       primaryParentName: formData.get('primaryParentName') as string,
       primaryParentPhone: formData.get('primaryParentPhone') as string,
@@ -131,12 +137,14 @@ export default function AddStudentModal({ classes, onClose, onSuccess }: AddStud
 
           <label className="block mb-3.5">
             <span className={labelCls}>Class {req}</span>
-            <select name="classId" required defaultValue="" className="m-select w-full box-border">
-              <option value="" disabled>Select class</option>
-              {classes.map(cls => (
-                <option key={cls.id} value={cls.id}>{cls.name}</option>
-              ))}
-            </select>
+            <Select
+              value={classId}
+              onChange={setClassId}
+              placeholder="Select class"
+              ariaLabel="Class"
+              className="w-full box-border"
+              options={classes.map(cls => ({ value: cls.id, label: cls.name }))}
+            />
             <span className={hintCls}>Sets which fees apply.</span>
           </label>
 

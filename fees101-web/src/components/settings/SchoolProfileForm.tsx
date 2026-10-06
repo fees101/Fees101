@@ -6,6 +6,7 @@ import { SchoolSettings } from '@/lib/queries/school'
 import { updateSchoolGeneralInfo, uploadSchoolLogo, removeSchoolLogo, resendSchoolEmailVerification, startSchoolPhoneVerification, verifySchoolPhoneOtp, resendSchoolPhoneVerification } from '@/app/(app)/school/actions'
 import FieldEditDrawer, { SectionLabel } from '@/components/settings/FieldEditDrawer'
 import Toast from '@/components/ui/Toast'
+import Select from '@/components/ui/Select'
 
 interface Props {
   school: SchoolSettings
@@ -599,12 +600,16 @@ export default function SchoolProfileForm({ school, actorName, emailVerifyResult
             />
             <div className="grid grid-cols-2 gap-2">
               <input type="text" value={draft.addressCity} onChange={e => updateDraft('addressCity', e.target.value)} placeholder="City" className="m-input" />
-              <select value={draft.addressState} onChange={e => updateDraft('addressState', e.target.value)} className="m-select">
-                <option value="">State</option>
-                {NIGERIAN_STATES.map(state => (
-                  <option key={state} value={state}>{state === 'FCT' ? 'FCT (Abuja)' : state}</option>
-                ))}
-              </select>
+              <Select
+                value={draft.addressState}
+                onChange={v => updateDraft('addressState', v)}
+                placeholder="State"
+                ariaLabel="State"
+                options={[
+                  { value: '', label: 'State' },
+                  ...NIGERIAN_STATES.map(state => ({ value: state, label: state === 'FCT' ? 'FCT (Abuja)' : state })),
+                ]}
+              />
             </div>
           </div>
         </FieldEditDrawer>
@@ -627,9 +632,13 @@ export default function SchoolProfileForm({ school, actorName, emailVerifyResult
           <div style={{ marginBottom: 16 }}>
             <SectionLabel>New value</SectionLabel>
             <div className="flex gap-2">
-              <select value={draft.phoneCode} onChange={e => updateDraft('phoneCode', e.target.value)} className="m-select flex-shrink-0 w-[92px]">
-                {COUNTRY_CODES.map(({ code }) => <option key={code} value={code}>{code}</option>)}
-              </select>
+              <Select
+                value={draft.phoneCode}
+                onChange={v => updateDraft('phoneCode', v)}
+                className="flex-shrink-0 w-[92px]"
+                ariaLabel="Country code"
+                options={COUNTRY_CODES.map(({ code }) => ({ value: code, label: code }))}
+              />
               <input
                 type="tel"
                 value={draft.phoneNumber}

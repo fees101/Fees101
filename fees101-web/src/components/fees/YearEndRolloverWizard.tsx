@@ -21,6 +21,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { startYearEndRollover, resumeYearEndRollover, cancelYearEndRollover, getRolloverStatus } from '@/app/(app)/fees/cycles/actions'
 import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
+import Select from '@/components/ui/Select'
 import { PromotionPreviewGroup, PromotionDecision } from '@/lib/yearEnd/promotion'
 import { DraftSession, YearEndFeeCopyPreview, YearEndReadiness } from '@/app/(app)/fees/year-end/actions'
 
@@ -1173,10 +1174,10 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
                                       )}
                                     </td>
                                     <td>
-                                      <select
+                                      <Select
                                         value={decision.action}
-                                        onChange={(e) => {
-                                          const newAction = e.target.value as RowDecision['action']
+                                        onChange={(v) => {
+                                          const newAction = v as RowDecision['action']
                                           // Keep targetClassId honest for the row's own display/state,
                                           // not just the outgoing payload (buildDecisionList strips it
                                           // for non-'promote' anyway) — 'repeat' truly means "stays in
@@ -1186,25 +1187,27 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
                                           else if (newAction === 'repeat') targetClassId = row.currentClassId
                                           setDecision(row.studentId, { action: newAction, targetClassId })
                                         }}
-                                        className="m-select w-auto py-1"
-                                      >
-                                        <option value="promote">Promote</option>
-                                        <option value="repeat">Repeat class</option>
-                                        <option value="graduate">Graduate / exit</option>
-                                      </select>
+                                        className="w-auto py-1"
+                                        ariaLabel="Decision"
+                                        options={[
+                                          { value: 'promote', label: 'Promote' },
+                                          { value: 'repeat', label: 'Repeat class' },
+                                          { value: 'graduate', label: 'Graduate / exit' },
+                                        ]}
+                                      />
                                     </td>
                                     <td>
                                       {decision.action === 'promote' ? (
-                                        <select
+                                        <Select
                                           value={decision.targetClassId}
-                                          onChange={(e) => setDecision(row.studentId, { targetClassId: e.target.value })}
-                                          className="m-select w-auto py-1"
-                                        >
-                                          <option value="">- Select class -</option>
-                                          {classes.map(c => (
-                                            <option key={c.id} value={c.id}>{c.name}</option>
-                                          ))}
-                                        </select>
+                                          onChange={(v) => setDecision(row.studentId, { targetClassId: v })}
+                                          className="w-auto py-1"
+                                          ariaLabel="Target class"
+                                          options={[
+                                            { value: '', label: '- Select class -' },
+                                            ...classes.map(c => ({ value: c.id, label: c.name })),
+                                          ]}
+                                        />
                                       ) : decision.action === 'repeat' ? (
                                         <span style={{ color: BODY }}>{row.currentClassName}</span>
                                       ) : (
@@ -1398,26 +1401,22 @@ function SessionSourceFields({
                 <span className="text-sm text-[var(--color-ink)]">Use a session prepared ahead of time</span>
                 {sessionSource === 'adopt' && (
                   <div className="mt-2 space-y-2">
-                    <select
+                    <Select
                       value={adoptSessionId}
-                      onChange={(e) => { setAdoptSessionId(e.target.value); setAdoptCycleId('') }}
-                      className="m-select"
-                    >
-                      {draftSessions.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
+                      onChange={(v) => { setAdoptSessionId(v); setAdoptCycleId('') }}
+                      ariaLabel="Prepared session"
+                      options={draftSessions.map(s => ({ value: s.id, label: s.name }))}
+                    />
                     {adoptedSession && adoptedSession.terms.length > 0 && (
-                      <select
+                      <Select
                         value={adoptCycleId}
-                        onChange={(e) => setAdoptCycleId(e.target.value)}
-                        className="m-select"
-                      >
-                        <option value="">- Create a new term in this session -</option>
-                        {adoptedSession.terms.map(t => (
-                          <option key={t.id} value={t.id}>{t.name} (use this prepared term)</option>
-                        ))}
-                      </select>
+                        onChange={setAdoptCycleId}
+                        ariaLabel="Prepared term"
+                        options={[
+                          { value: '', label: '- Create a new term in this session -' },
+                          ...adoptedSession.terms.map(t => ({ value: t.id, label: `${t.name} (use this prepared term)` })),
+                        ]}
+                      />
                     )}
                   </div>
                 )}

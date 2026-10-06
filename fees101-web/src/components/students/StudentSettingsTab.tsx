@@ -13,6 +13,7 @@ import {
 import { cancelInvoice } from '@/app/(app)/money/invoices/[id]/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
 import Toast from '@/components/ui/Toast'
+import Select from '@/components/ui/Select'
 
 interface Student {
   id: string
@@ -211,16 +212,18 @@ export default function StudentSettingsTab({ student, onClose }: Props) {
           <div className="border-t-2 border-[var(--color-ink)] pt-4">
             <label className="block">
               <span className="m-label">Enrolment status</span>
-              <select
+              <Select
                 value={student.status}
                 disabled={reactivating}
-                onChange={(e) => handleStatusChange(e.target.value)}
-                className="m-select w-full box-border"
-              >
-                <option value="active">Enrolled</option>
-                <option value="withdrawn">Withdrawn</option>
-                <option value="graduated">Graduated</option>
-              </select>
+                onChange={(v) => handleStatusChange(v)}
+                className="w-full box-border"
+                ariaLabel="Enrolment status"
+                options={[
+                  { value: 'active', label: 'Enrolled' },
+                  { value: 'withdrawn', label: 'Withdrawn' },
+                  { value: 'graduated', label: 'Graduated' },
+                ]}
+              />
             </label>
             <p className="text-xs text-[var(--color-neutral-700)] mt-2">
               {student.status === 'active'
@@ -320,12 +323,10 @@ function StudentDetailsSection({ form, setForm, classes, canManage }: {
         </label>
         <label className="block mb-3.5">
           <span className="m-label">Class</span>
-          <select value={form.classId} disabled={!canManage}
-            onChange={(e) => setForm({ ...form, classId: e.target.value })} className="m-select w-full box-border">
-            {classes.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <Select value={form.classId} disabled={!canManage}
+            onChange={(v) => setForm({ ...form, classId: v })} className="w-full box-border"
+            ariaLabel="Class"
+            options={classes.map(c => ({ value: c.id, label: c.name }))} />
         </label>
         <label className="block">
           <span className="m-label">Admission date</span>

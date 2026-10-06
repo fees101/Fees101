@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { CycleRow, SessionRow } from '@/lib/queries/fees'
 import { createTerm, updateTerm } from '@/app/(app)/fees/cycles/actions'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import Select from '@/components/ui/Select'
 
 // Paper-ground palette, matching FeeFormPanel's option-card treatment.
 const INK = '#201e1d'
@@ -300,15 +301,15 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
                     onClick={() => setSessionMode('existing')}
                     title="Existing session"
                   >
-                    <select
+                    <Select
                       value={sessionId}
-                      onChange={(e) => setSessionId(e.target.value)}
-                      className="m-select"
-                    >
-                      {selectableSessions.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}{s.status === 'closed' ? ' (closed)' : s.status === 'draft' ? ' (draft)' : ''}</option>
-                      ))}
-                    </select>
+                      onChange={setSessionId}
+                      ariaLabel="Existing session"
+                      options={selectableSessions.map(s => ({
+                        value: s.id,
+                        label: `${s.name}${s.status === 'closed' ? ' (closed)' : s.status === 'draft' ? ' (draft)' : ''}`,
+                      }))}
+                    />
                   </OptRow>
                 )}
                 {(forceNewSession || selectableSessions.length === 0) && (
@@ -376,18 +377,18 @@ export default function CreateTermPanel({ mode, cycles, sessions, editingCycle, 
         {!isEdit && sortedCycles.length > 0 && (
           <div>
             <label className="m-label">Roll forward fees from (optional)</label>
-            <select
+            <Select
               value={rollForwardFromId}
-              onChange={(e) => setRollForwardFromId(e.target.value)}
-              className="m-select"
-            >
-              <option value="">- None, start fresh -</option>
-              {sortedCycles.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.feeItemCount} {c.feeItemCount === 1 ? 'fee' : 'fees'})
-                </option>
-              ))}
-            </select>
+              onChange={setRollForwardFromId}
+              ariaLabel="Roll forward fees from"
+              options={[
+                { value: '', label: '- None, start fresh -' },
+                ...sortedCycles.map(c => ({
+                  value: c.id,
+                  label: `${c.name} (${c.feeItemCount} ${c.feeItemCount === 1 ? 'fee' : 'fees'})`,
+                })),
+              ]}
+            />
             <p className="text-xs text-[var(--color-neutral-700)] mt-1">
               Copies all fee items from chosen term. You can then edit prices for this term.
             </p>

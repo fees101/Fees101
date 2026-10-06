@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCan } from '@/lib/auth/PermissionsProvider'
+import Select from '@/components/ui/Select'
 import {
   listTerminalsForCharge,
   chargeOnTerminal,
@@ -169,17 +170,13 @@ export default function ChargeOnTerminalButton({ studentId, studentName, invoice
                       <label className="block text-xs font-semibold uppercase tracking-[0.06em] text-[var(--color-neutral-700)] mb-1">
                         Terminal
                       </label>
-                      <select
+                      <Select
                         value={terminalId}
-                        onChange={(e) => setTerminalId(e.target.value)}
-                        className="m-select w-full"
-                      >
-                        {terminals.map((t) => (
-                          <option key={t.terminalId} value={t.terminalId}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={setTerminalId}
+                        className="w-full"
+                        ariaLabel="Terminal"
+                        options={terminals.map(t => ({ value: t.terminalId, label: t.label }))}
+                      />
                     </div>
                   )}
                   <div>

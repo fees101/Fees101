@@ -15,6 +15,7 @@ import {
   type OptInStudentRow,
   type OptInClassOption,
 } from '@/app/(app)/fees/structure/actions'
+import Select from '@/components/ui/Select'
 
 interface FeeItem {
   id: string
@@ -338,16 +339,15 @@ export default function ManageOptInsPanel({
               className="m-input"
             />
             {!scopedToClassId && classOptions.length > 1 && (
-              <select
+              <Select
                 value={classFilter}
-                onChange={(e) => { setClassFilter(e.target.value); setPage(1) }}
-                className="m-select"
-              >
-                <option value="all">All classes</option>
-                {classOptions.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+                onChange={(v) => { setClassFilter(v); setPage(1) }}
+                ariaLabel="Filter by class"
+                options={[
+                  { value: 'all', label: 'All classes' },
+                  ...classOptions.map(c => ({ value: c.id, label: c.name })),
+                ]}
+              />
             )}
           </div>
 

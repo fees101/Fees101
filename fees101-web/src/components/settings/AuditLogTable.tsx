@@ -7,6 +7,7 @@ import { AUDIT_LOG_GROUPS, groupForAction } from '@/lib/audit/auditLogGroups'
 import { actionLabel } from '@/lib/audit/auditLogLabels'
 import { formatDateTime } from '@/lib/format/date'
 import RelativeTime from '@/components/activity/RelativeTime'
+import Select from '@/components/ui/Select'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 
@@ -77,12 +78,16 @@ export default function AuditLogTable({ events, total, page, perPage, group, fro
           {total === 0 ? '0 events' : <>{rangeStart}-{rangeEnd} of <span className="m-num">{total}</span> events</>}
         </p>
         <div className="flex items-center gap-3 flex-wrap">
-          <select value={group} onChange={(e) => navigate({ group: e.target.value, page: '1' })} className="m-select w-auto min-h-0 py-1.5">
-            <option value="all">All types</option>
-            {AUDIT_LOG_GROUPS.map((g) => (
-              <option key={g.label} value={g.label}>{g.label}</option>
-            ))}
-          </select>
+          <Select
+            value={group}
+            onChange={(v) => navigate({ group: v, page: '1' })}
+            className="w-auto min-h-0 py-1.5"
+            ariaLabel="Filter by type"
+            options={[
+              { value: 'all', label: 'All types' },
+              ...AUDIT_LOG_GROUPS.map((g) => ({ value: g.label, label: g.label })),
+            ]}
+          />
           <div className="flex items-center gap-1.5">
             <input
               type="date"

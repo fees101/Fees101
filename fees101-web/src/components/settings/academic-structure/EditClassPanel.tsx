@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { updateClass, addSection, deleteSection } from '@/app/(app)/school/academic-structure/actions'
 import DestructiveConfirmModal from '@/components/ui/DestructiveConfirmModal'
+import Select from '@/components/ui/Select'
 
 interface ClassRow {
   id: string
@@ -130,15 +131,12 @@ export default function EditClassPanel({ classData, sections: initialSections, a
               )}
             </div>
             {sections.length > 0 ? (
-              <select
+              <Select
                 value={form.sectionId}
-                onChange={(e) => setForm({...form, sectionId: e.target.value})}
-                className="m-select"
-              >
-                {sections.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+                onChange={(v) => setForm({...form, sectionId: v})}
+                ariaLabel="Section"
+                options={sections.map(s => ({ value: s.id, label: s.name }))}
+              />
             ) : (
               <p className="text-sm text-[var(--color-neutral-500)] italic py-2">No sections yet.</p>
             )}
@@ -200,16 +198,15 @@ export default function EditClassPanel({ classData, sections: initialSections, a
 
           <label className="block">
             <span className="m-label">Promotes to</span>
-            <select
+            <Select
               value={form.nextClassId}
-              onChange={(e) => setForm({...form, nextClassId: e.target.value})}
-              className="m-select"
-            >
-              <option value="">— Exits school (graduates) —</option>
-              {allClasses.filter(c => c.id !== classData.id).map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+              onChange={(v) => setForm({...form, nextClassId: v})}
+              ariaLabel="Promotes to"
+              options={[
+                { value: '', label: '— Exits school (graduates) —' },
+                ...allClasses.filter(c => c.id !== classData.id).map(c => ({ value: c.id, label: c.name })),
+              ]}
+            />
             <p className="text-xs text-[var(--color-neutral-700)] mt-1">Where students in this class move to at year-end rollover. Leave as &quot;Exits school&quot; if this is a graduating class.</p>
           </label>
 

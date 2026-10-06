@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import type { StudentSortDir, StudentSortKey, StudentInvoiceStatusFilter } from '@/lib/queries/students'
+import Select from '@/components/ui/Select'
 
 interface Student {
   id: string
@@ -214,62 +215,60 @@ export default function StudentsTable({
         <div className="flex flex-wrap gap-x-6 gap-y-4 pb-5 mb-2 border-b border-[var(--color-neutral-300)]">
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-neutral-700)]">Student status</span>
-            <select
+            <Select
               value={statusFilter}
-              onChange={(e) => navigate({ status: e.target.value, page: '1' })}
-              className="m-select"
+              onChange={(v) => navigate({ status: v, page: '1' })}
               style={{ minWidth: '170px' }}
-            >
-              <option value="active">Active ({statusCounts.active})</option>
-              <option value="withdrawn">Withdrawn ({statusCounts.withdrawn})</option>
-              <option value="graduated">Graduated ({statusCounts.graduated})</option>
-              <option value="all">All statuses ({statusCounts.all})</option>
-            </select>
+              ariaLabel="Student status"
+              options={[
+                { value: 'active', label: `Active (${statusCounts.active})` },
+                { value: 'withdrawn', label: `Withdrawn (${statusCounts.withdrawn})` },
+                { value: 'graduated', label: `Graduated (${statusCounts.graduated})` },
+                { value: 'all', label: `All statuses (${statusCounts.all})` },
+              ]}
+            />
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-neutral-700)]">Class</span>
-            <select
+            <Select
               value={classId}
-              onChange={(e) => navigate({ class: e.target.value, page: '1' })}
-              className="m-select"
+              onChange={(v) => navigate({ class: v, page: '1' })}
               style={{ minWidth: '170px' }}
-            >
-              <option value="all">All classes</option>
-              {classes.map((cls) => (
-                <option key={cls.id} value={cls.id}>{cls.name}</option>
-              ))}
-            </select>
+              ariaLabel="Class"
+              options={[
+                { value: 'all', label: 'All classes' },
+                ...classes.map((cls) => ({ value: cls.id, label: cls.name })),
+              ]}
+            />
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-neutral-700)]">Invoice status</span>
-            <select
+            <Select
               value={granularActive ? invoiceStatus : 'all'}
-              onChange={(e) => navigate({ invoiceStatus: e.target.value, page: '1' })}
-              className="m-select"
+              onChange={(v) => navigate({ invoiceStatus: v, page: '1' })}
               style={{ minWidth: '150px' }}
-            >
-              <option value="all">Any</option>
-              <option value="paid">Paid</option>
-              <option value="partial">Partial</option>
-              <option value="pending">Unpaid</option>
-              <option value="no_invoice">No invoice</option>
-            </select>
+              ariaLabel="Invoice status"
+              options={[
+                { value: 'all', label: 'Any' },
+                { value: 'paid', label: 'Paid' },
+                { value: 'partial', label: 'Partial' },
+                { value: 'pending', label: 'Unpaid' },
+                { value: 'no_invoice', label: 'No invoice' },
+              ]}
+            />
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-neutral-700)]">Sort by</span>
-            <select
+            <Select
               value={currentSortValue}
-              onChange={(e) => {
-                const [key, dir] = e.target.value.split(':')
+              onChange={(v) => {
+                const [key, dir] = v.split(':')
                 navigate({ sort: key, dir, page: '1' })
               }}
-              className="m-select"
               style={{ minWidth: '190px' }}
-            >
-              {SORT_OPTIONS.map((o) => (
-                <option key={`${o.key}:${o.dir}`} value={`${o.key}:${o.dir}`}>{o.label}</option>
-              ))}
-            </select>
+              ariaLabel="Sort by"
+              options={SORT_OPTIONS.map((o) => ({ value: `${o.key}:${o.dir}`, label: o.label }))}
+            />
           </label>
         </div>
       )}

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { addClass, addSection } from '@/app/(app)/school/academic-structure/actions'
 import ManageSectionsModal from './ManageSectionsModal'
+import Select from '@/components/ui/Select'
 
 interface Section {
   id: string
@@ -133,15 +134,12 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
               )}
             </div>
             {sections.length > 0 ? (
-              <select
+              <Select
                 value={form.sectionId}
-                onChange={(e) => setForm({...form, sectionId: e.target.value})}
-                className="m-select"
-              >
-                {sections.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+                onChange={(v) => setForm({...form, sectionId: v})}
+                ariaLabel="Section"
+                options={sections.map(s => ({ value: s.id, label: s.name }))}
+              />
             ) : (
               <p className="text-sm text-[var(--color-neutral-500)] italic py-2">No sections yet. Add one below.</p>
             )}
@@ -204,16 +202,15 @@ export default function AddClassPanel({ sections: initialSections, existingDispl
 
           <label className="block">
             <span className="m-label">Promotes to</span>
-            <select
+            <Select
               value={form.nextClassId}
-              onChange={(e) => setForm({...form, nextClassId: e.target.value})}
-              className="m-select"
-            >
-              <option value="">— Exits school (graduates) —</option>
-              {allClasses.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+              onChange={(v) => setForm({...form, nextClassId: v})}
+              ariaLabel="Promotes to"
+              options={[
+                { value: '', label: '— Exits school (graduates) —' },
+                ...allClasses.map(c => ({ value: c.id, label: c.name })),
+              ]}
+            />
             <p className="text-xs text-[var(--color-neutral-700)] mt-1">Where students in this class move to at year-end rollover. Leave as &quot;Exits school&quot; if this is a graduating class.</p>
           </label>
 

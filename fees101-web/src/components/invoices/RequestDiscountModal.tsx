@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { requestDiscount, type ManualDiscountCategory } from '@/app/(app)/money/invoices/[id]/discountActions'
 import type { DiscountSettings } from '@/lib/queries/discounts'
+import Select from '@/components/ui/Select'
 
 interface Props {
   invoiceId: string
@@ -122,15 +123,12 @@ export default function RequestDiscountModal({ invoiceId, subtotal, existingDisc
 
           <div style={{ marginBottom: 18 }}>
             <SectionLabel>Category</SectionLabel>
-            <select
+            <Select
               value={category}
-              onChange={(e) => setCategory(e.target.value as ManualDiscountCategory)}
-              className="m-select"
-            >
-              {CATEGORY_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+              onChange={(v) => setCategory(v as ManualDiscountCategory)}
+              ariaLabel="Category"
+              options={CATEGORY_OPTIONS}
+            />
           </div>
 
           {isStaff ? (
@@ -169,15 +167,16 @@ export default function RequestDiscountModal({ invoiceId, subtotal, existingDisc
                     className="m-input"
                     style={{ flex: 1 }}
                   />
-                  <select
+                  <Select
                     value={isPercentage ? 'pct' : 'flat'}
-                    onChange={(e) => setIsPercentage(e.target.value === 'pct')}
-                    className="m-select"
+                    onChange={(v) => setIsPercentage(v === 'pct')}
                     style={{ width: 90 }}
-                  >
-                    <option value="pct">%</option>
-                    <option value="flat">₦</option>
-                  </select>
+                    ariaLabel="Discount unit"
+                    options={[
+                      { value: 'pct', label: '%' },
+                      { value: 'flat', label: '₦' },
+                    ]}
+                  />
                 </div>
               </div>
 

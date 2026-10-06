@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { usePermissions } from '@/lib/auth/PermissionsProvider'
 import Toast from '@/components/ui/Toast'
+import Select from '@/components/ui/Select'
 import {
   manualPaymentMethodLabel,
   manualPaymentDepositLabel,
@@ -284,14 +285,15 @@ function RecordForm({ onDone, onError }: { onDone: (msg: string) => void; onErro
       {student && (
         <div style={{ marginBottom: 16 }}>
           <label htmlFor="mp-invoice" className="m-label">Apply to</label>
-          <select id="mp-invoice" className="m-select" value={invoiceId} onChange={e => setInvoiceId(e.target.value)}>
-            <option value="">Student&apos;s account balance (no specific invoice)</option>
-            {invoices.map(inv => (
-              <option key={inv.id} value={inv.id}>
-                {inv.cycleName} — {naira(inv.outstanding)} outstanding
-              </option>
-            ))}
-          </select>
+          <Select
+            id="mp-invoice"
+            value={invoiceId}
+            onChange={setInvoiceId}
+            options={[
+              { value: '', label: "Student's account balance (no specific invoice)" },
+              ...invoices.map(inv => ({ value: inv.id, label: `${inv.cycleName} — ${naira(inv.outstanding)} outstanding` })),
+            ]}
+          />
           {!invLoading && invoices.length === 0 && (
             <p className="text-[12px]" style={{ color: META, margin: '6px 0 0' }}>
               No open invoices for this student. The payment goes onto their account balance.
@@ -314,15 +316,11 @@ function RecordForm({ onDone, onError }: { onDone: (msg: string) => void; onErro
         </div>
         <div>
           <label htmlFor="mp-method" className="m-label">How it was paid</label>
-          <select id="mp-method" className="m-select" value={method} onChange={e => setMethod(e.target.value)}>
-            {METHOD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+          <Select id="mp-method" value={method} onChange={setMethod} options={METHOD_OPTIONS} />
         </div>
         <div>
           <label htmlFor="mp-deposit" className="m-label">Where it was deposited</label>
-          <select id="mp-deposit" className="m-select" value={depositedTo} onChange={e => setDepositedTo(e.target.value)}>
-            {DEPOSIT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+          <Select id="mp-deposit" value={depositedTo} onChange={setDepositedTo} options={DEPOSIT_OPTIONS} />
         </div>
         <div>
           <label htmlFor="mp-reference" className="m-label">Reference</label>

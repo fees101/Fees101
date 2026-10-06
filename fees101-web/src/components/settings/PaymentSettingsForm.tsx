@@ -12,6 +12,7 @@ import { useActiveJobs, useTrackedJob, type TrackedJob } from '@/lib/jobs/Active
 import type { PaymentSettings } from '@/lib/queries/payments'
 import FieldEditDrawer, { SectionLabel, ChoiceList } from '@/components/settings/FieldEditDrawer'
 import Toast from '@/components/ui/Toast'
+import Select from '@/components/ui/Select'
 
 interface Props {
   settings: PaymentSettings
@@ -434,10 +435,16 @@ export default function PaymentSettingsForm({ settings, webhookBase, actorName }
 
           <div style={{ marginBottom: 16 }}>
             <SectionLabel>Environment</SectionLabel>
-            <select value={providerForm.mode} onChange={(e) => setProviderForm(f => ({ ...f, mode: e.target.value as 'test' | 'live' }))} className="m-select" style={{ width: '100%' }}>
-              <option value="test">Test</option>
-              <option value="live">Live</option>
-            </select>
+            <Select
+              value={providerForm.mode}
+              onChange={(v) => setProviderForm(f => ({ ...f, mode: v as 'test' | 'live' }))}
+              style={{ width: '100%' }}
+              ariaLabel="Environment"
+              options={[
+                { value: 'test', label: 'Test' },
+                { value: 'live', label: 'Live' },
+              ]}
+            />
           </div>
 
           {!isPaystack && (

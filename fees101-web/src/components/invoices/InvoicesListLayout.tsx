@@ -9,6 +9,7 @@ import { useActiveJobs, useOnJobOpenRequested } from '@/lib/jobs/ActiveJobsProvi
 import BulkSendInvoicesPanel from '@/components/invoices/BulkSendInvoicesPanel'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
+import Select from '@/components/ui/Select'
 
 interface Props {
   rows: AllInvoiceRow[]
@@ -275,16 +276,17 @@ export default function InvoicesListLayout({
               {chip('needs_resend', 'Needs resend', counts.needsResend, counts.needsResend > 0)}
               <div className="flex flex-wrap items-center gap-2 ml-auto">
                 {terms.length > 1 && (
-                  <select
+                  <Select
                     value={termFilter}
-                    onChange={(e) => navigate({ term: e.target.value, page: '1' })}
-                    style={{ background: 'transparent', color: INK.paper, border: `2px solid ${INK.rule}`, padding: '7px 10px', fontSize: 13, minHeight: 36 }}
-                  >
-                    <option value="all" style={{ color: '#000' }}>All terms</option>
-                    {terms.map((t) => (
-                      <option key={t.id} value={t.id} style={{ color: '#000' }}>{t.name}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => navigate({ term: v, page: '1' })}
+                    tone="ink"
+                    ariaLabel="Term"
+                    style={{ padding: '7px 10px', fontSize: 13, minHeight: 36 }}
+                    options={[
+                      { value: 'all', label: 'All terms' },
+                      ...terms.map((t) => ({ value: t.id, label: t.name })),
+                    ]}
+                  />
                 )}
                 <input
                   type="text"

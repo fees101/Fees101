@@ -6,6 +6,7 @@ import {
   summarize, aggFees, aggDiscounts, aggClasses, feeChoices, feePriceFan, type Summary,
 } from '@/lib/analytics/aggregate'
 import DrilldownModal from './DrilldownModal'
+import Select from '@/components/ui/Select'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 
 // ---------------------------------------------------------------------------
@@ -373,10 +374,14 @@ export default function PaymentsDashboard({ bundle, showFinancials, schoolId }: 
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
                   <h2 className="text-[20px] font-extrabold" style={{ color: INK.white }}>Fee price by class, over time</h2>
                   {priceChoices.length > 0 && (
-                    <select value={activeFee} onChange={e => setFeePick(e.target.value)}
-                      style={{ background: 'transparent', color: INK.paper, border: `2px solid ${INK.rule}`, padding: '5px 8px', fontSize: 12, minHeight: 32 }}>
-                      {priceChoices.map(c => <option key={c.name} value={c.name} style={{ color: '#000' }}>{c.name}</option>)}
-                    </select>
+                    <Select
+                      value={activeFee}
+                      onChange={setFeePick}
+                      tone="ink"
+                      ariaLabel="Fee"
+                      style={{ padding: '5px 8px', fontSize: 12, minHeight: 32 }}
+                      options={priceChoices.map(c => ({ value: c.name, label: c.name }))}
+                    />
                   )}
                 </div>
                 <p className="text-[13px] mb-5" style={{ color: INK.dim }}>One line per class — watch a fee climb and see how far the classes have spread apart.</p>
