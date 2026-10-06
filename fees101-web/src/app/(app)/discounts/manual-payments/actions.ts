@@ -4,7 +4,9 @@ import { revalidatePath } from 'next/cache'
 import { getAuthContext, requirePermission, type AuthContext } from '@/lib/auth/permissions'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { MANUAL_PAYMENT_LIABILITY_VERSION } from '@/lib/platformBilling/config'
+import { requireBillingActive } from '@/lib/platformBilling/requireBillingActive'
 import { sendManualPaymentReceipt, sendManualPaymentCorrection } from '@/lib/payments/manualPaymentNotify'
+import { friendlyWriteError } from '@/lib/errors/friendlyWriteError'
 
 // Manual payment entry — server actions. School staff record a cash/POS/cheque
 // payment that never came through the automated pipeline; it is applied to the
@@ -310,6 +312,8 @@ export interface RecordManualPaymentInput {
 }
 
 export async function requestManualPayment(input: RecordManualPaymentInput): Promise<ActionResult> {
+  // M2: recording money is core product use — gate on billing.
+  await requireBillingActive()
   const ctx = await requirePermission('record-manual-payments')
   if (!ctx || !ctx.schoolId) return { error: 'Not authorized' }
 
@@ -372,12 +376,19 @@ export async function requestManualPayment(input: RecordManualPaymentInput): Pro
     })
     .select('id, student_id, invoice_id, amount, method, deposit_reference, notes, requested_by, requested_by_name, requested_at, reversal_of')
     .single()
-  if (error || !inserted) return { error: error?.message || 'Could not record the payment.' }
+  if (error || !inserted) return { error: friendlyWriteError(error, 'Could not record the payment.') }
 
   // The owner has no one above them to approve, so their own entries apply
   // immediately — still through this table and the audit log, just auto-approved.
   if (isOwner) {
     const result = await applyApprovedManualPayment(ctx, inserted as RequestRow, true)
+    // The insert committed in its own transaction; the apply runs in a separate
+    // SECURITY DEFINER transaction that is all-or-nothing. If it rolled back, the
+    // pending row is orphaned, so remove it (guarded to status='pending' so a row
+    // that actually applied can never be deleted) before returning the error.
+    if ('error' in result) {
+      await supabase.from('manual_payment_requests').delete().eq('id', inserted.id).eq('status', 'pending')
+    }
     revalidatePath('/discounts/manual-payments')
     return result
   }
@@ -397,6 +408,8 @@ export async function requestManualPayment(input: RecordManualPaymentInput): Pro
 }
 
 export async function approveManualPayment(requestId: string): Promise<ActionResult> {
+  // M2: approving a payment posts money against an invoice — gate on billing.
+  await requireBillingActive()
   const ctx = await requirePermission('approve-manual-payments')
   if (!ctx || !ctx.schoolId) return { error: 'Not authorized' }
 
@@ -448,7 +461,7 @@ export async function rejectManualPayment(requestId: string, reviewNote: string)
     })
     .eq('id', requestId)
     .eq('status', 'pending')
-  if (error) return { error: error.message }
+  if (error) return { error: friendlyWriteError(error, 'That could not be saved.') }
 
   await logAuditEvent(supabase, {
     schoolId,
@@ -529,7 +542,7 @@ export async function requestReversal(originalId: string, reason: string): Promi
     })
     .select('id, student_id, invoice_id, amount, method, deposit_reference, notes, requested_by, requested_by_name, requested_at, reversal_of')
     .single()
-  if (error || !inserted) return { error: error?.message || 'Could not raise the reversal.' }
+  if (error || !inserted) return { error: friendlyWriteError(error, 'Could not raise the reversal.') }
 
   // The owner is the final authority with no one above them to approve, so their
   // own reversal applies immediately — the same auto-approve the owner already
@@ -538,6 +551,12 @@ export async function requestReversal(originalId: string, reason: string): Promi
   // is exactly what you want when undoing recorded money).
   if (ctx.isOwner) {
     const result = await applyApprovedReversal(ctx, inserted as RequestRow)
+    // Same atomic guarantee as the record path: if the apply rolled back, delete
+    // the orphaned pending reversal, which would otherwise linger AND trip the
+    // one-active-reversal unique index so no retry could ever be raised.
+    if ('error' in result) {
+      await supabase.from('manual_payment_requests').delete().eq('id', inserted.id).eq('status', 'pending')
+    }
     revalidatePath('/discounts/manual-payments')
     return result
   }

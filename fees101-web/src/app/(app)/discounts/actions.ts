@@ -5,6 +5,7 @@ import { revokeActiveDiscount } from '@/lib/discounts/revoke'
 import { claimAndApplyDiscount } from '@/lib/discounts/apply'
 import { requirePermission } from '@/lib/auth/permissions'
 import { logAuditEvent } from '@/lib/audit/logAudit'
+import { friendlyWriteError } from '@/lib/errors/friendlyWriteError'
 
 // Approving/rejecting/revoking discounts requires the approve-discounts
 // permission (owner/super_admin/is_admin bypass inside requirePermission).
@@ -89,7 +90,7 @@ export async function rejectDiscount(discountId: string, rejectionReason: string
       rejection_reason: rejectionReason.trim(),
     })
     .eq('id', discountId)
-  if (error) return { error: error.message }
+  if (error) return { error: friendlyWriteError(error, 'That could not be saved.') }
 
   await logAuditEvent(supabase, {
     schoolId,

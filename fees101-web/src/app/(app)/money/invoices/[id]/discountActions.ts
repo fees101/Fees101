@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { getDiscountSettingsFor } from '@/lib/queries/discounts'
 import { claimAndApplyDiscount } from '@/lib/discounts/apply'
+import { friendlyWriteError } from '@/lib/errors/friendlyWriteError'
 
 const CATEGORIES = ['staff_child', 'scholarship', 'bursary', 'financial_hardship', 'fee_waiver', 'other'] as const
 export type ManualDiscountCategory = typeof CATEGORIES[number]
@@ -131,7 +132,7 @@ export async function requestDiscount(invoiceId: string, input: RequestDiscountI
     status: 'pending',
     requested_by: userId,
   }).select('id').single()
-  if (error) return { error: error.message }
+  if (error) return { error: friendlyWriteError(error, 'Could not save the discount request.') }
 
   const student = (invoice as any).students as { first_name?: string; last_name?: string } | null
   const studentName = student ? `${student.first_name || ''} ${student.last_name || ''}`.trim() : null
