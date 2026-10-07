@@ -2,12 +2,10 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import BulkSendInvoicesPanel from '@/components/invoices/BulkSendInvoicesPanel'
 import GenerateInvoicesPanel from '@/components/fees/GenerateInvoicesPanel'
 import BulkDVAPanel from '@/components/students/BulkDVAPanel'
 import { useActiveJobs, useTrackedJob } from '@/lib/jobs/ActiveJobsProvider'
-import { dismissFlaggedPaymentNotifications } from '@/app/(app)/notifications-actions'
 
 export interface NeedsYouItem {
   key: string
@@ -28,11 +26,6 @@ export interface NeedsYouItem {
   // and opens BulkDVAPanel directly, since that panel already has its own
   // "This will create N accounts — Cancel / Create N" confirm step.
   dvaCount?: number
-  // Present only on the "payments flagged for review" row — opens a "Review or
-  // mark reviewed?" choice. Review opens href (the record, filtered to
-  // payments); Mark reviewed clears the backlog via the admin_notifications
-  // read_at mechanism, so the row self-clears on the next load.
-  reviewFlaggedCount?: number
 }
 
 interface Props {
@@ -51,9 +44,6 @@ export default function NeedsYouList({ items, showFinancials }: Props) {
   const [choice, setChoice] = useState<{ count: number; href: string; kind: 'resend' | 'generate'; cycleId?: string } | null>(null)
   const [acting, setActing] = useState(false)
   const [dva, setDva] = useState<{ count: number; href: string } | null>(null)
-  const [review, setReview] = useState<{ count: number; href: string } | null>(null)
-  const [reviewing, setReviewing] = useState(false)
-  const router = useRouter()
   const { findRunningJob } = useActiveJobs()
   // A bulk_send job started here or from the invoices list both surface on
   // this row — startBulkSendInvoicesJob dedupes to one running job at a
@@ -152,19 +142,6 @@ export default function NeedsYouList({ items, showFinancials }: Props) {
               </button>
             )
           }
-          if (item.reviewFlaggedCount) {
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setReview({ count: item.reviewFlaggedCount!, href: item.href })}
-                className={ROW_CLASSES}
-                style={ROW_STYLE}
-              >
-                {content}
-              </button>
-            )
-          }
           return (
             <Link key={item.key} href={item.href} className={ROW_CLASSES} style={ROW_STYLE}>
               {content}
@@ -226,43 +203,6 @@ export default function NeedsYouList({ items, showFinancials }: Props) {
           href={dva.href}
           onClose={() => setDva(null)}
         />
-      )}
-
-      {review && (
-        <div className="fixed inset-0 bg-[color-mix(in_srgb,var(--color-ink)_55%,transparent)] z-[70] flex items-center justify-center p-4 m-anim-fade">
-          <div className="bg-[var(--color-paper)] border-2 border-[var(--color-ink)] max-w-md w-full m-anim-scale">
-            <div className="p-5 border-b-2 border-[var(--color-ink)] flex items-center justify-between">
-              <h3 className="text-xl font-extrabold tracking-[-0.015em] text-[var(--color-ink)]">
-                {review.count} payment{review.count === 1 ? '' : 's'} flagged
-              </h3>
-              <button onClick={() => setReview(null)} aria-label="Close" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-neutral-500)] hover:text-[var(--color-ink)]">
-                Close
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              <p className="text-sm text-[var(--color-neutral-700)]">
-                These came through the payment pipeline but looked unusual — an odd amount, a repeat on the
-                terminal, or a mismatch. Open the record to check them, or mark them reviewed to clear this.
-              </p>
-              <div className="flex justify-end gap-2">
-                <Link href={review.href} className="m-btn m-btn-outline">Review</Link>
-                <button
-                  onClick={async () => {
-                    setReviewing(true)
-                    await dismissFlaggedPaymentNotifications()
-                    setReviewing(false)
-                    setReview(null)
-                    router.refresh()
-                  }}
-                  disabled={reviewing}
-                  className="m-btn m-btn-primary"
-                >
-                  {reviewing ? 'Clearing' : 'Mark reviewed'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
     </>
   )

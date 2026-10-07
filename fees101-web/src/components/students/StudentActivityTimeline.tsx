@@ -9,7 +9,10 @@ interface StudentActivityTimelineProps {
 }
 
 function formatNaira(amount: number): string {
-  return '₦' + amount.toLocaleString('en-NG')
+  // Reversals / corrections carry a negative amount — keep the minus ahead of
+  // the currency mark (e.g. -₦20,000) so it never reads as money arriving.
+  const sign = amount < 0 ? '-' : ''
+  return sign + '₦' + Math.abs(amount).toLocaleString('en-NG')
 }
 
 // The single-surface "Activity" panel (App Shell showStudent, right column):
@@ -43,6 +46,7 @@ export default async function StudentActivityTimeline({
   type Event = {
     id: string
     type: 'payment' | 'invoice'
+    reversal?: boolean
     description: string
     detail?: string
     timestamp: string
@@ -51,10 +55,17 @@ export default async function StudentActivityTimeline({
   const events: Event[] = []
 
   payments?.forEach(payment => {
+    // A negative payment is a reversal / correction, not incoming money — label
+    // it as such and render it in neutral ink (never ledger green) below.
+    const amt = Number(payment.amount)
+    const reversal = amt < 0
     events.push({
       id: `payment-${payment.id}`,
       type: 'payment',
-      description: `${formatNaira(Number(payment.amount))} received from ${parentName}`,
+      reversal,
+      description: reversal
+        ? `Reversal / correction · ${formatNaira(amt)}`
+        : `${formatNaira(amt)} received from ${parentName}`,
       // Lead with the channel (how it was paid), then the receipt reference.
       detail: [paymentChannelLabel(payment.method), payment.provider_reference ? `Receipt #${payment.provider_reference}` : null]
         .filter(Boolean)
@@ -91,7 +102,7 @@ export default async function StudentActivityTimeline({
             <div className="flex items-baseline justify-between gap-2.5">
               <p
                 className="text-[13px] font-semibold m-num"
-                style={{ color: event.type === 'payment' ? 'var(--color-ledger)' : 'var(--color-ink)' }}
+                style={{ color: event.reversal ? 'var(--color-neutral-800)' : event.type === 'payment' ? 'var(--color-ledger)' : 'var(--color-ink)' }}
               >
                 {event.description}
               </p>

@@ -10,8 +10,28 @@
 
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { round2 } from './accrualPeriod'
+import { setupFeeNaira } from './config'
 
 type ServiceClient = ReturnType<typeof createServiceRoleClient>
+
+// Postgres unique_violation. M1 adds a unique index on
+// platform_billing_charges(paystack_reference); if a read-then-insert races (two
+// observers of the same transfer), the loser hits this and we treat it as
+// "already recorded", not an error.
+const UNIQUE_VIOLATION = '23505'
+
+// Insert a charge row, tolerating the unique-violation that the M1 index raises
+// on a duplicate reference. A duplicate means another path already recorded this
+// transfer, so it is success, not failure.
+async function insertChargeIdempotent(
+  svc: ServiceClient,
+  row: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await svc.from('platform_billing_charges').insert(row)
+  if (error && error.code !== UNIQUE_VIOLATION) {
+    throw new Error(`Failed to record charge: ${error.message}`)
+  }
+}
 
 // First day (UTC) of the month after `now` — the next bill's due date, set when
 // a payment clears so the dunning ladder sees the school as current.
@@ -80,7 +100,66 @@ export async function reconcilePlatformDvaCharge(
     .maybeSingle()
   if (existing?.status === 'success') return 'already_applied'
 
-  // Credit whichever open period is oldest, if any.
+  // C2 — setup transfer that opens the gate. A DVA school whose owner chose the
+  // "pay by bank transfer instead" fallback never completes a mandate checkout,
+  // so the FIRST transfer (of at least the setup fee) is what unlocks the app,
+  // the same way a successful mandate checkout does on the card/bank rail. This
+  // mirrors the console's reconcilePlatformTransfer "not connected" branch, but
+  // in the LIVE web webhook path so a hands-off self-onboarding school never
+  // waits on a Fees101 staffer. Idempotent: keyed on billing_connected_at being
+  // null, so a second transfer falls through to the normal period-crediting path.
+  const { data: billing } = await svc
+    .from('platform_billing')
+    .select('billing_connected_at, setup_fee_amount, onboarding_at')
+    .eq('school_id', p.schoolId)
+    .maybeSingle()
+
+  if (billing && !billing.billing_connected_at) {
+    const required = Number(billing.setup_fee_amount) || setupFeeNaira()
+    const nowIso = new Date().toISOString()
+    const paidAt = p.paidAt || nowIso
+
+    // Record the inbound transfer (idempotently) as the setup fee.
+    if (existing) {
+      await svc
+        .from('platform_billing_charges')
+        .update({ status: 'success', paid_at: paidAt, charged_by: 'setup_fee' })
+        .eq('id', existing.id)
+    } else {
+      await insertChargeIdempotent(svc, {
+        school_id: p.schoolId,
+        amount: p.amountNaira,
+        status: 'success',
+        paystack_reference: p.reference,
+        method: 'dva_transfer',
+        charged_by: 'setup_fee',
+        paid_at: paidAt,
+      })
+    }
+
+    // Short of the setup fee: the transfer is recorded so it isn't lost, but the
+    // gate stays shut and the owner still needs to send the rest.
+    if (p.amountNaira < required) return 'applied'
+
+    await svc
+      .from('platform_billing')
+      .update({
+        setup_fee_status: 'paid',
+        setup_fee_paid_at: nowIso,
+        billing_method: 'dva',
+        billing_connected_at: nowIso, // the entry-gate flag
+        onboarding_at: billing.onboarding_at || nowIso, // free-period day 0
+        billing_status: 'active',
+        billing_status_changed_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq('school_id', p.schoolId)
+
+    return 'applied'
+  }
+
+  // Already connected — a normal recurring-bill transfer. Credit the oldest open
+  // period, if any.
   const { data: openPeriod } = await svc
     .from('platform_billing_periods')
     .select('id')
@@ -96,7 +175,7 @@ export async function reconcilePlatformDvaCharge(
       .update({ status: 'success', paid_at: p.paidAt })
       .eq('id', existing.id)
   } else {
-    await svc.from('platform_billing_charges').insert({
+    await insertChargeIdempotent(svc, {
       school_id: p.schoolId,
       amount: p.amountNaira,
       status: 'success',

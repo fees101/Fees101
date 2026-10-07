@@ -4,7 +4,7 @@ import { headers } from 'next/headers'
 import { getAuthContext } from '@/lib/auth/permissions'
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { initializeMandateSetup, provisionPlatformDva } from '@/lib/platformBilling/paystack'
-import { setupFeeNaira, BILLING_TERMS_VERSION } from '@/lib/platformBilling/config'
+import { setupFeeNaira, BILLING_TERMS_VERSION, MANDATE_SOFT_FAIL_THRESHOLD, SUPPORT_EMAIL } from '@/lib/platformBilling/config'
 
 // Start connecting a school's billing: record the clickwrap terms acceptance,
 // kick off the Paystack setup-fee transaction (which doubles as mandate
@@ -21,7 +21,7 @@ async function getOrigin(): Promise<string> {
 
 export async function startBillingConnection(
   termsAccepted: boolean,
-): Promise<{ error: string } | { url: string }> {
+): Promise<{ error: string } | { url: string } | { redirect: string }> {
   const ctx = await getAuthContext()
   if (!ctx || !ctx.schoolId) return { error: 'Not authenticated.' }
   if (!ctx.isOwner) {
@@ -42,15 +42,16 @@ export async function startBillingConnection(
     .maybeSingle()
   if (!owner?.email) return { error: 'No billing email on file for your account.' }
 
-  // Guard against re-connecting an already-connected school (e.g. owner hits
-  // the URL directly after setup). The gate normally keeps them out, but be safe.
+  // Already connected (e.g. the state flipped while this tab was open, or a
+  // stale/bookmarked load). Don't strand them with an error on this page — just
+  // send them into the app, the same place the page-load redirect would.
   const { data: existing } = await svc
     .from('platform_billing')
-    .select('billing_connected_at')
+    .select('billing_connected_at, mandate_attempt_count')
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
   if (existing?.billing_connected_at) {
-    return { error: 'Billing is already connected for this school.' }
+    return { redirect: '/today' }
   }
 
   const amount = setupFeeNaira()
@@ -71,7 +72,9 @@ export async function startBillingConnection(
   }
 
   // Record terms acceptance + the pending setup charge now. Upsert because a
-  // freshly onboarded school may not have a platform_billing row yet.
+  // freshly onboarded school may not have a platform_billing row yet. Count this
+  // attempt: the callback (transient-failure threshold) and the connect screen
+  // read mandate_attempt_count to decide when the transfer fallback auto-opens.
   const now = new Date().toISOString()
   const { error: upsertError } = await svc.from('platform_billing').upsert(
     {
@@ -80,6 +83,8 @@ export async function startBillingConnection(
       setup_fee_status: 'pending',
       setup_fee_reference: reference,
       mandate_email: owner.email,
+      mandate_attempt_count: (existing?.mandate_attempt_count ?? 0) + 1,
+      mandate_last_attempt_at: now,
       terms_accepted_at: now,
       terms_accepted_by: ctx.userId,
       terms_version: BILLING_TERMS_VERSION,
@@ -103,7 +108,7 @@ export async function startBillingConnection(
 // account details, it never unlocks the gate itself.
 export async function startDvaFallback(
   termsAccepted: boolean,
-): Promise<{ error: string } | { accountNumber: string; bankName: string; amount: number }> {
+): Promise<{ error: string } | { accountNumber: string; bankName: string; amount: number } | { redirect: string }> {
   const ctx = await getAuthContext()
   if (!ctx || !ctx.schoolId) return { error: 'Not authenticated.' }
   if (!ctx.isOwner) {
@@ -120,20 +125,34 @@ export async function startDvaFallback(
     svc.from('schools').select('name').eq('id', ctx.schoolId).maybeSingle(),
     svc
       .from('platform_billing')
-      .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name, dva_fallback_enabled')
+      .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name, dva_fallback_enabled, mandate_attempt_count')
       .eq('school_id', ctx.schoolId)
       .maybeSingle(),
   ])
   if (!owner?.email) return { error: 'No billing email on file for your account.' }
-  if (existing?.billing_connected_at) return { error: 'Billing is already connected for this school.' }
+  if (existing?.billing_connected_at) return { redirect: '/today' }
 
-  // Self-serve bank-transfer is owner-gated: a school can't opt itself off the
-  // auto-debit mandate (the retention lock) unless Fees101 has enabled DVA for it
-  // from the console. Enforced here too, not just hidden in the UI, so a direct
-  // call can't bypass it. (The reusable-card auto-fallback in the callback is a
-  // separate, legitimate "no mandate possible" path and is not gated.)
-  if (existing?.dva_fallback_enabled !== true) {
-    return { error: 'Bank transfer isn’t enabled for your school yet. Contact Fees101 and we’ll switch it on for you.' }
+  // H1 / smart fallback — the school can't casually opt off the auto-debit mandate
+  // (the retention lock; it keeps people from taking 65 free days + easy transfer
+  // and never committing). It unlocks the bank-transfer fallback only when the
+  // mandate genuinely isn't working, in one of three ways:
+  //   1. Fees101 enabled DVA for this school from the console (dva_fallback_enabled)
+  //      — the hand-holding path for the first schools, or a support request.
+  //   2. The callback SMART-enabled it after a hard failure (bank unsupported /
+  //      abandoned) — that also sets dva_fallback_enabled.
+  //   3. The owner has hit the transient-failure threshold (declined/timeout a few
+  //      times): mandate_attempt_count >= MANDATE_SOFT_FAIL_THRESHOLD. This covers
+  //      a pure abandon that never returned to the callback (so the flag was never
+  //      set) — after enough tries the transfer opens anyway.
+  // Enforced here, not just hidden in the UI, so a direct call can't bypass it.
+  const attemptCount = existing?.mandate_attempt_count ?? 0
+  const selfServeAllowed =
+    existing?.dva_fallback_enabled === true || attemptCount >= MANDATE_SOFT_FAIL_THRESHOLD
+  if (!selfServeAllowed) {
+    return {
+      error:
+        `Please try automatic bank debit first. If it keeps failing or your bank isn’t supported, the option to pay by bank transfer opens here automatically — or email ${SUPPORT_EMAIL} and we’ll switch you over.`,
+    }
   }
 
   const amount = setupFeeNaira()
@@ -158,6 +177,9 @@ export async function startDvaFallback(
       school_id: ctx.schoolId,
       setup_fee_amount: amount,
       billing_method: 'dva',
+      // Persist the enablement so the state is consistent on later loads (the
+      // owner just self-enabled transfer, or Fees101 already had).
+      dva_fallback_enabled: true,
       mandate_email: owner.email,
       platform_dva_reference: dva.reference,
       platform_dva_account_number: dva.accountNumber,

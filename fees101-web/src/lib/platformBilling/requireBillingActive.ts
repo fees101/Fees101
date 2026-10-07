@@ -46,3 +46,26 @@ export async function requireBillingActive(): Promise<void> {
     throw new BillingInactiveError('This school is suspended for non-payment.')
   }
 }
+
+// Non-throwing variant for the normal call sites (server actions that return
+// `{ error: string } | ...`). BUG FOUND 2026-10-07: every call site did
+// `await requireBillingActive()` with no try/catch, so the thrown
+// BillingInactiveError propagated uncaught all the way to Next.js's error
+// overlay/boundary — a raw crash screen instead of the friendly in-app error
+// every other validation failure in these actions already returns. Caught live:
+// a stale tab (billing flipped to unconnected/suspended underneath an already-
+// open page) hit this exact crash on addStudent. The guard itself was correct
+// (the mutation was genuinely blocked, confirmed independently against the
+// database) — only the surfacing was broken. Every call site now uses this
+// instead:
+//   const billingGate = await requireBillingActiveOrError()
+//   if (billingGate) return billingGate
+export async function requireBillingActiveOrError(): Promise<{ error: string } | null> {
+  try {
+    await requireBillingActive()
+    return null
+  } catch (e) {
+    if (e instanceof BillingInactiveError) return { error: e.message }
+    throw e
+  }
+}

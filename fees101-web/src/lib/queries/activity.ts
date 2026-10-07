@@ -19,6 +19,11 @@ export interface ActivityRow {
   title: string
   subtitle: string
   amount: number | null
+  // A reversal / correction: a payment row with a negative amount (see
+  // db/payments_allow_reversal_amount.sql). It must never read as incoming money
+  // — rendered in neutral ink with a negative amount, and excluded from every
+  // "received" sum or count.
+  isReversal: boolean
   studentName: string | null
   // Where clicking this row should go — an invoice's own page for invoice
   // events, otherwise the student it belongs to (fees tab, where payments and
@@ -74,7 +79,20 @@ function describe(row: FeedRow): { title: string; subtitle: string } {
   const ref = row.reference || ''
 
   switch (row.event_type) {
-    case 'payment_received':
+    case 'payment_received': {
+      // A negative amount is a reversal / correction of an earlier payment, not
+      // money arriving. Label and colour it as such so it can never read as
+      // incoming (neutral ink + negative amount are applied in ActivityFeed).
+      if (row.amount != null && Number(row.amount) < 0) {
+        return {
+          title: 'Reversal / correction',
+          subtitle:
+            `Reversed for ${student}${cls}` +
+            (row.channel ? ` · ${paymentChannelLabel(row.channel)}` : '') +
+            (ref ? ` · Receipt #${ref}` : '') +
+            (row.actor_name ? ` · by ${row.actor_name}` : ''),
+        }
+      }
       return {
         title: 'Payment received',
         subtitle:
@@ -83,6 +101,7 @@ function describe(row: FeedRow): { title: string; subtitle: string } {
           (ref ? ` · Receipt #${ref}` : '') +
           (row.actor_name ? ` · Recorded by ${row.actor_name}` : ' · Automatic'),
       }
+    }
     case 'invoice_sent':
       return {
         title: 'Invoice sent',
@@ -155,6 +174,7 @@ function mapFeedRow(r: FeedRow, showFinancials: boolean): ActivityRow {
   // event itself (title/subtitle) still shows, only the amount column blanks
   // to "—" (ActivityFeed already renders null as "—").
   const amount = r.category === 'discounts' || r.amount == null || !showFinancials ? null : Number(r.amount)
+  const isReversal = r.event_type === 'payment_received' && r.amount != null && Number(r.amount) < 0
   return {
     id: r.event_id,
     category: r.category,
@@ -163,6 +183,7 @@ function mapFeedRow(r: FeedRow, showFinancials: boolean): ActivityRow {
     title,
     subtitle,
     amount,
+    isReversal,
     studentName: r.student_name,
     linkHref: linkFor(r),
     who: whoFor(r),
@@ -280,9 +301,14 @@ export async function getActivityFeed(
   const rows: ActivityRow[] = ((pageRes.data as FeedRow[]) || []).map(r => mapFeedRow(r, showFinancials))
 
   // Zeroed server-side (not just masked on render) — ActivityFeed is a client
-  // component, so this aggregate becomes part of its props/RSC payload.
+  // component, so this aggregate becomes part of its props/RSC payload. Only
+  // genuine incoming money counts: a reversal / correction carries a negative
+  // amount and is excluded (never netted) from the received total.
   const receivedInRange = !showFinancials ? 0 : ((receivedRes.data as { amount: string | number | null }[]) || []).reduce(
-    (sum, r) => sum + Number(r.amount || 0),
+    (sum, r) => {
+      const a = Number(r.amount || 0)
+      return a > 0 ? sum + a : sum
+    },
     0,
   )
 

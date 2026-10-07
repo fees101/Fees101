@@ -20,6 +20,7 @@ interface PageProps {
     invoiceStatus?: string
     sort?: string
     dir?: string
+    filter?: string
   }>
 }
 
@@ -59,6 +60,9 @@ export default async function StudentsPage({ searchParams }: PageProps) {
     : 'all'
   const sortKey = SORT_KEYS.includes(sp.sort as StudentSortKey) ? (sp.sort as StudentSortKey) : 'class'
   const sortDir: StudentSortDir = sp.dir === 'desc' ? 'desc' : 'asc'
+  // "Families you can't reach" scope — the same set the dashboard "Needs you"
+  // unreachable count links here to surface.
+  const unreachable = sp.filter === 'unreachable'
 
   const { students, classes, statusCounts, invoiceCounts, total } = await getStudents({
     statusFilter: validStatus,
@@ -69,6 +73,7 @@ export default async function StudentsPage({ searchParams }: PageProps) {
     sortDir,
     page,
     perPage,
+    unreachable,
   })
 
   return (
@@ -103,6 +108,7 @@ export default async function StudentsPage({ searchParams }: PageProps) {
           invoiceCounts={invoiceCounts}
           sortKey={sortKey}
           sortDir={sortDir}
+          unreachable={unreachable}
         />
       </div>
     </>

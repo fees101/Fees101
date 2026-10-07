@@ -94,11 +94,15 @@ export default function ApplyDiscountButton({ currentInvoiceId, currentInvoiceSu
   // With no discounts to fall back on viewing/revoking, this is also the
   // catch-all for a canApprove-only user who lacks request-discounts.
   if (!hasDiscounts && !canOfferAdd) {
+    // Hide, don't tease: a viewer who simply lacks the permission sees nothing
+    // here at all. Only someone who CAN request — but is temporarily blocked for
+    // an operational reason — gets the disabled button with the reason.
+    if (!canRequest) return null
     return (
       <button
         disabled
         className="m-btn m-btn-outline w-full"
-        title={!canRequest ? 'You do not have permission to request discounts' : !currentInvoiceId ? 'Generate this term\'s invoice first' : 'This invoice already has a payment against it — discounts can no longer be applied'}
+        title={!currentInvoiceId ? 'Generate this term\'s invoice first' : 'This invoice already has a payment against it — discounts can no longer be applied'}
       >
         Apply discount
       </button>
@@ -207,13 +211,13 @@ export default function ApplyDiscountButton({ currentInvoiceId, currentInvoiceSu
                 >
                   + Apply another discount
                 </button>
-              ) : (
+              ) : !canAddDiscount ? (
+                // Operational block applies to anyone — keep it. A pure
+                // permission gap shows nothing (hide, don't tease).
                 <p className="text-[12px] text-[var(--color-neutral-500)]">
-                  {!canAddDiscount
-                    ? 'Already has a payment — no new discounts can be applied'
-                    : 'You do not have permission to request new discounts'}
+                  Already has a payment — no new discounts can be applied
                 </p>
-              )}
+              ) : null}
             </div>
           </aside>
         </div>

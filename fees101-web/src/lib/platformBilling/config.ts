@@ -45,6 +45,62 @@ export function mandateSwitchChargeNaira(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 50
 }
 
+// Where a stuck owner is sent for help on the connect-billing screen. Support
+// can manually flip platform_billing.dva_fallback_enabled from the console, which
+// unlocks the bank-transfer option for that school on their next load.
+export const SUPPORT_EMAIL = 'support@fees101.com'
+
+// How many TRANSIENT mandate failures (declined card, insufficient funds, a
+// network timeout — things a retry might fix) we let an owner hit before the
+// self-serve bank-transfer fallback opens on its own. A HARD failure (the bank
+// doesn't support direct debit, or the checkout was abandoned) opens transfer
+// immediately and doesn't wait for this count. Kept low (2) so a genuinely stuck
+// owner isn't frustrated into a third dead-end attempt; the auto-debit mandate
+// still stays the primary, pushed path for a first recoverable blip.
+export const MANDATE_SOFT_FAIL_THRESHOLD = 2
+
+// The banks that currently support Paystack Direct Debit, shown as a "these work
+// with automatic debit" hint when an owner's mandate won't go through. Paystack's
+// supported-bank list is short and changes over time, and most big banks aren't
+// on it yet, so this is NOT hardcoded — set PLATFORM_DIRECT_DEBIT_BANKS in env
+// (comma-separated, e.g. "Kuda,Sterling Bank,Wema Bank") and keep it in sync with
+// the Paystack dashboard. Empty by default, in which case the hint is omitted
+// rather than showing a guessed (possibly wrong) list.
+export function directDebitSupportedBanks(): string[] {
+  const raw = process.env.PLATFORM_DIRECT_DEBIT_BANKS
+  if (!raw) return []
+  return raw.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+// Classify a non-success setup-fee outcome so the connect flow can react
+// differently to "this bank can never do direct debit" vs "that one payment
+// bounced, try again". HARD = open the bank-transfer fallback now; SOFT = count
+// it toward MANDATE_SOFT_FAIL_THRESHOLD and keep the mandate as the primary path.
+//   - 'abandoned': the owner couldn't/didn't complete the checkout — most often
+//     their bank wasn't in the direct-debit list to pick. Treat as HARD.
+//   - a gateway_response naming the mandate / direct debit / bank support as the
+//     blocker: HARD.
+//   - anything else (declined, insufficient funds, timeout): SOFT.
+export function classifyMandateFailure(
+  status: string,
+  gatewayResponse: string | null | undefined,
+): 'hard' | 'soft' {
+  if (status === 'abandoned') return 'hard'
+  const r = (gatewayResponse || '').toLowerCase()
+  const hardSignals = [
+    'not support',
+    'unsupported',
+    'not enabled',
+    'not available',
+    'not eligible',
+    'no mandate',
+    'mandate',
+    'direct debit',
+  ]
+  if (hardSignals.some((s) => r.includes(s))) return 'hard'
+  return 'soft'
+}
+
 export type BillingGateState = {
   // True once the setup fee is paid — the school may enter the app.
   connected: boolean

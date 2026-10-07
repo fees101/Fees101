@@ -8,7 +8,7 @@ import { formatDateTime, formatDateShort } from '@/lib/format/date'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import { exportActivityCsv } from '@/app/(app)/today/record/actions'
 
-type Range = '7' | 'term' | 'all'
+type Range = '7' | 'term' | 'all' | 'today' | 'week' | 'custom'
 
 interface Props {
   rows: ActivityRow[]
@@ -17,6 +17,11 @@ interface Props {
   perPage: number
   category: string
   range: Range
+  // The effective date window (YYYY-MM-DD) behind the current range — pre-fills
+  // the custom from/to pickers and scopes the CSV export. `to` is open-ended for
+  // the preset ranges that have no upper bound (7 days, Term, All, This week).
+  from: string
+  to: string
   search: string
   schoolId: string
   aggregate: ActivityAggregate
@@ -38,7 +43,10 @@ const TZ = 'Africa/Lagos'
 const GRID_COLS = 'minmax(60px,0.5fr) minmax(150px,1.6fr) minmax(190px,2.2fr) minmax(96px,1fr) minmax(110px,1.1fr)'
 
 function formatNaira(amount: number): string {
-  return '₦' + Math.round(amount).toLocaleString('en-NG')
+  // Keep the minus sign ahead of the currency mark for reversals / corrections
+  // (e.g. -₦20,000) so a negative never reads as incoming money.
+  const sign = amount < 0 ? '-' : ''
+  return sign + '₦' + Math.round(Math.abs(amount)).toLocaleString('en-NG')
 }
 
 function fmtClock(iso: string): string {
@@ -85,13 +93,15 @@ const CAT_LABEL: Record<ActivityCategory, string> = {
 // muted neutral for everything informational. No coloured pills.
 function categoryColor(row: ActivityRow): string {
   const received = row.eventType === 'payment_received'
-  if (row.category === 'payments') return received ? 'var(--color-ledger)' : 'var(--color-neutral-700)'
+  // Ledger green only where money actually arrived — a reversal / correction is
+  // payment_received with a negative amount, so it stays neutral.
+  if (row.category === 'payments') return received && !row.isReversal ? 'var(--color-ledger)' : 'var(--color-neutral-700)'
   if (row.category === 'invoices' || row.category === 'discounts') return 'var(--color-ochre-text)'
   return 'var(--color-neutral-700)'
 }
 
 export default function ActivityFeed({
-  rows, total, page, perPage, category, range, search, schoolId, aggregate, termFrom, showFinancials,
+  rows, total, page, perPage, category, range, from, to, search, schoolId, aggregate, termFrom, showFinancials,
 }: Props) {
   const router = useRouter()
   const pathname = usePathname()
@@ -108,9 +118,20 @@ export default function ActivityFeed({
   ])
   const [searchInput, setSearchInput] = useState(search)
   const [exporting, setExporting] = useState(false)
+  // The custom from/to pickers start collapsed behind a toggle (too many controls
+  // in a row otherwise) and only open on request — or automatically when a
+  // custom window is already active (e.g. from a shared link), so the owner
+  // lands on dates they can see and edit rather than a plain label.
+  const [customOpen, setCustomOpen] = useState(range === 'custom')
 
   function navigate(patch: Record<string, string>) {
-    const params = new URLSearchParams({ page: '1', perPage: String(perPage), category, range, search, ...patch })
+    // 'custom' is not a URL value — a custom window is expressed purely by the
+    // from/to params, so drop range when custom and let from/to speak for it.
+    const params = new URLSearchParams({
+      page: '1', perPage: String(perPage), category,
+      range: range === 'custom' ? '' : range,
+      from: from || '', to: to || '', search, ...patch,
+    })
     // The Record defaults to the active term (or 7 days when there's no term to
     // scope to); drop that default from the URL so a clean link stays clean.
     const defaultRange = termFrom ? 'term' : '7'
@@ -131,12 +152,13 @@ export default function ActivityFeed({
   }, [searchInput])
   useEffect(() => { setSearchInput(search) }, [search])
 
-  const effectiveFrom = range === 'all' ? undefined : range === 'term' ? termFrom || undefined : isoDaysAgo(7)
+  const effectiveFrom = from || undefined
+  const effectiveTo = to || undefined
 
   async function handleExport() {
     setExporting(true)
     try {
-      const res = await exportActivityCsv({ category, from: effectiveFrom, search })
+      const res = await exportActivityCsv({ category, from: effectiveFrom, to: effectiveTo, search })
       if ('error' in res) return
       const blob = new Blob([res.csv], { type: 'text/csv;charset=utf-8;' })
       const url = URL.createObjectURL(blob)
@@ -158,9 +180,15 @@ export default function ActivityFeed({
 
   const rangeLabel = range === 'all'
     ? 'All time'
-    : range === 'term'
-      ? (termFrom ? `Since ${formatDateShort(termFrom)}` : 'This term')
-      : `${formatDateShort(isoDaysAgo(7))} – ${formatDateShort(new Date().toISOString())}`
+    : range === 'custom'
+      ? `${from ? formatDateShort(from) : '…'} – ${to ? formatDateShort(to) : 'now'}`
+      : range === 'today'
+        ? 'Today'
+        : range === 'week'
+          ? 'This week'
+          : range === 'term'
+            ? (termFrom ? `Since ${formatDateShort(termFrom)}` : 'This term')
+            : `${formatDateShort(isoDaysAgo(7))} – ${formatDateShort(new Date().toISOString())}`
 
   // Group the page's rows into calendar days (school time).
   const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: TZ })
@@ -176,14 +204,16 @@ export default function ActivityFeed({
     }
     g.rows.push(r)
     g.events += 1
-    if (r.eventType === 'payment_received' && r.amount) g.received += r.amount
+    // Only genuine incoming money adds to the day's received total — a reversal
+    // (payment_received with a negative amount) is never counted or netted.
+    if (r.eventType === 'payment_received' && r.amount && r.amount > 0) g.received += r.amount
   }
 
-  const presetBtn = (value: Range, label: string, disabled = false) => (
+  const presetBtn = (value: Range, label: string, disabled = false, isFirst = false) => (
     <button
-      onClick={() => !disabled && navigate({ range: value, page: '1' })}
+      onClick={() => !disabled && navigate({ range: value, from: '', to: '', page: '1' })}
       disabled={disabled}
-      className={`px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-40 ${value !== '7' ? 'border-l-2 border-[var(--color-ink)]' : ''} ${
+      className={`px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-40 ${!isFirst ? 'border-l-2 border-[var(--color-ink)]' : ''} ${
         range === value ? 'bg-[var(--color-ink)] text-[var(--color-paper)]' : 'text-[var(--color-neutral-700)] hover:text-[var(--color-ink)]'
       }`}
     >
@@ -203,12 +233,53 @@ export default function ActivityFeed({
             {aggregate.totalEvents.toLocaleString()} events · {aggregate.paymentsCount.toLocaleString()} payments · {rangeLabel}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex border-2 border-[var(--color-ink)]">
-            {presetBtn('7', '7 days')}
+            {presetBtn('today', 'Today', false, true)}
+            {presetBtn('week', 'This week')}
             {presetBtn('term', 'Term', !termFrom)}
             {presetBtn('all', 'All')}
           </div>
+          {/* Custom from/to window, collapsed behind a toggle so the control row
+              doesn't fill up with two date inputs by default. Picking either date
+              switches the feed into a custom range (the preset group clears);
+              clearing both and closing the toggle reverts to the default range. */}
+          {customOpen ? (
+            <div className="inline-flex items-center gap-1.5">
+              <input
+                type="date"
+                value={from || ''}
+                max={to || undefined}
+                onChange={(e) => navigate({ range: '', from: e.target.value, to: to || '', page: '1' })}
+                className="m-input text-[13px]"
+                aria-label="From date"
+              />
+              <span className="text-[13px] text-[var(--color-neutral-700)]">to</span>
+              <input
+                type="date"
+                value={to || ''}
+                min={from || undefined}
+                onChange={(e) => navigate({ range: '', from: from || '', to: e.target.value, page: '1' })}
+                className="m-input text-[13px]"
+                aria-label="To date"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomOpen(false)
+                  if (range === 'custom') navigate({ range: termFrom ? 'term' : '7', from: '', to: '', page: '1' })
+                }}
+                className="text-[12px] text-[var(--color-neutral-700)] hover:text-[var(--color-ink)]"
+                aria-label="Close custom dates"
+              >
+                Close
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setCustomOpen(true)} className="m-btn m-btn-outline text-xs">
+              Custom dates
+            </button>
+          )}
           <button onClick={handleExport} disabled={exporting} className="m-btn m-btn-outline disabled:opacity-40">
             {exporting ? 'Exporting…' : 'Export CSV'}
           </button>
@@ -280,7 +351,10 @@ export default function ActivityFeed({
               </div>
 
               {g.rows.map((event) => {
-                const received = event.eventType === 'payment_received'
+                // Ledger green + bold only for real incoming money. A reversal /
+                // correction (payment_received, negative amount) renders in
+                // neutral ink with its negative figure, never as money arriving.
+                const received = event.eventType === 'payment_received' && !event.isReversal
                 return (
                   <div
                     key={event.id}

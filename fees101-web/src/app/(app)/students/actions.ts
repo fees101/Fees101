@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { tryAutoCreateStudentDVA } from '@/lib/payments/provisionDVA'
 import { requirePermission } from '@/lib/auth/permissions'
+import { requireBillingActiveOrError } from '@/lib/platformBilling/requireBillingActive'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { normalizePhone } from '@/lib/messaging/sendMessage'
 
@@ -24,6 +25,10 @@ interface AddStudentInput {
 }
 
 export async function addStudent(input: AddStudentInput) {
+  // M2: block roster growth (a billing driver) when billing is unconnected or
+  // suspended, in case this action is reached without the layout gate.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   // Gated on manage-students (owner/super_admin/is_admin bypass).
   const authCtx = await requirePermission('manage-students')
   if (!authCtx || !authCtx.schoolId) return { error: 'Not authorized' }

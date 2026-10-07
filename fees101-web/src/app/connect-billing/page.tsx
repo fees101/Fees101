@@ -6,6 +6,9 @@ import {
   FREE_DAYS,
   PRICE_PER_STUDENT_MONTH,
   BILLING_TERMS_VERSION,
+  MANDATE_SOFT_FAIL_THRESHOLD,
+  SUPPORT_EMAIL,
+  directDebitSupportedBanks,
 } from '@/lib/platformBilling/config'
 import ConnectBillingForm from './ConnectBillingForm'
 
@@ -27,7 +30,7 @@ export default async function ConnectBillingPage({
   // Already connected? Don't show the step again.
   const { data: billing } = await svc
     .from('platform_billing')
-    .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name, dva_fallback_enabled')
+    .select('billing_connected_at, platform_dva_account_number, platform_dva_bank_name, dva_fallback_enabled, mandate_attempt_count, mandate_last_failure_reason')
     .eq('school_id', ctx.schoolId)
     .maybeSingle()
   if (billing?.billing_connected_at) redirect('/today')
@@ -51,6 +54,11 @@ export default async function ConnectBillingPage({
       initialErrorCode={errorCode || null}
       checkedForTransfer={checked === '1'}
       dvaFallbackEnabled={billing?.dva_fallback_enabled === true}
+      attemptCount={billing?.mandate_attempt_count ?? 0}
+      softFailThreshold={MANDATE_SOFT_FAIL_THRESHOLD}
+      lastFailureReason={billing?.mandate_last_failure_reason || null}
+      supportEmail={SUPPORT_EMAIL}
+      recommendedBanks={directDebitSupportedBanks()}
       existingDva={
         billing?.platform_dva_account_number
           ? { accountNumber: billing.platform_dva_account_number, bankName: billing.platform_dva_bank_name || '' }

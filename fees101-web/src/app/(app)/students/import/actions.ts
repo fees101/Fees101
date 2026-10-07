@@ -1,6 +1,7 @@
 'use server'
 
 import { requirePermission } from '@/lib/auth/permissions'
+import { requireBillingActiveOrError } from '@/lib/platformBilling/requireBillingActive'
 import { createJob, findRunningJob } from '@/lib/jobs/backgroundJobs'
 import type { ParsedRow } from '@/lib/students/csvImport'
 
@@ -210,6 +211,10 @@ export async function parseAndValidateCSV(csvText: string) {
 }
 
 export async function startCsvImportJob(rows: ParsedRow[]) {
+  // M2: bulk roster growth is a billing driver — block it when billing is
+  // unconnected or suspended, as a backstop to the layout gate.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   // Gated on manage-students (owner/super_admin/is_admin bypass).
   const ctx = await requirePermission('manage-students')
   if (!ctx || !ctx.schoolId) return { error: 'Not authorized' }

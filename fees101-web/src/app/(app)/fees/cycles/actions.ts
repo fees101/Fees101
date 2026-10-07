@@ -1,6 +1,7 @@
 'use server'
 
 import { requirePermission } from '@/lib/auth/permissions'
+import { requireBillingActiveOrError } from '@/lib/platformBilling/requireBillingActive'
 import { revalidatePath } from 'next/cache'
 import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
@@ -204,6 +205,9 @@ export async function createTerm(form: {
   activateImmediately?: boolean
   skipAdjustmentCarryForward?: boolean
 }): Promise<CreateTermResult> {
+  // M2: creating a billing term is core product use — gate on billing.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -852,6 +856,10 @@ type CloseTermResult =
   | { success: true, summary: CloseCarryForwardSummary }
 
 export async function closeTerm(id: string): Promise<CloseTermResult> {
+  // M2: closing a term (balance carry-forward, invoice lifecycle) is core
+  // product use — gate on billing.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -1104,6 +1112,9 @@ async function getNextInvoiceSequence(
 // /api/jobs/process instead of computing every student inline in this request
 // (the old version could easily exceed a serverless timeout on a large school).
 export async function startInvoiceGenerationJob(cycleId: string) {
+  // M2: generating invoices is core product use — gate on billing.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -1134,6 +1145,9 @@ export async function startInvoiceGenerationJob(cycleId: string) {
 
 // GENERATE single (for late joiner)
 export async function generateInvoiceForStudent(studentId: string, cycleId: string) {
+  // M2: generating an invoice is core product use — gate on billing.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -1341,6 +1355,9 @@ export async function startInvoiceRegenerationJob(cycleId: string): Promise<
   | { error: string }
   | { success: true; jobId: string; lockedCount: number }
 > {
+  // M2: regenerating invoices is core product use — gate on billing.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await getContext('manage-invoices')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -1433,6 +1450,9 @@ export async function startYearEndRollover(form: {
   newTerm: NewTermInput
   confirmSessionName: string
 }) {
+  // M2: the year-end rollover is a large data mutation — gate on billing.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await getContext('run-year-end')
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx

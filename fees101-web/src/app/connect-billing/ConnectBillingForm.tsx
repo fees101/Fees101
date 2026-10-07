@@ -24,6 +24,10 @@ const ERROR_COPY: Record<string, string> = {
   reference_mismatch: 'We could not match that payment to your school. Please try again.',
   verify_failed: 'We could not confirm the payment with Paystack. Please try again.',
   payment_failed: 'The setup payment did not go through. No charge was made, please try again.',
+  bank_unsupported:
+    'Your bank may not support automatic debit yet. No charge was made. You can retry with a supported bank, or pay by bank transfer instead below.',
+  mandate_retries_exhausted:
+    'Automatic debit has not gone through after a few tries. No charge was made. You can pay by bank transfer instead below.',
 }
 
 export default function ConnectBillingForm({
@@ -37,6 +41,11 @@ export default function ConnectBillingForm({
   existingDva,
   checkedForTransfer,
   dvaFallbackEnabled,
+  attemptCount,
+  softFailThreshold,
+  lastFailureReason,
+  supportEmail,
+  recommendedBanks,
 }: {
   schoolName: string
   setupFee: number
@@ -48,9 +57,15 @@ export default function ConnectBillingForm({
   existingDva: { accountNumber: string; bankName: string } | null
   checkedForTransfer: boolean
   // Owner-gated: the self-serve "pay by bank transfer instead" option only
-  // appears once Fees101 has enabled DVA for this school. Keeps schools on the
-  // auto-debit mandate (the retention lock) by default.
+  // appears once Fees101 (or the smart failure logic) has enabled DVA for this
+  // school, or the owner has crossed the transient-failure attempt threshold.
+  // Keeps schools on the auto-debit mandate (the retention lock) by default.
   dvaFallbackEnabled: boolean
+  attemptCount: number
+  softFailThreshold: number
+  lastFailureReason: string | null
+  supportEmail: string
+  recommendedBanks: string[]
 }) {
   // Terms were already accepted server-side on the first attempt that brought
   // them back here with an error, or earlier when they got as far as a DVA —
@@ -82,6 +97,10 @@ export default function ConnectBillingForm({
     setError(null)
     setSubmitting(true)
     const result = await startBillingConnection(accepted)
+    if ('redirect' in result) {
+      window.location.href = result.redirect // already connected — go into the app
+      return
+    }
     if ('url' in result) {
       window.location.href = result.url // hosted Paystack checkout
       return
@@ -94,6 +113,10 @@ export default function ConnectBillingForm({
     setError(null)
     setSubmitting(true)
     const result = await startDvaFallback(accepted)
+    if ('redirect' in result) {
+      window.location.href = result.redirect // already connected — go into the app
+      return
+    }
     setSubmitting(false)
     if ('error' in result) {
       setError(result.error)
@@ -102,6 +125,13 @@ export default function ConnectBillingForm({
     setDva(result)
     setShowTransferDetails(true)
   }
+
+  // The transfer fallback is available once the smart failure logic / Fees101
+  // enabled it (dva_fallback_enabled), or the owner has crossed the transient-
+  // failure attempt threshold. Until then the mandate is the only path.
+  const canUseTransfer = dvaFallbackEnabled || attemptCount >= softFailThreshold
+  const showBankHint =
+    recommendedBanks.length > 0 && (canUseTransfer || initialErrorCode === 'bank_unsupported')
 
   return (
     <main className="min-h-screen bg-[var(--color-paper)] flex items-center justify-center px-4 py-10">
@@ -212,6 +242,12 @@ export default function ConnectBillingForm({
               </p>
             )}
 
+            {lastFailureReason && initialErrorCode && initialErrorCode !== 'missing_reference' && (
+              <p className="text-[12px] leading-[1.5] text-[var(--color-neutral-700)] -mt-2 mb-4">
+                What your bank reported: {lastFailureReason}.
+              </p>
+            )}
+
             <button
               type="button"
               onClick={handleConnect}
@@ -229,25 +265,37 @@ export default function ConnectBillingForm({
               >
                 Or pay by bank transfer instead
               </button>
-            ) : error && dvaFallbackEnabled ? (
+            ) : canUseTransfer ? (
+              // Clearly-secondary self-serve fallback. Automatic bank debit stays
+              // visually primary (the filled button above); this is a plain
+              // underlined link, shown only once the smart logic / Fees101 opened
+              // transfer or the owner crossed the transient-failure threshold. The
+              // server action enforces the same gate, so a direct call can't bypass it.
               <button
                 type="button"
                 onClick={handleDvaFallback}
                 disabled={!accepted || submitting}
                 className="text-[12.5px] text-[var(--color-neutral-700)] underline mt-3 block"
               >
-                Can&apos;t get this to work? Use a bank transfer instead
+                Pay by bank transfer instead
               </button>
-            ) : error ? (
-              // Self-serve bank transfer is off for this school — don't dead-end a
-              // stuck owner; point them to us so we can help (and enable DVA if
-              // their bank/card genuinely can't do an auto-debit mandate).
-              <p className="text-[12.5px] leading-[1.5] text-[var(--color-neutral-700)] mt-3">
-                Still stuck? Reach out to Fees101 and we&apos;ll help you get {schoolName} connected.
-              </p>
             ) : null}
 
+            {showBankHint && (
+              <p className="text-[12px] leading-[1.5] text-[var(--color-neutral-700)] mt-3">
+                Banks that currently support automatic debit: {recommendedBanks.join(', ')}. You can
+                retry with one of these.
+              </p>
+            )}
+
             <p className="text-[11px] leading-[1.5] text-[var(--color-neutral-700)] mt-4 pt-3" style={{ borderTop: '1px solid var(--color-neutral-300)' }}>
+              Trouble connecting?{' '}
+              <a href={`mailto:${supportEmail}`} className="text-[var(--color-ink)] font-medium underline">
+                {supportEmail}
+              </a>{' '}
+              can help, or switch you to bank transfer.
+            </p>
+            <p className="text-[11px] leading-[1.5] text-[var(--color-neutral-700)] mt-2">
               Secured by Paystack. Terms version {termsVersion}.
             </p>
           </>

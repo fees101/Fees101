@@ -17,6 +17,16 @@ function composeProprietressName(title?: string | null, firstName?: string | nul
 // applied to via credit_applied. A credit draw-down never creates a new
 // payments row, so summing real payments by paid_at naturally excludes
 // credit applications with no special-casing needed.
+//
+// SUPERSEDED (2026-10-07): no longer called anywhere. A payment-date window
+// miscounts prepayments and late payments against the WRONG term whenever the
+// calendar date and the invoice's actual term disagree (e.g. a payment made
+// today lands here even if it's for a draft future term with zero invoices, or
+// a past term's late settlement). getCollectedForTerm below attributes by the
+// invoice's own term instead, which both getFeesOverview and getCycleDetailById
+// now use. Left in place as a primitive (pure payment-date sum), not deleted,
+// in case a genuinely date-range-scoped figure is wanted later — but don't use
+// it for a term's "Collected".
 export async function getCollectedForDateRange(supabase: any, schoolId: string, startDate: string, endDate: string): Promise<number> {
   const endExclusive = new Date(endDate)
   endExclusive.setDate(endExclusive.getDate() + 1)
@@ -28,6 +38,34 @@ export async function getCollectedForDateRange(supabase: any, schoolId: string, 
     .eq('match_status', 'matched')
     .gte('paid_at', startDate)
     .lt('paid_at', endExclusive.toISOString())
+
+  return (data || []).reduce((sum: number, p: any) => sum + Number(p.amount), 0)
+}
+
+// "Collected · [term]" on a cash basis, attributed to the invoice's term, not
+// the date money arrived. The sum of real payment rows whose invoice belongs to
+// this billing cycle (payments.invoice_id -> invoices.billing_cycle_id =
+// cycleId). A payment counts toward its invoice's term regardless of when it was
+// paid (a late payment for this term still counts here; a payment on a different
+// term's invoice does not).
+//
+// Deliberately excluded:
+//  - payments with no invoice (invoice_id null, i.e. credit-balance /
+//    overpayment rows), which belong to no single term: the !inner join drops
+//    them.
+//  - credit applications (credit_applied): these never create a payments row, so
+//    reading the payments table already excludes them and nothing is
+//    double-counted when carried-over credit later covers a bill.
+// Reversal rows (negative amount against a this-term invoice) are summed as the
+// negatives they are, so an original payment and its later reversal net to zero
+// collected rather than overstating it.
+export async function getCollectedForTerm(supabase: any, schoolId: string, cycleId: string): Promise<number> {
+  const { data } = await supabase
+    .from('payments')
+    .select('amount, invoices!inner(billing_cycle_id)')
+    .eq('school_id', schoolId)
+    .eq('match_status', 'matched')
+    .eq('invoices.billing_cycle_id', cycleId)
 
   return (data || []).reduce((sum: number, p: any) => sum + Number(p.amount), 0)
 }
@@ -91,10 +129,12 @@ export async function getFeesOverview(cycleId?: string) {
         .from('invoices')
         .select('total_amount, paid_amount, credit_applied, student_id, status')
         .eq('billing_cycle_id', cycle.id),
-      // Collected = real money received while this term was active, by
-      // payment date — not what's allocated to this term's invoices. See
-      // getCollectedForDateRange.
-      getCollectedForDateRange(supabase, schoolId, cycle.start_date, cycle.end_date),
+      // Collected = real cash payments attributed to THIS term's invoices (not
+      // by payment date — a payment made today against a past term's invoice
+      // still counts there; a term with no invoices yet collects nothing, even
+      // if today's calendar date happens to fall inside its date range). See
+      // getCollectedForTerm.
+      getCollectedForTerm(supabase, schoolId, cycle.id),
     ])
 
     // A cancelled invoice (e.g. a withdrawn student's stray term invoice)
@@ -456,14 +496,17 @@ export async function getAllCycles(): Promise<CycleRow[]> {
       .from('invoices')
       .select('billing_cycle_id, total_amount, paid_amount, credit_applied, status, sent_at, needs_resend, previous_balance')
       .in('billing_cycle_id', cycleIds),
-    // Collected is attributed by payment date, not invoice allocation — fetch
-    // every matched payment once and bucket into whichever cycle's date range
-    // it falls in, rather than N+1 queries per cycle.
+    // Collected is attributed to each invoice's own term (cash basis), not the
+    // date money arrived — see getCollectedForTerm. Fetched once for every
+    // cycle via the invoice join (not N+1): a payment with no invoice (credit-
+    // balance/overpayment) is dropped by the !inner join, and credit
+    // applications never create a payments row, so both stay out automatically.
     supabase
       .from('payments')
-      .select('amount, paid_at')
+      .select('amount, invoices!inner(billing_cycle_id)')
       .eq('school_id', schoolId)
-      .eq('match_status', 'matched'),
+      .eq('match_status', 'matched')
+      .in('invoices.billing_cycle_id', cycleIds),
     // Get fee item counts per cycle
     supabase
       .from('fee_items')
@@ -502,16 +545,10 @@ export async function getAllCycles(): Promise<CycleRow[]> {
   })
 
   const collectedByCycle: Record<string, number> = {}
-  cycles.forEach(c => {
-    const start = new Date(c.start_date)
-    const endExclusive = new Date(c.end_date)
-    endExclusive.setDate(endExclusive.getDate() + 1)
-    collectedByCycle[c.id] = (allPayments || [])
-      .filter((p: any) => {
-        const paidAt = new Date(p.paid_at)
-        return paidAt >= start && paidAt < endExclusive
-      })
-      .reduce((sum: number, p: any) => sum + Number(p.amount), 0)
+  ;(allPayments || []).forEach((p: any) => {
+    const cycleId = p.invoices?.billing_cycle_id
+    if (!cycleId) return
+    collectedByCycle[cycleId] = (collectedByCycle[cycleId] || 0) + Number(p.amount)
   })
 
   const feeItemStats: Record<string, number> = {}
@@ -704,8 +741,9 @@ export async function getCycleDetailById(cycleId: string, options: GetCycleDetai
       `)
       .eq('school_id', schoolId)
       .eq('status', 'active'),
-    // Collected is attributed by payment date, not invoice allocation — see getCollectedForDateRange.
-    getCollectedForDateRange(supabase, schoolId, cycleData.start_date, cycleData.end_date),
+    // Collected is attributed to THIS term's invoices (cash basis), not by
+    // payment date — see getCollectedForTerm.
+    getCollectedForTerm(supabase, schoolId, cycleId),
   ])
 
   // Student's live credit_balance already has this invoice's own
@@ -998,6 +1036,12 @@ export interface InvoiceDetail {
     // this invoice isn't left wondering where the rest of their money went.
     transactionTotal?: number
     otherAllocations?: Array<{ termName: string | null, amount: number }>
+    // Set when a MANUAL/cash payment only partly settled this invoice and the
+    // remainder went to the student's credit balance. transactionTotal is the
+    // full amount the parent handed over; creditAmount is what spilled to
+    // credit. Kept separate from the transfer sibling path above because a
+    // manual payment's pieces aren't linked by a provider transaction id.
+    creditSplit?: { transactionTotal: number, creditAmount: number }
   }>
 }
 
@@ -1108,6 +1152,29 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
     // already, so it's included above with termName: null (credit).
   }
 
+  // Manual/cash split: a manual payment that only partly settles this invoice
+  // spills the remainder onto the student's credit balance as a SEPARATE
+  // payment row (invoice_id null), with no provider_transaction_id linking the
+  // two — so the transfer-sibling path above can't see it. The manual payment
+  // feature does record the full entered amount on manual_payment_requests
+  // (its payment_id points at the invoice row shown here), so recover the split
+  // from there: credit portion = full entered amount − what landed on this
+  // invoice. Only original approved entries (not reversals) carry a split.
+  const paymentIds = (payments || []).map((p: any) => p.id)
+  const manualFullById: Record<string, number> = {}
+  if (paymentIds.length > 0) {
+    const { data: manualRows } = await supabase
+      .from('manual_payment_requests')
+      .select('payment_id, amount')
+      .eq('school_id', schoolId)
+      .eq('status', 'approved')
+      .is('reversal_of', null)
+      .in('payment_id', paymentIds)
+    ;(manualRows || []).forEach((m: any) => {
+      if (m.payment_id) manualFullById[m.payment_id] = Number(m.amount)
+    })
+  }
+
   const total = Number(invoice.total_amount)
   const paid = Number(invoice.paid_amount || 0)
 
@@ -1156,6 +1223,11 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
     } : null,
     payments: (payments || []).map((p: any) => {
       const siblings = p.provider_transaction_id ? siblingsByTransaction[p.provider_transaction_id] : undefined
+      // Manual/cash part-payment that overflowed to credit — recovered from the
+      // full entered amount on manual_payment_requests (see above).
+      const manualFull = manualFullById[p.id]
+      const creditAmount = manualFull !== undefined ? Math.round((manualFull - Number(p.amount)) * 100) / 100 : 0
+      const creditSplit = creditAmount > 0 ? { transactionTotal: manualFull, creditAmount } : undefined
       return {
         id: p.id,
         amount: Number(p.amount),
@@ -1167,6 +1239,7 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
         receivedByName: p.users?.name || (p.provider ? 'Automatic' : null),
         transactionTotal: siblings ? Number(p.amount) + siblings.reduce((s: number, o: any) => s + o.amount, 0) : undefined,
         otherAllocations: siblings,
+        creditSplit,
       }
     }),
   }
@@ -1339,11 +1412,13 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
       outstanding_amount,
       subtotal,
       credit_applied,
+      discount_amount,
+      previous_balance,
       status,
       sent_at,
       needs_resend,
       generated_at,
-      students(first_name, last_name, admission_number, classes(name)),
+      students(first_name, last_name, admission_number, status, classes(name)),
       billing_cycles(id, name, status)
     `)
     .eq('school_id', schoolId)
@@ -1377,6 +1452,8 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
       // @ts-expect-error — joined
       className: inv.students?.classes?.name || '',
       // @ts-expect-error — joined
+      studentStatus: inv.students?.status || 'active',
+      // @ts-expect-error — joined
       cycleId: inv.billing_cycles?.id || '',
       // @ts-expect-error — joined
       cycleName: inv.billing_cycles?.name || '',
@@ -1387,6 +1464,8 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
       outstandingAmount: Number(inv.outstanding_amount ?? (total - paid)),
       subtotal: Number(inv.subtotal || 0),
       creditApplied: Number(inv.credit_applied || 0),
+      discountAmount: Number(inv.discount_amount || 0),
+      previousBalance: Number(inv.previous_balance || 0),
       status: inv.status,
       sentAt: inv.sent_at,
       needsResend: inv.needs_resend,
@@ -1430,11 +1509,21 @@ function matchesInvoiceScope(inv: AllInvoiceRow, termFilter: string, search: str
   return true
 }
 
+// Open (non-cancelled, outstanding) money on the books against a student who
+// has already left — same definition the dashboard's "Needs you" stale-
+// student-invoices count uses (getNeedsYouAttention), so the two never disagree.
+function isStaleStudentInvoice(inv: AllInvoiceRow): boolean {
+  return inv.status !== 'cancelled'
+    && inv.outstandingAmount > 0
+    && (inv.studentStatus === 'withdrawn' || inv.studentStatus === 'graduated')
+}
+
 function matchesInvoiceStatus(inv: AllInvoiceRow, statusFilter: InvoiceStatusFilter): boolean {
   if (statusFilter === 'settled') return inv.status === 'paid'
   if (statusFilter === 'partial') return inv.status === 'partial'
   if (statusFilter === 'overdue') return inv.status !== 'paid' && inv.status !== 'partial' && inv.status !== 'cancelled'
   if (statusFilter === 'needs_resend') return inv.needsResend && inv.status !== 'cancelled'
+  if (statusFilter === 'stale_students') return isStaleStudentInvoice(inv)
   return true
 }
 
@@ -1477,6 +1566,7 @@ export async function getAllInvoicesForList(options: AllInvoicesOptions = {}): P
     // startBulkSendInvoicesJob's candidate query in sendInvoice.ts, so this
     // count always matches what the button's own bulk-send job will process.
     needsSend: scoped.filter(i => i.status !== 'cancelled' && (i.cycleStatus !== 'closed' || !i.carriedForwardToCycleName) && (i.needsResend || (!i.sentAt && i.outstandingAmount > 0))).length,
+    staleStudents: scoped.filter(isStaleStudentInvoice).length,
   }
 
   const ledger = scoped.reduce<InvoiceLedgerTotals>((acc, inv) => {
@@ -1486,8 +1576,10 @@ export async function getAllInvoicesForList(options: AllInvoicesOptions = {}): P
     acc.outstanding += inv.outstandingAmount
     acc.subtotal += inv.subtotal
     acc.creditApplied += inv.creditApplied
+    acc.discountAmount += inv.discountAmount
+    acc.previousBalance += inv.previousBalance
     return acc
-  }, { total: 0, received: 0, outstanding: 0, subtotal: 0, creditApplied: 0 })
+  }, { total: 0, received: 0, outstanding: 0, subtotal: 0, creditApplied: 0, discountAmount: 0, previousBalance: 0 })
 
   const filtered = scoped.filter(inv => matchesInvoiceStatus(inv, statusFilter))
 
@@ -1509,5 +1601,24 @@ export async function getAllInvoicesForExport(options: Omit<AllInvoicesOptions, 
   return all
     .filter(inv => matchesInvoiceScope(inv, termFilter, search))
     .filter(inv => matchesInvoiceStatus(inv, statusFilter))
+}
+
+// Credit on file — the total money parents have paid ABOVE what they owe, still
+// sitting on students.credit_balance waiting to apply to a future invoice. A
+// stock, not a flow: it is shown distinct from Collected (money the school has
+// received this term) on the invoices ledger. Only positive balances count; a
+// student can never carry a negative credit balance, but the filter guards it.
+export async function getCreditOnFile(): Promise<number> {
+  const ctx = await getSchoolContext()
+  if (!ctx) return 0
+  const { supabase, schoolId } = ctx
+
+  const { data } = await supabase
+    .from('students')
+    .select('credit_balance')
+    .eq('school_id', schoolId)
+    .gt('credit_balance', 0)
+
+  return (data || []).reduce((sum: number, r: any) => sum + Number(r.credit_balance || 0), 0)
 }
 

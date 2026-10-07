@@ -660,10 +660,10 @@ export default function CyclesLayout({ cycles, sessions, showFinancials = true }
     const collected = c.totalCollected
     const billedText = expected > 0 ? (showFinancials ? formatNaira(expected) : '—') : '—'
     const collectedText = collected > 0 ? (showFinancials ? formatNaira(collected) : '—') : '—'
-    // Collected is bucketed by payment date across the whole school, so a term
-    // that billed little but sat in a busy collection window can read well over
-    // 100%. Cap the display so an outlier can't blow out the tabular column; the
-    // real figures stay in the BILLED/COLLECTED cells beside it.
+    // Collected is cash paid toward this term's own invoices (getCollectedForTerm
+    // in fees.ts) — can still occasionally edge past 100%. Cap the display so an
+    // outlier can't blow out the tabular column; the real figures stay in the
+    // BILLED/COLLECTED cells beside it.
     const ratePct = expected > 0 ? Math.round((collected / expected) * 100) : null
     const rateText = ratePct === null ? '—' : ratePct > 999 ? '>999%' : `${ratePct}%`
     const datesText = c.startDate

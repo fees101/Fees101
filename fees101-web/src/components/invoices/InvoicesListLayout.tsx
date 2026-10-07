@@ -22,6 +22,7 @@ interface Props {
   statusFilter: InvoiceStatusFilter
   termFilter: string
   search: string
+  creditOnFile: number
   schoolId: string
 }
 
@@ -67,7 +68,7 @@ function csvCell(value: string | number | null | undefined): string {
 }
 
 export default function InvoicesListLayout({
-  rows, total, page, perPage, terms, counts, ledger, statusFilter, termFilter, search, schoolId,
+  rows, total, page, perPage, terms, counts, ledger, statusFilter, termFilter, search, creditOnFile, schoolId,
 }: Props) {
   const router = useRouter()
   const pathname = usePathname()
@@ -249,9 +250,24 @@ export default function InvoicesListLayout({
               <div>
                 <p className="text-[11px] tracking-[0.16em] mb-2" style={{ color: INK.dim }}>LEDGER TOTAL · {termLabel}</p>
                 <p className="m-num text-[46px] font-extrabold leading-[0.9] tracking-[-0.03em]" style={{ color: '#ffffff' }}>{formatNaira(ledger.total)}</p>
-                {ledger.creditApplied > 0 && (
+                {(ledger.previousBalance > 0 || ledger.discountAmount > 0 || ledger.creditApplied > 0) && (
+                  // Full breakdown so this actually reconciles to the total above:
+                  // total = subtotal + previousBalance − discountAmount − creditApplied
+                  // (same formula as computeInvoice.ts). Showing only some of these
+                  // terms would leave the arithmetic not add up on screen.
                   <p className="m-num text-[12px] mt-1.5" style={{ color: INK.dim }}>
-                    {formatNaira(ledger.subtotal)} − {formatNaira(ledger.creditApplied)} credit
+                    {formatNaira(ledger.subtotal)}
+                    {ledger.previousBalance > 0 && <> + {formatNaira(ledger.previousBalance)} carried</>}
+                    {ledger.discountAmount > 0 && <> − {formatNaira(ledger.discountAmount)} discount</>}
+                    {ledger.creditApplied > 0 && <> − {formatNaira(ledger.creditApplied)} credit</>}
+                  </p>
+                )}
+                {creditOnFile > 0 && (
+                  // A stock, not this term's flow: money parents have paid above
+                  // their balance, sitting on credit for a future invoice. Plain
+                  // text, deliberately quieter than Received/Outstanding.
+                  <p className="m-num text-[12px] mt-1.5" style={{ color: INK.dim }}>
+                    Credit on file: {formatNaira(creditOnFile)}
                   </p>
                 )}
               </div>
@@ -274,6 +290,7 @@ export default function InvoicesListLayout({
               {chip('partial', 'Partial', counts.partial)}
               {chip('overdue', 'Overdue', counts.overdue)}
               {chip('needs_resend', 'Needs resend', counts.needsResend, counts.needsResend > 0)}
+              {chip('stale_students', 'Withdrawn/left', counts.staleStudents, counts.staleStudents > 0)}
               <div className="flex flex-wrap items-center gap-2 ml-auto">
                 {terms.length > 1 && (
                   <Select

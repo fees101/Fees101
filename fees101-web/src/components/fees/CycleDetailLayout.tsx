@@ -37,10 +37,10 @@ function formatNaira(amount: number): string {
   return '₦' + amount.toLocaleString('en-NG')
 }
 
-// Collected is bucketed by payment date across the whole school, so a term that
-// billed little but sat in a busy collection window can read well over 100%.
-// Cap the rate so an outlier can't render a broken-looking figure; the real
-// naira totals are shown alongside it.
+// Collected is cash paid toward this term's own invoices (see getCollectedForTerm
+// in fees.ts) — it can still occasionally run past 100% (e.g. a payment slightly
+// ahead of a fee change). Cap the rate so an outlier can't render a broken-
+// looking figure; the real naira totals are shown alongside it.
 function collectedRate(collected: number, expected: number): string {
   if (expected <= 0) return '0%'
   const pct = Math.round((collected / expected) * 100)

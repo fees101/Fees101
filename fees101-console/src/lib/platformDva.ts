@@ -169,7 +169,10 @@ export async function reconcilePlatformTransfer(params: ReconcileParams): Promis
       provider_transaction_id: params.transactionId != null ? String(params.transactionId) : null,
       paid_at: params.paidAt ?? nowIso,
     })
-    if (chargeErr) throw new Error(`Failed to record charge: ${chargeErr.message}`)
+    // M1: the unique index on paystack_reference may reject a racing duplicate
+    // (23505); that means another observer already booked this transfer, so it
+    // is a safe no-op here, not a failure.
+    if (chargeErr && chargeErr.code !== '23505') throw new Error(`Failed to record charge: ${chargeErr.message}`)
 
     if (params.amount < required) {
       return { status: 'reconciled', schoolId, appliedTo: [], overpayment: 0 }
@@ -280,7 +283,10 @@ export async function reconcilePlatformTransfer(params: ReconcileParams): Promis
       paid_at: params.paidAt ?? nowIso,
     })
 
-  if (chargeErr) throw new Error(`Failed to record charge: ${chargeErr.message}`)
+  // M1: a racing duplicate (23505) means this transfer was already booked (the
+  // step-2 dupe guard normally catches it first); treat it as a no-op, not a
+  // failure.
+  if (chargeErr && chargeErr.code !== '23505') throw new Error(`Failed to record charge: ${chargeErr.message}`)
 
   // 5. A successful transfer reactivates the school's billing.
   await supabase

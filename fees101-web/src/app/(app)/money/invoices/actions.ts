@@ -1,6 +1,7 @@
 'use server'
 
 import { requirePermission } from '@/lib/auth/permissions'
+import { requireBillingActiveOrError } from '@/lib/platformBilling/requireBillingActive'
 import { revalidatePath } from 'next/cache'
 import { startBulkSendInvoicesJob, sendInvoiceCore } from '@/lib/invoicing/sendInvoice'
 import { logAuditEvent } from '@/lib/audit/logAudit'
@@ -34,6 +35,9 @@ export async function exportInvoicesCSV(options: Omit<AllInvoicesOptions, 'page'
 // with hundreds/thousands of invoices can't get stuck re-sending a
 // persistently-failing batch forever.
 export async function startBulkSend(opts: { onlyNeedsResend?: boolean } = {}) {
+  // M2: sending invoices is active product use — gate on billing.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx
@@ -48,6 +52,9 @@ export async function startBulkSend(opts: { onlyNeedsResend?: boolean } = {}) {
 // reminder going out on stale numbers, not to stop this explicit "yes, tell
 // them" action.
 export async function sendInvoiceUpdateNotice(invoiceId: string): Promise<{ error: string } | { success: true }> {
+  // M2: sending a parent notice is active product use — gate on billing.
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await getContext()
   if (!ctx) return { error: 'Not authenticated' }
   const { supabase, schoolId, userId } = ctx

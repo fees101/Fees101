@@ -40,6 +40,11 @@ export interface GetStudentsOptions {
   sortDir?: StudentSortDir
   page?: number
   perPage?: number
+  // Scope the whole roster to the "families you can't reach" set — the same
+  // families behind the dashboard "Needs you" unreachable count. Resolved via
+  // the needs_you_unreachable_family_ids RPC, then folded into every student
+  // query as a family_id filter.
+  unreachable?: boolean
 }
 
 const STUDENT_ROW_SELECT = `
@@ -86,7 +91,7 @@ async function resolveSearchFamilyIds(supabase: any, schoolId: string, term: str
 async function computeInvoiceChipCounts(
   supabase: any,
   schoolId: string,
-  opts: { statusFilter: string; classId: string | null; search: string; searchFamilyIds: string[]; currentCycleId: string },
+  opts: { statusFilter: string; classId: string | null; search: string; searchFamilyIds: string[]; currentCycleId: string; unreachableFamilyIds: string[] | null },
 ): Promise<{ all: number; owing: number; notBilled: number }> {
   let q = supabase
     .from('students')
@@ -95,6 +100,7 @@ async function computeInvoiceChipCounts(
     .eq('invoices.billing_cycle_id', opts.currentCycleId || '')
   if (opts.statusFilter !== 'all') q = q.eq('status', opts.statusFilter)
   if (opts.classId) q = q.eq('class_id', opts.classId)
+  if (opts.unreachableFamilyIds) q = q.in('family_id', opts.unreachableFamilyIds)
   if (opts.search) q = q.or(studentSearchOrClause(opts.search, opts.searchFamilyIds))
   const { data } = await q
   let all = 0
@@ -170,6 +176,7 @@ export async function getStudents(options: GetStudentsOptions = {}) {
   const sortDir = options.sortDir ?? 'asc'
   const page = Math.max(1, options.page ?? 1)
   const perPage = STUDENTS_PAGE_SIZE_OPTIONS.includes(options.perPage as number) ? (options.perPage as number) : 50
+  const unreachable = options.unreachable === true
 
   const emptyResult = {
     students: [] as StudentListRow[],
@@ -264,12 +271,29 @@ export async function getStudents(options: GetStudentsOptions = {}) {
   // Resolve parent-name search matches once, up front: both the chip counts and
   // the list's first pass fold these family ids into their `students.or(...)`.
   const searchFamilyIds = search ? await resolveSearchFamilyIds(supabase, schoolId, search) : []
+
+  // "Families you can't reach" scope — resolve the exact family ids once (same
+  // rule as the dashboard "Needs you" count) and fold them into every student
+  // query below as a family_id filter. A missing/erroring RPC or an empty set
+  // both mean "no unreachable families", so the scoped view simply shows none.
+  let unreachableFamilyIds: string[] | null = null
+  if (unreachable) {
+    const { data: unreachableRows } = await supabase.rpc('needs_you_unreachable_family_ids', { p_school_id: schoolId })
+    unreachableFamilyIds = (unreachableRows || [])
+      .map((r: any) => (typeof r === 'string' ? r : r?.needs_you_unreachable_family_ids))
+      .filter(Boolean)
+    if (!unreachableFamilyIds || unreachableFamilyIds.length === 0) {
+      return { ...emptyResult, classes: sortedClasses, currentTermName, classCount, statusCounts, paymentsConfigured, studentsWithoutDvaCount: studentsWithoutDvaCount || 0 }
+    }
+  }
+
   const invoiceCounts = await computeInvoiceChipCounts(supabase, schoolId, {
     statusFilter,
     classId,
     search,
     searchFamilyIds,
     currentCycleId: currentCycle?.id || '',
+    unreachableFamilyIds,
   })
 
   const tail = { classes: sortedClasses, currentTermName, classCount, statusCounts, invoiceCounts, paymentsConfigured, studentsWithoutDvaCount: studentsWithoutDvaCount || 0 }
@@ -300,6 +324,7 @@ export async function getStudents(options: GetStudentsOptions = {}) {
     if (needsInvoiceData) q1 = q1.eq('invoices.billing_cycle_id', currentCycle?.id || '')
     if (statusFilter !== 'all') q1 = q1.eq('status', statusFilter)
     if (classId) q1 = q1.eq('class_id', classId)
+    if (unreachableFamilyIds) q1 = q1.in('family_id', unreachableFamilyIds)
     if (search) q1 = q1.or(studentSearchOrClause(search, searchFamilyIds))
     const { data: rows1 } = await q1
 
@@ -369,6 +394,7 @@ export async function getStudents(options: GetStudentsOptions = {}) {
     let q = supabase.from('students').select(STUDENT_ROW_SELECT, { count: 'exact' }).eq('school_id', schoolId)
     if (statusFilter !== 'all') q = q.eq('status', statusFilter)
     if (classId) q = q.eq('class_id', classId)
+    if (unreachableFamilyIds) q = q.in('family_id', unreachableFamilyIds)
     if (search) q = q.or(studentSearchOrClause(search, searchFamilyIds))
     q = applyNameSort(q, sortDir)
     q = q.range((page - 1) * perPage, page * perPage - 1)

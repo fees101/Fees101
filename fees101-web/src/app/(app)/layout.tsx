@@ -226,6 +226,10 @@ export default async function AppLayout({
       .select('id', { count: 'exact', head: true })
       .eq('school_id', schoolId || '')
       .eq('match_status', 'matched')
+      // Only genuine incoming payments count here — a reversal / correction is a
+      // negative payment row (db/payments_allow_reversal_amount.sql) and must not
+      // inflate the "RECORD N today" stream count.
+      .gt('amount', 0)
       .gte('paid_at', todayIso),
     supabase
       .from('invoices')

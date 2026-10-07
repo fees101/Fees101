@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getAuthContext, requirePermission, type AuthContext } from '@/lib/auth/permissions'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 import { MANUAL_PAYMENT_LIABILITY_VERSION } from '@/lib/platformBilling/config'
-import { requireBillingActive } from '@/lib/platformBilling/requireBillingActive'
+import { requireBillingActiveOrError } from '@/lib/platformBilling/requireBillingActive'
 import { sendManualPaymentReceipt, sendManualPaymentCorrection } from '@/lib/payments/manualPaymentNotify'
 import { friendlyWriteError } from '@/lib/errors/friendlyWriteError'
 
@@ -313,7 +313,8 @@ export interface RecordManualPaymentInput {
 
 export async function requestManualPayment(input: RecordManualPaymentInput): Promise<ActionResult> {
   // M2: recording money is core product use — gate on billing.
-  await requireBillingActive()
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await requirePermission('record-manual-payments')
   if (!ctx || !ctx.schoolId) return { error: 'Not authorized' }
 
@@ -409,7 +410,8 @@ export async function requestManualPayment(input: RecordManualPaymentInput): Pro
 
 export async function approveManualPayment(requestId: string): Promise<ActionResult> {
   // M2: approving a payment posts money against an invoice — gate on billing.
-  await requireBillingActive()
+  const billingGate = await requireBillingActiveOrError()
+  if (billingGate) return billingGate
   const ctx = await requirePermission('approve-manual-payments')
   if (!ctx || !ctx.schoolId) return { error: 'Not authorized' }
 

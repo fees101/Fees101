@@ -130,6 +130,11 @@ function buildLog(invoice: InvoiceDetail): LogEntry[] {
           .map((a) => (a.termName ? `${formatNaira(a.amount)} to ${a.termName}` : `${formatNaira(a.amount)} to credit`))
           .join(', ')
         detail += ` — part of a ${formatNaira(p.transactionTotal || p.amount)} transfer (${alloc})`
+      } else if (p.creditSplit) {
+        // Manual/cash part-payment whose remainder went to the student's credit
+        // balance — mirrors the transfer split note, worded for a hand-entered
+        // payment rather than a gateway transfer.
+        detail += ` — part of a ${formatNaira(p.creditSplit.transactionTotal)} payment, ${formatNaira(p.creditSplit.creditAmount)} to credit`
       }
       log.push({ what: 'Payment received', time: formatDate(p.paidAt), detail, color: INK.green })
     })

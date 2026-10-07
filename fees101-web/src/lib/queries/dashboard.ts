@@ -1,5 +1,5 @@
 import { getAuthContext } from '@/lib/auth/permissions'
-import { getCollectedForDateRange } from './fees'
+import { getCollectedForTerm } from './fees'
 import { paymentChannelLabel } from '@/lib/paymentMethod'
 import { FLAGGED_PAYMENT_NOTIFICATION_TYPES } from '@/lib/notifications/flaggedPaymentTypes'
 
@@ -94,19 +94,20 @@ export async function getDashboardKPIs() {
       .select('total_amount, paid_amount, outstanding_amount, credit_applied, status, student_id, students(status)')
       .eq('school_id', schoolId)
       .eq('billing_cycle_id', currentCycle?.id || ''),
-    // Collected = real money received while this term was active, by payment
-    // date — not what's allocated to this term's invoices. Can legitimately
+    // Collected = cash received for THIS term's invoices (cash basis,
+    // attributed by the invoice's term, not the date money arrived). Sums real
+    // payment rows whose invoice belongs to this cycle: a late payment for this
+    // term counts, a payment on another term's invoice does not, and
+    // credit-balance / credit-application rows are excluded. Can legitimately
     // exceed or fall short of totalExpected; it's not "expected - outstanding."
     currentCycle
-      ? getCollectedForDateRange(supabase, schoolId, currentCycle.start_date, currentCycle.end_date)
+      ? getCollectedForTerm(supabase, schoolId, currentCycle.id)
       : Promise.resolve(0),
   ])
-  // covered part of it (total_amount is already net of credit_applied).
-  // Must match the definition used by getCollectionByClass / getAllCycles /
-  // getCycleDetailById / getFeesOverview, or this KPI tile silently disagrees
-  // with the collection-by-class chart on the same dashboard.
-  // A cancelled invoice (e.g. a withdrawn student's stray term invoice)
-  // owes nothing — excluded so it doesn't inflate either figure.
+  // Expected = gross fees for the term = net total plus whatever credit covered
+  // part of it (total_amount is already net of credit_applied). A cancelled
+  // invoice (e.g. a withdrawn student's stray term invoice) owes nothing, so
+  // it's excluded so it doesn't inflate either figure.
   const liveInvoices = (invoices || []).filter(inv => inv.status !== 'cancelled')
   const totalExpected = liveInvoices.reduce((sum, inv) => sum + Number(inv.total_amount) + Number(inv.credit_applied || 0), 0)
   // Outstanding is what's still genuinely owed on these invoices — an
@@ -173,7 +174,10 @@ export async function getDashboardKPIs() {
   const closeDate = currentCycle?.end_date || null
   let daysToClose: number | null = null
   if (closeDate) {
-    daysToClose = Math.max(0, Math.ceil((new Date(closeDate).getTime() - Date.now()) / 86400000))
+    // Signed: positive = days remaining, 0 = closes today, negative = the term
+    // already ended N days ago. Not floored at 0, so the dashboard can say
+    // "closed" rather than a misleading "0 days left" after the end date.
+    daysToClose = Math.ceil((new Date(closeDate).getTime() - Date.now()) / 86400000)
   }
 
   return {
@@ -347,11 +351,30 @@ export async function getRecentActivity(limit: number = 7, showFinancials: boole
     // Say how the money arrived (Transfer / Card terminal / Cash…) on-screen,
     // not just in the CSV — a reader shouldn't have to guess the channel.
     const channel = paymentChannelLabel((p as { method?: string }).method)
+    const amount = Number(p.amount)
+    // A negative payment row is a reversal / correction, never incoming money.
+    // (A reversal posts a negated payments row; the payments table carries no
+    // reversal_of column, so the sign is the signal.) Render it in neutral ink
+    // with the amount shown negative so it can never read as a receipt, and keep
+    // it out of the green "received" treatment.
+    if (amount < 0) {
+      const shown = showFinancials
+        ? `-₦${Math.abs(amount).toLocaleString('en-NG')} reversal / correction`
+        : 'Reversal / correction'
+      return {
+        id: p.id,
+        type: 'payment' as const,
+        name: parentName,
+        line: shown + forChild + (channel ? ` · ${channel}` : ''),
+        tone: 'neutral' as const,
+        timestamp: p.paid_at,
+      }
+    }
     return {
       id: p.id,
       type: 'payment' as const,
       name: parentName,
-      line: (showFinancials ? `₦${Number(p.amount).toLocaleString('en-NG')} received` : 'Payment received') + forChild + (channel ? ` · ${channel}` : ''),
+      line: (showFinancials ? `₦${amount.toLocaleString('en-NG')} received` : 'Payment received') + forChild + (channel ? ` · ${channel}` : ''),
       tone: 'ledger' as const,
       timestamp: p.paid_at,
     }

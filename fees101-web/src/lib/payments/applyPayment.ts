@@ -187,6 +187,13 @@ export async function applyProviderPayment(
         title: 'Unusually large payment received',
         body: `A ${provider} payment of ₦${amountPaid.toLocaleString()} was received and applied ` +
           `(reference ${providerReference}). Confirm this matches what was expected.`,
+        // So the review screen can link straight to the actual student/family
+        // instead of leaving the school to go hunting with just a reference,
+        // and `amount` lets it deep-link to the exact payment in the Record
+        // feed (search matches a payment's amount exactly).
+        student_id: studentId || null,
+        family_id: familyId || null,
+        amount: amountPaid,
       })
     } catch {
       // notification is informational only — a failed insert must never break payment processing

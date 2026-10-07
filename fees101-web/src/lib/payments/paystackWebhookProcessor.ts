@@ -243,6 +243,12 @@ export async function processPaystackWebhook(
         title: 'Repeat payment on an already-settled terminal charge',
         body: `A ₦${amountPaid.toLocaleString()} charge (ref ${transactionReference}) ` +
           `matched a terminal request that was already marked paid. It was NOT re-applied — confirm whether this is a genuine second payment to reconcile manually.`,
+        // owner is resolved above (studentId or familyId) — link the review
+        // screen straight to them instead of a bare reference. amount lets it
+        // also deep-link to the exact payment in the Record feed.
+        student_id: 'studentId' in owner ? owner.studentId : null,
+        family_id: 'familyId' in owner ? owner.familyId : null,
+        amount: amountPaid,
       })
     } catch {
       // flag is best-effort — never block acknowledgement
@@ -266,6 +272,11 @@ export async function processPaystackWebhook(
         title: 'Terminal payment amount differs from what was charged',
         body: `Pushed ₦${terminalMatch.amount.toLocaleString()} but ₦${amountPaid.toLocaleString()} was paid ` +
           `(ref ${transactionReference}). The full amount was applied; confirm it matches what was expected.`,
+        student_id: 'studentId' in owner ? owner.studentId : null,
+        family_id: 'familyId' in owner ? owner.familyId : null,
+        // The full amount actually applied (not the pushed/expected figure) —
+        // matches the real payments-table row for the Record-feed deep link.
+        amount: amountPaid,
       })
     } catch {
       // best-effort only

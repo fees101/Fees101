@@ -80,7 +80,6 @@ export default function HeaderVirtualAccount({ studentId, providerConfigured, ha
       <div>
         <p className={LABEL}>VIRTUAL ACCOUNT</p>
         <p className="text-[18px] font-semibold text-[var(--color-neutral-500)] mb-1">Not set up yet</p>
-        <p className="text-[13px] text-[var(--color-neutral-700)]">Ask an admin to set one up.</p>
       </div>
     )
   }

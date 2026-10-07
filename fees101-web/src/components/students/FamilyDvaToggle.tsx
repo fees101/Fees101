@@ -68,9 +68,7 @@ export default function FamilyDvaToggle({ familyId, dvaEnabled, accountNumber, b
           >
             {saving && !dvaEnabled ? 'Setting up...' : dvaEnabled ? 'Turn off' : 'Turn on'}
           </button>
-        ) : (
-          <span className="text-[13px] text-[var(--color-neutral-700)]">Ask an admin to change this.</span>
-        )}
+        ) : null}
       </div>
 
       {dvaEnabled && accountNumber && (

@@ -83,8 +83,9 @@ export default async function Dashboard() {
 
   // Payment anomalies lead the queue: a flagged amount or a terminal mismatch
   // is the one thing here that can mean money already went wrong, not just money
-  // owed. Count is the unread payment-anomaly notifications; "Mark reviewed" in
-  // the row clears them (admin_notifications read_at), so it self-clears.
+  // owed. Count is the unread payment-anomaly notifications; the dedicated
+  // /today/flagged page lists each one with its real detail and a link to the
+  // student/family it's about, and self-clears as they're marked reviewed.
   if (canSeeActivity && attention.flaggedPaymentsCount > 0) {
     needsYou.push({
       key: 'flagged-payments',
@@ -92,8 +93,7 @@ export default async function Dashboard() {
       subtitle: 'Came through but looked unusual. Check them or mark reviewed.',
       amount: null,
       status: 'Review',
-      href: '/today/record?category=payments',
-      reviewFlaggedCount: attention.flaggedPaymentsCount,
+      href: '/today/flagged',
     })
   }
 
@@ -104,7 +104,7 @@ export default async function Dashboard() {
       subtitle: 'Past due for more than two weeks.',
       amount: kpis.overdue14Amount,
       status: 'Overdue',
-      href: '/money/invoices',
+      href: '/money/invoices?filter=overdue',
     })
   }
   // Money on the books against a student who has already left — it won't collect
@@ -117,7 +117,7 @@ export default async function Dashboard() {
       subtitle: 'Still owing on a withdrawn or graduated student.',
       amount: attention.staleStudentInvoiceAmount,
       status: 'Open invoice',
-      href: '/money/invoices',
+      href: '/money/invoices?filter=stale_students',
     })
   }
   // Families nobody can reach: every channel tried most recently failed, so an
@@ -130,7 +130,7 @@ export default async function Dashboard() {
       subtitle: 'Recent messages failed on every channel. Check their phone and email.',
       amount: null,
       status: 'No contact',
-      href: '/students',
+      href: '/students?filter=unreachable',
     })
   }
   if (canManageInvoices && kpis.needsResendCount > 0) {
@@ -197,7 +197,7 @@ export default async function Dashboard() {
       subtitle: 'Not billed in the current term.',
       amount: null,
       status: 'Not billed',
-      href: '/students',
+      href: '/students?invoiceStatus=not_billed',
     })
   }
   if (canManagePaymentConfig && kpis.studentsWithoutDvaCount > 0) {
@@ -239,24 +239,48 @@ export default async function Dashboard() {
             {/* Left: collection hero, needs-you queue, collection by class */}
             <div>
 
-              {/* Viewer without see-financial-totals: explain the absence of the
-                  money hero rather than leaving the column to start abruptly on
-                  "Needs you". Left-rule, no fill (per the no-caution-banners
-                  rule) instead of the canvas's tinted panel. */}
+              {/* Viewer without see-financial-totals: instead of telling them a
+                  figure is missing from their role (which just advertises what
+                  they can't use), give the top slot a useful, money-free
+                  operational snapshot — roster size, term, close date, billing
+                  progress. The "Needs you" queue below carries their actions. */}
               {!showFinancials && (
                 <section className="m-panel">
-                  <p className="text-[11px] tracking-[0.16em] uppercase text-[var(--color-neutral-700)] mb-2">
-                    Collected{hasTerm ? ` · ${kpis.currentCycleName}` : ''}
-                  </p>
-                  <div style={{ borderLeft: '2px solid var(--color-ink)', paddingLeft: 16, maxWidth: '62ch' }}>
-                    <p className="text-[17px] font-bold text-[var(--color-ink)] mb-1.5">Money figures are not part of your role.</p>
-                    <p className="text-[14px] leading-[1.55] text-[var(--color-neutral-800)] mb-1">
-                      School-wide totals, collection rates and the class breakdown need the See financial totals key.
-                      Nothing about an individual family is hidden from you. Only the aggregate view belongs to the
-                      bursar and the owner.
-                    </p>
-                    <p className="text-[13px] text-[var(--color-neutral-700)] m-0">Ask the bursar or the owner to grant it.</p>
+                  <div className="flex flex-wrap items-end justify-between gap-5 mb-4">
+                    <div>
+                      <p className="text-[11px] tracking-[0.16em] uppercase text-[var(--color-neutral-700)] mb-2">
+                        {hasTerm ? kpis.currentCycleName : 'Your school'}
+                      </p>
+                      <p className="text-[40px] sm:text-[54px] font-extrabold leading-[0.9] tracking-[-0.03em] text-[var(--color-ink)] m-num">
+                        {kpis.studentsCount}
+                      </p>
+                      <p className="text-[13px] text-[var(--color-neutral-700)] mt-1">{plural(kpis.studentsCount, 'student')}</p>
+                    </div>
+                    {hasTerm && kpis.closeDate && (
+                      <div className="text-right">
+                        <p className="text-[13px] text-[var(--color-neutral-700)] m-0">
+                          {typeof kpis.daysToClose === 'number' && kpis.daysToClose < 0 ? 'Term closed' : 'Term closes'}
+                        </p>
+                        <p className="text-[17px] font-bold text-[var(--color-ink)] m-num">{formatCloseDate(kpis.closeDate)}</p>
+                        {typeof kpis.daysToClose === 'number' && (
+                          <p className="text-[13px] text-[var(--color-neutral-700)] m-num">
+                            {kpis.daysToClose > 0
+                              ? `${plural(kpis.daysToClose, 'day')} left`
+                              : kpis.daysToClose === 0
+                                ? 'Closes today'
+                                : `${plural(-kpis.daysToClose, 'day')} ago`}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
+                  {canSeeInvoices && hasTerm && (
+                    <p className="text-[13px] text-[var(--color-neutral-700)] m-0 pt-2.5" style={{ borderTop: '1px solid var(--color-neutral-200)' }}>
+                      <span className="m-num">{kpis.invoicesIssued}</span> {kpis.invoicesIssued === 1 ? 'invoice' : 'invoices'} issued
+                      {' · '}
+                      <span className="m-num">{kpis.unbilledCount}</span> not yet billed
+                    </p>
+                  )}
                 </section>
               )}
 
@@ -264,11 +288,14 @@ export default async function Dashboard() {
                 <section className="m-panel">
                   <div className="flex flex-wrap items-end justify-between gap-5 mb-4">
                     <div>
-                      <p className="text-[11px] tracking-[0.16em] uppercase text-[var(--color-neutral-700)] mb-2">
+                      <p className="text-[11px] tracking-[0.16em] uppercase text-[var(--color-neutral-700)] mb-2" title="Cash received for this term's invoices, no matter when it was paid. Not a running cash-flow total.">
                         Collected · {kpis.currentCycleName}
                       </p>
                       <p className="text-[40px] sm:text-[54px] font-extrabold leading-[0.9] tracking-[-0.03em] text-[var(--color-ledger)] m-num">
                         {formatNaira(kpis.totalCollected)}
+                      </p>
+                      <p className="text-[12px] text-[var(--color-neutral-700)] mt-1.5 max-w-[34ch]">
+                        Money received for this term&apos;s fees.
                       </p>
                     </div>
                     <div className="text-right">
@@ -293,7 +320,13 @@ export default async function Dashboard() {
                       <span><strong className="m-num">{formatNaira(kpis.dueLaterAmount)}</strong> due later</span>
                     )}
                     {kpis.daysToClose !== null && (
-                      <span className="text-[var(--color-neutral-700)] m-num">{plural(kpis.daysToClose, 'day')} to term close</span>
+                      <span className="text-[var(--color-neutral-700)] m-num">
+                        {kpis.daysToClose > 0
+                          ? `${plural(kpis.daysToClose, 'day')} to term close`
+                          : kpis.daysToClose === 0
+                            ? 'term closes today'
+                            : `term closed ${plural(-kpis.daysToClose, 'day')} ago`}
+                      </span>
                     )}
                   </div>
                 </section>

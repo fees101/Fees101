@@ -42,6 +42,7 @@ interface StudentsTableProps {
   invoiceCounts: { all: number; owing: number; notBilled: number }
   sortKey: StudentSortKey
   sortDir: StudentSortDir
+  unreachable?: boolean
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
@@ -111,6 +112,7 @@ export default function StudentsTable({
   invoiceCounts,
   sortKey,
   sortDir,
+  unreachable = false,
 }: StudentsTableProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -181,6 +183,26 @@ export default function StudentsTable({
 
   return (
     <div style={{ borderTop: '2px solid var(--color-ink)', paddingTop: '18px' }}>
+      {/* Scoped "families you can't reach" heading — the roster is narrowed to
+          the families whose last message on every channel failed. */}
+      {unreachable && (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-4">
+          <div>
+            <h2 className="text-[17px] font-bold text-[var(--color-ink)] m-0">Families you can&rsquo;t reach</h2>
+            <p className="text-[13px] text-[var(--color-neutral-700)] mt-1" style={{ maxWidth: '74ch' }}>
+              The last message on every channel these families were contacted on failed. Fix a phone number
+              or email on the family, then send again and they drop off this list.
+            </p>
+          </div>
+          <button
+            onClick={() => router.push(pathname)}
+            className="text-[13px] font-semibold text-[var(--color-ink)] underline underline-offset-4 decoration-[var(--color-neutral-400)] hover:decoration-[var(--color-ink)]"
+          >
+            Show all students
+          </button>
+        </div>
+      )}
+
       {/* Toolbar — search, roster chips, More filters disclosure */}
       <div className="flex flex-wrap items-center gap-2.5 mb-4">
         <input
@@ -280,7 +302,17 @@ export default function StudentsTable({
 
       {total === 0 ? (
         <div className="py-16" style={{ maxWidth: '60ch' }}>
-          {statusCounts.all === 0 ? (
+          {unreachable ? (
+            /* The scoped "can't reach" view with nobody in it: every family the
+               school has messaged is currently reachable. */
+            <>
+              <p className="text-[17px] font-bold text-[var(--color-ink)] mb-2">No unreachable families</p>
+              <p className="text-[14px] leading-[1.55] text-[var(--color-neutral-800)] mb-4">
+                Every family you have messaged had their last message reach them on at least one channel.
+              </p>
+              <button onClick={() => router.push(pathname)} className="m-btn m-btn-outline">Show all students</button>
+            </>
+          ) : statusCounts.all === 0 ? (
             /* True first-run: the school has no students at all (count is the
                unfiltered roster total). Weighted two ways forward, and names the
                columns the importer expects before the user goes looking. */

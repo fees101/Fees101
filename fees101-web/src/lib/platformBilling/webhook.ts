@@ -1,6 +1,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { verifyPaystackWebhookSignature } from './paystack'
 import { applyFailedCharge, applySuccessfulCharge, reconcilePlatformDvaCharge } from './reconcile'
+import { connectBillingFromSetupCharge } from './connect'
 
 // Platform-billing webhook processor. Paystack posts here from the PLATFORM
 // account (the one that holds the direct-debit mandates), so there is a single
@@ -127,7 +128,38 @@ export async function processPlatformPaystackWebhook(
 
     const amountNaira = typeof data.amount === 'number' ? data.amount / 100 : 0
     const paidAt = (data.paid_at as string) || now
-    const chargedBy = kind === 'setup' ? 'setup_fee' : 'monthly_fee'
+
+    // Setup fee backstop (C1): if the browser never made it back to the callback,
+    // charge.success is the reliable place to open the gate. Route it through the
+    // SAME shared connect helper the callback uses, so mandate-vs-DVA gating and
+    // the setup-charge record can never drift. Idempotent: an already-open gate is
+    // a no-op, and the charge row is recorded at most once.
+    if (kind === 'setup') {
+      const authObj = (data.authorization as Record<string, unknown>) || null
+      const email =
+        ((data.customer as Record<string, unknown>)?.email as string) ||
+        (data.email as string) ||
+        null
+      await connectBillingFromSetupCharge({
+        svc,
+        schoolId,
+        reference,
+        amountNaira,
+        authorization: authObj
+          ? {
+              authorization_code: (authObj.authorization_code as string) || null,
+              reusable: authObj.reusable === true,
+            }
+          : null,
+        customerEmail: email,
+        actorId: null, // system-triggered (no interactive actor on the webhook)
+        paidAt,
+      })
+      return { status: 200, body: { received: true, handled: type, reference, via: 'setup_backstop' } }
+    }
+
+    // Setup references returned above, so only 'due' recurring debits reach here.
+    const chargedBy = 'monthly_fee'
 
     // Idempotent: if we already recorded this reference (e.g. the setup-fee
     // callback did, or a Paystack retry), just make sure it reads success.
@@ -156,7 +188,7 @@ export async function processPlatformPaystackWebhook(
         }
       }
     } else {
-      await svc.from('platform_billing_charges').insert({
+      const { error } = await svc.from('platform_billing_charges').insert({
         school_id: schoolId,
         amount: amountNaira,
         status: 'success',
@@ -165,6 +197,13 @@ export async function processPlatformPaystackWebhook(
         paid_at: paidAt,
         charged_by: chargedBy,
       })
+      // M1: the unique index on paystack_reference means a racing observer may
+      // have inserted this row first. A unique-violation (23505) is "already
+      // recorded", not a failure; anything else is logged but still acked so
+      // Paystack doesn't hammer us over a bad row.
+      if (error && error.code !== '23505') {
+        console.error('platform webhook: charge insert failed', reference, error.message)
+      }
     }
 
     return { status: 200, body: { received: true, handled: type, reference } }
@@ -182,7 +221,7 @@ export async function processPlatformPaystackWebhook(
         .eq('paystack_reference', reference)
         .maybeSingle()
       if (!existing) {
-        await svc.from('platform_billing_charges').insert({
+        const { error } = await svc.from('platform_billing_charges').insert({
           school_id: schoolId,
           amount: amountNaira,
           status: 'failed',
@@ -191,6 +230,11 @@ export async function processPlatformPaystackWebhook(
           paid_at: null,
           charged_by: 'monthly_fee',
         })
+        // M1: tolerate the unique-violation from a racing insert of the same
+        // reference; the failed charge is on record either way.
+        if (error && error.code !== '23505') {
+          console.error('platform webhook: failed-charge insert failed', reference, error.message)
+        }
       }
       // Nudge the school into the dunning ladder's first rung; the ladder (run
       // by the charge-mandates cron) escalates from there by days overdue.

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import InvoicesListLayout from '@/components/invoices/InvoicesListLayout'
-import { getAllInvoicesForList, type InvoiceStatusFilter } from '@/lib/queries/fees'
+import { getAllInvoicesForList, getCreditOnFile, type InvoiceStatusFilter } from '@/lib/queries/fees'
 import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
 import AccessDenied from '@/components/layout/AccessDenied'
 import { getAuthContext, can } from '@/lib/auth/permissions'
@@ -19,7 +19,7 @@ interface PageProps {
   }>
 }
 
-const STATUS_FILTERS: InvoiceStatusFilter[] = ['all', 'settled', 'partial', 'overdue', 'needs_resend']
+const STATUS_FILTERS: InvoiceStatusFilter[] = ['all', 'settled', 'partial', 'overdue', 'needs_resend', 'stale_students']
 
 // A link elsewhere in the app (e.g. the dashboard's "invoices changed — not
 // resent" KPI card) points here with the older, coarser vocabulary — map it
@@ -51,6 +51,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
   const perPage = parseInt(params.perPage || '50', 10) || 50
 
   const result = await getAllInvoicesForList({ statusFilter, termFilter, search, page, perPage })
+  const creditOnFile = await getCreditOnFile()
 
   return (
     <Suspense fallback={null}>
@@ -59,6 +60,7 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
         statusFilter={statusFilter}
         termFilter={termFilter}
         search={search}
+        creditOnFile={creditOnFile}
         schoolId={ctx.schoolId ?? ''}
       />
     </Suspense>
