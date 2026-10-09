@@ -15,7 +15,7 @@ import { Fragment, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
-import { approveDiscount, rejectDiscount, revokeDecidedDiscount } from '@/app/(app)/discounts/actions'
+import { approveDiscount, rejectDiscount, revokeDecidedDiscount } from '@/app/(app)/money/discounts/actions'
 import type { PendingDiscountRequest, ActiveRecurringDiscount, DecidedDiscountRequest } from '@/lib/queries/discountRequests'
 import Toast from '@/components/ui/Toast'
 
@@ -84,6 +84,9 @@ type DecideStage = 'decide' | 'reject'
 
 interface Props {
   requests: PendingDiscountRequest[]
+  // Naira total of the full pending set "if all approved" — computed
+  // server-side in getPendingDiscountRequests, not re-derived here.
+  queueTotal: number
   recurring: ActiveRecurringDiscount[]
   // Recently decided requests (approved or denied), shown below the pending
   // ones so a decision stays visible instead of disappearing from the Queue.
@@ -103,7 +106,7 @@ interface RecurringGroup {
   costInk: string
 }
 
-export default function DiscountQueue({ requests, recurring, decided, canApprove }: Props) {
+export default function DiscountQueue({ requests, queueTotal, recurring, decided, canApprove }: Props) {
   const router = useRouter()
 
   // Always lands on Queue — the workspace's job is "what needs a decision",
@@ -121,11 +124,6 @@ export default function DiscountQueue({ requests, recurring, decided, canApprove
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
-
-  const queueTotal = useMemo(
-    () => requests.reduce((sum, r) => sum + requestNairaValue(r), 0),
-    [requests],
-  )
 
   const groups: RecurringGroup[] = useMemo(() => {
     const byCat = new Map<string, ActiveRecurringDiscount[]>()
@@ -249,7 +247,7 @@ export default function DiscountQueue({ requests, recurring, decided, canApprove
   if (requests.length === 0 && recurring.length === 0 && decided.length === 0) {
     return (
       <>
-        <WorkspaceHeader workspaceKey="discounts" title="Discounts" />
+        <WorkspaceHeader workspaceKey="money" title="Discounts" />
         <div className="px-4 sm:px-7 py-7">
           <div className="py-2" style={{ maxWidth: '60ch' }}>
             <p className="text-[17px] font-bold mb-2" style={{ color: INK }}>No discounts yet</p>
@@ -267,19 +265,35 @@ export default function DiscountQueue({ requests, recurring, decided, canApprove
 
   return (
     <>
-      {/* Mode switch — Queue / Recurring, matching the App Shell header modes.
-          Rendered through WorkspaceHeader's own tabs slot (not a hand-built
-          strip) so it merges with the header's closing rule the same way
-          every route-tabbed workspace does, instead of drawing a second rule
-          of its own right below it. */}
-      <WorkspaceHeader
-        workspaceKey="discounts"
-        title="Discounts"
-        tabs={[
-          { label: 'Queue', active: mode === 'queue', onClick: () => switchMode('queue') },
-          { label: 'Recurring', active: mode === 'recurring', onClick: () => switchMode('recurring') },
-        ]}
-      />
+      {/* Money's full tab bar (Invoices/Collections/Reports/Discounts/
+          Refunds/Manual payments) stays visible here — Discounts is a mode of
+          Money (2026-10-09), not its own workspace. Queue/Recurring is a
+          second, independent tab row below it (the same two-tier pattern
+          Collections/Refunds/Manual payments already use), hand-built rather
+          than routed through WorkspaceHeader's `tabs` slot since that slot
+          can only show one tab row at a time and Money's own tabs take it. */}
+      <WorkspaceHeader workspaceKey="money" title="Discounts" />
+
+      <div className="px-4 sm:px-7 pt-5">
+        <div className="flex flex-wrap items-center gap-6" style={{ borderBottom: `1px solid ${RULE_SOFT}`, marginBottom: 2 }}>
+          {([
+            { key: 'queue' as const, label: 'Queue' },
+            { key: 'recurring' as const, label: 'Recurring' },
+          ]).map(t => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => switchMode(t.key)}
+              data-active={mode === t.key}
+              aria-current={mode === t.key ? 'page' : undefined}
+              className="m-tab"
+              style={{ marginBottom: -1 }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="px-4 sm:px-7 py-7">
       {error && (

@@ -192,7 +192,7 @@ export async function requestDiscount(invoiceId: string, input: RequestDiscountI
 
   revalidatePath(`/money/invoices/${invoiceId}`)
   if (autoApproved) {
-    revalidatePath('/discounts')
+    revalidatePath('/money/discounts')
     revalidatePath(`/students/${invoice.student_id}`)
   }
   return { success: true, autoApproved }

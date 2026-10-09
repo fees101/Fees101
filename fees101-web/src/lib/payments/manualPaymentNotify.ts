@@ -35,7 +35,8 @@ interface NotifyInfo {
 // Shared lookup: the parent's contact, the student's own collection account,
 // and the school's display/SMS name + logo. Returns null when there is no way
 // to reach the parent (no phone and no email), so callers can simply skip.
-async function loadNotifyInfo(
+// Exported for reuse by refundNotify.ts — same lookup, different message.
+export async function loadNotifyInfo(
   supabase: any,
   schoolId: string,
   studentId: string,

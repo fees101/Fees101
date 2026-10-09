@@ -2,6 +2,7 @@ import Sidebar from '@/components/layout/Sidebar'
 import ImpersonationBanner from '@/components/layout/ImpersonationBanner'
 import { getAuthContext, permissionList } from '@/lib/auth/permissions'
 import { PermissionsProvider } from '@/lib/auth/PermissionsProvider'
+import { NavMetaProvider } from '@/lib/nav/NavMetaProvider'
 import { ActiveJobsProvider } from '@/lib/jobs/ActiveJobsProvider'
 import { getScheduledDeletion } from '@/lib/dataPrivacy/deletion'
 import { getBillingGateState } from '@/lib/platformBilling/config'
@@ -212,6 +213,7 @@ export default async function AppLayout({
     { count: paymentsTodayCount },
     { count: invoicesTodayCount },
     { count: pendingManualPaymentsCount },
+    { count: pendingRefundsCount },
   ] = await Promise.all([
     currentCycle
       ? supabase
@@ -246,6 +248,14 @@ export default async function AppLayout({
           .eq('school_id', schoolId || '')
           .eq('status', 'pending')
       : Promise.resolve({ count: 0 }),
+    // Refunds workspace count. Self-serve (no console flag to check) — the
+    // query itself is naturally 0 for a school that never accepted the
+    // liability note, since the insert policy blocks any row from existing.
+    supabase
+      .from('refunds')
+      .select('id', { count: 'exact', head: true })
+      .eq('school_id', schoolId || '')
+      .eq('status', 'pending'),
   ])
 
   const navCounts: Record<string, number> = {
@@ -253,6 +263,7 @@ export default async function AppLayout({
     money: invoicesIssuedCount || 0,
     discounts: pendingDiscountsCount || 0,
     'manual-payments': pendingManualPaymentsCount || 0,
+    refunds: pendingRefundsCount || 0,
   }
   const streamCount = (paymentsTodayCount || 0) + (invoicesTodayCount || 0)
 
@@ -319,6 +330,7 @@ export default async function AppLayout({
       )}
       <div className="flex-1 flex min-h-0">
         <PermissionsProvider permissions={permissions} isOwner={isOwner}>
+          <NavMetaProvider counts={navCounts} manualPaymentsEnabled={manualPaymentsEnabled}>
           <ActiveJobsProvider interruptedJobs={interruptedJobs}>
             <Sidebar
               userName={profile.name}
@@ -340,6 +352,7 @@ export default async function AppLayout({
               {children}
             </main>
           </ActiveJobsProvider>
+          </NavMetaProvider>
         </PermissionsProvider>
       </div>
     </div>

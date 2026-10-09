@@ -81,7 +81,7 @@ export const sections: NavSection[] = [
         icon: ['M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z'],
       },
       {
-        href: '/discounts',
+        href: '/money/discounts',
         label: 'Discounts',
         perm: ['see-discounts', 'approve-discounts'],
         icon: ['M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z'],
@@ -155,15 +155,61 @@ export function showsDashboardLink(permissions: Set<string>, isOwner: boolean): 
   return getPermissionScopedNavItems(permissions, isOwner).length !== 1
 }
 
-// ── 7-workspace shell (Modernist redesign) ─────────────────────────────────
-// The sidebar groups the app into seven labelled workspaces under two
-// headings, OPERATE and CONFIGURE. Each workspace's sub-views ("modes") are
-// NOT separate sidebar entries — they render as in-page tabs in the page
-// header. Every mode points at a real route and carries that route's own
-// permission gate, so this regrouping changes ZERO access: a mode is visible
-// exactly when its route was reachable in the old sidebar. The old
-// `topItem`/`sections` exports and their helpers above are kept as the source
-// of truth for the dashboard's redirect/fallback logic and are untouched.
+// ── Workspace shell (Modernist redesign) ───────────────────────────────────
+// The sidebar groups the app into labelled workspaces under two headings,
+// OPERATE and CONFIGURE. Each workspace's sub-views ("modes") are NOT
+// separate sidebar entries — they render as in-page tabs in the page header.
+// Every mode points at a real route and carries that route's own permission
+// gate, so this regrouping changes ZERO access: a mode is visible exactly
+// when its route was reachable in the old sidebar. The old `topItem`/
+// `sections` exports and their helpers above are kept as the source of truth
+// for the dashboard's redirect/fallback logic and are untouched.
+//
+// Rearranged 2026-10-09, three times in one session:
+//
+// 1. Operate order follows daily task frequency, not URL grouping. Today
+//    (the dashboard) is checked first and most often, so it stays first.
+//    Students is the entity front-desk/bursar staff look up constantly
+//    through the day. Money (invoices, collections, reports) is the actual
+//    day-to-day billing/collection work and sits ahead of Fees, whose modes
+//    (structure, cycles, close term, year end) are termly setup actions a
+//    school touches a handful of times a term, not daily.
+//
+// 2. First pass split Discounts/Refunds/Manual payments into their own
+//    EXCEPTIONS heading. Owner feedback: that added a whole extra heading
+//    for what are really just more views ON money. Second pass folded
+//    Refunds and Manual payments into Money as modes (tabs), leaving
+//    Discounts on its own for the moment, since only Refunds'/Manual
+//    payments' URLs were mismatched with their grouping and Discounts'
+//    wasn't yet.
+//
+// 3. Final pass (same day): the owner decided Discounts should also move
+//    into Money — not a URL-mismatch fix this time, a deliberate call to
+//    watch Discounts' real activity level from inside Money before deciding
+//    whether it earns its own sidebar row back out. Money's tab bar is now
+//    **Invoices · Collections · Reports · Discounts · Refunds · Manual
+//    payments**, none of them separate workspaces. Manual payments' and
+//    Discounts' ROUTES moved too (not just their workspace grouping), so the
+//    URL in the address bar always matches where the page actually lives:
+//    `/discounts` → `/money/discounts`, `/discounts/manual-payments` →
+//    `/money/manual-payments` (whole route folders relocated under
+//    `src/app/(app)/money/`, every import/link/`revalidatePath` updated).
+//    Refunds already lived at `/money/refunds`, so nothing to move there.
+//
+//    Folding a mode into an existing workspace never widens who can reach
+//    it — a workspace only shows for a role that can reach at least one of
+//    its modes (see workspaceLanding below), so a role with ONLY
+//    approve-discounts (say) still gets Money in their sidebar, landing them
+//    straight on /money/discounts. Each of Discounts/Refunds/Manual payments
+//    carries a small red pending-count badge on its tab (badgeKey, rendered
+//    by WorkspaceHeader via NavMetaProvider) so that visibility isn't lost by
+//    no longer being its own sidebar row — the same number that used to sit
+//    in the sidebar's right column now sits beside the tab label instead.
+//    A page whose workspace gained a second-level toggle (Discounts'
+//    Queue/Recurring, Refunds'/Manual payments' own Pending/History) renders
+//    that toggle as its own hand-built row underneath Money's tab bar, not
+//    through WorkspaceHeader's `tabs` prop — that slot can only show one tab
+//    row at a time and Money's own tabs now take it.
 
 export type WorkspaceGroup = 'Operate' | 'Configure'
 
@@ -180,6 +226,17 @@ export interface NavMode {
   // Owner/super_admin only, never delegable — mirrors SettingsNav's ownerOnly
   // (used by Data & privacy).
   ownerOnly?: boolean
+  // Per-school feature flag this MODE is gated on, on top of its own perm —
+  // same meaning as Workspace.featureFlag but scoped to one tab instead of
+  // the whole workspace (used by Manual payments, a mode of Money that most
+  // roles can otherwise reach).
+  featureFlag?: 'manualPayments'
+  // Key into NavMetaProvider's live `counts` map, for a small red
+  // pending-count badge beside this tab's label (e.g. 'refunds',
+  // 'manual-payments'). Undefined = no badge. Only worth setting on a mode
+  // that isn't also its own sidebar-row workspace (a workspace's own row
+  // badge already shows that count there).
+  badgeKey?: string
 }
 
 export interface Workspace {
@@ -223,6 +280,33 @@ export const workspaces: Workspace[] = [
     ],
   },
   {
+    key: 'money',
+    label: 'Money',
+    group: 'Operate',
+    match: ['/money/invoices', '/money/collections', '/money/reports', '/money/discounts', '/money/refunds', '/money/manual-payments'],
+    modes: [
+      { href: '/money/invoices', label: 'Invoices', perm: 'see-invoices' },
+      { href: '/money/collections', label: 'Collections', perm: 'see-analytics' },
+      { href: '/money/reports', label: 'Reports', perm: 'see-reports' },
+      // Moved here from /discounts (2026-10-09) — the route itself moved too,
+      // so the URL matches where it actually lives now. The busiest of these
+      // three Money-exception workflows; the owner wants to watch its real
+      // activity level from here before deciding whether it earns its own
+      // sidebar row back out. Its Queue/Recurring sub-toggle is DiscountQueue's
+      // own client state rendered as a second tab row below Money's, not a
+      // separate route.
+      { href: '/money/discounts', label: 'Discounts', perm: ['see-discounts', 'approve-discounts'], badgeKey: 'discounts' },
+      // Refunds a real (Paystack) payment — self-serve (2026-10-09), no
+      // console feature flag. The one-time owner liability acceptance is
+      // gated inside the page itself, not here.
+      { href: '/money/refunds', label: 'Refunds', perm: ['request-refunds', 'approve-refunds'], badgeKey: 'refunds' },
+      // Moved here from /discounts/manual-payments (2026-10-09) — the route
+      // itself moved too, so the URL matches where it actually lives now.
+      // Feature-gated per school.
+      { href: '/money/manual-payments', label: 'Manual payments', perm: ['record-manual-payments', 'approve-manual-payments'], featureFlag: 'manualPayments', badgeKey: 'manual-payments' },
+    ],
+  },
+  {
     key: 'fees',
     label: 'Fees',
     group: 'Operate',
@@ -234,48 +318,14 @@ export const workspaces: Workspace[] = [
       // Close term and Year end were buried (a cycle-detail modal, and a
       // separate /fees/year-end route); the design promotes both to first-class
       // tabs, each showing a pre-run ledger before the irreversible action.
+      // Ordered after Money (not before, as it used to be): fee structure,
+      // cycles, close-term and year-end are termly setup actions a school
+      // touches occasionally, while Money's invoices/collections/reports are
+      // the continuous daily work — Money is the one staff open more often.
       { href: '/fees/structure', label: 'Structure', perm: 'see-fee-structure' },
       { href: '/fees/cycles', label: 'Cycles', perm: 'see-fee-structure' },
       { href: '/fees/close-term', label: 'Close term', perm: 'manage-fee-structure' },
       { href: '/fees/year-end', label: 'Year end', perm: 'run-year-end' },
-    ],
-  },
-  {
-    key: 'money',
-    label: 'Money',
-    group: 'Operate',
-    match: ['/money/invoices', '/money/collections', '/money/reports'],
-    modes: [
-      { href: '/money/invoices', label: 'Invoices', perm: 'see-invoices' },
-      { href: '/money/collections', label: 'Collections', perm: 'see-analytics' },
-      { href: '/money/reports', label: 'Reports', perm: 'see-reports' },
-    ],
-  },
-  {
-    key: 'discounts',
-    label: 'Discounts',
-    group: 'Operate',
-    match: ['/discounts'],
-    modes: [
-      // One landing route; its Queue/Recurring sub-toggle is DiscountQueue's own
-      // client state (passed as WorkspaceHeader `tabs`), not separate routes.
-      { href: '/discounts', label: 'Discounts', perm: ['see-discounts', 'approve-discounts'] },
-    ],
-  },
-  {
-    // Lives under /discounts/manual-payments, but is its own sidebar workspace.
-    // Its match prefix is longer than the Discounts workspace's '/discounts', so
-    // activeWorkspaceKey resolves this route to 'manual-payments', not
-    // 'discounts'. Feature-gated: hidden until Fees101 enables manual payments
-    // for the school (featureFlag), and then only for a role with a
-    // manual-payment permission.
-    key: 'manual-payments',
-    label: 'Manual payments',
-    group: 'Operate',
-    match: ['/discounts/manual-payments'],
-    featureFlag: 'manualPayments',
-    modes: [
-      { href: '/discounts/manual-payments', label: 'Manual payments', perm: ['record-manual-payments', 'approve-manual-payments'] },
     ],
   },
   // ── CONFIGURE ──────────────────────────────────────────────────────────────
@@ -319,7 +369,10 @@ export const workspaces: Workspace[] = [
 
 // Whether a single mode is visible to this role. Reuses the same "any of"
 // rule as canSeeNavItem, with the two special cases (dashboard, ownerOnly).
-export function canSeeMode(mode: NavMode, permissions: Set<string>, isOwner: boolean): boolean {
+// manualPaymentsEnabled defaults true so every call site that doesn't pass it
+// (nothing else uses a mode-level featureFlag yet) is unaffected.
+export function canSeeMode(mode: NavMode, permissions: Set<string>, isOwner: boolean, manualPaymentsEnabled = true): boolean {
+  if (mode.featureFlag === 'manualPayments' && !manualPaymentsEnabled) return false
   if (mode.dashboard) return showsDashboardLink(permissions, isOwner)
   if (mode.ownerOnly) return isOwner
   if (!mode.perm) return true
@@ -329,16 +382,16 @@ export function canSeeMode(mode: NavMode, permissions: Set<string>, isOwner: boo
 }
 
 // The modes of a workspace this role can actually reach, in order.
-export function accessibleModes(ws: Workspace, permissions: Set<string>, isOwner: boolean): NavMode[] {
-  return ws.modes.filter(m => canSeeMode(m, permissions, isOwner))
+export function accessibleModes(ws: Workspace, permissions: Set<string>, isOwner: boolean, manualPaymentsEnabled = true): NavMode[] {
+  return ws.modes.filter(m => canSeeMode(m, permissions, isOwner, manualPaymentsEnabled))
 }
 
 // A workspace shows in the sidebar only if the role can reach at least one of
 // its modes. Its landing route is that first reachable mode — so a role that
 // can see Collections but not Invoices lands Money on /money/collections, never on a
 // page it would be bounced off of.
-export function workspaceLanding(ws: Workspace, permissions: Set<string>, isOwner: boolean): string | null {
-  const first = accessibleModes(ws, permissions, isOwner)[0]
+export function workspaceLanding(ws: Workspace, permissions: Set<string>, isOwner: boolean, manualPaymentsEnabled = true): string | null {
+  const first = accessibleModes(ws, permissions, isOwner, manualPaymentsEnabled)[0]
   return first ? first.href : null
 }
 

@@ -18,7 +18,7 @@ export default async function DiscountsPage() {
   if (!can(ctx, 'see-discounts') && !can(ctx, 'approve-discounts')) {
     return (
       <>
-        <WorkspaceHeader workspaceKey="discounts" title="Discounts" />
+        <WorkspaceHeader workspaceKey="money" title="Discounts" />
         <AccessDenied ctx={ctx} label="see or approve discounts" />
       </>
     )
@@ -28,7 +28,7 @@ export default async function DiscountsPage() {
   // server-side in discounts/actions.ts.
   const canApprove = can(ctx, 'approve-discounts')
 
-  const [requests, recurring, decided] = await Promise.all([
+  const [{ requests, queueTotal }, recurring, decided] = await Promise.all([
     getPendingDiscountRequests(),
     getActiveRecurringDiscounts(),
     getRecentDecidedDiscountRequests(),
@@ -42,7 +42,7 @@ export default async function DiscountsPage() {
           toggle is client state, not a route, so it's passed through as
           WorkspaceHeader's `tabs` prop rather than navConfig modes, keeping
           the same merged title-rule-tabs treatment every other page gets. */}
-      <DiscountQueue requests={requests} recurring={recurring} decided={decided} canApprove={canApprove} />
+      <DiscountQueue requests={requests} queueTotal={queueTotal} recurring={recurring} decided={decided} canApprove={canApprove} />
     </>
   )
 }

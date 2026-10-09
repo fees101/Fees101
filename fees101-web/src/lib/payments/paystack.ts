@@ -16,7 +16,7 @@
 // student. Amounts are in kobo on the wire and converted to naira here.
 
 import crypto from 'crypto'
-import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction, DVATransactionSummary, TerminalInfo, CreatePaymentRequestParams, PaymentRequestResult, PushEventResult, TerminalEventStatus } from './types'
+import { PaymentProvider, ProviderCredentials, CreateDVAParams, DVADetails, VerifiedTransaction, DVATransactionSummary, TerminalInfo, CreatePaymentRequestParams, PaymentRequestResult, PushEventResult, TerminalEventStatus, RefundResult } from './types'
 import { isProviderDownError } from './providerErrors'
 import { fetchWithRateLimitRetry } from '@/lib/http/rateLimitedFetch'
 
@@ -293,5 +293,36 @@ export class PaystackProvider implements PaymentProvider {
       `/terminal/${encodeURIComponent(terminalId)}/event/${encodeURIComponent(eventId)}`
     )
     return { delivered: json?.data?.delivered === true }
+  }
+
+  // POST /refund — refunds a specific transaction to the original payer.
+  // Funded from the school's own Paystack balance; if settlement already swept
+  // the money to their bank, Paystack claws it back from upcoming settlements.
+  // amountNaira omitted refunds the transaction in full. Paystack's response
+  // can come back 'processed' immediately or 'pending' (settles later, confirmed
+  // by the refund.processed/refund.failed webhook) — the caller decides what to
+  // do with either outcome, this just reports what Paystack said.
+  async refundTransaction(reference: string, amountNaira?: number, note?: string): Promise<RefundResult> {
+    const body: Record<string, unknown> = { transaction: reference }
+    if (amountNaira != null) body.amount = Math.round(amountNaira * 100)
+    if (note) body.merchant_note = note
+    const { json } = await paystackRequest(this.creds.secretKey, 'POST', '/refund', body)
+    if (!json?.status || !json?.data?.id) {
+      throw new Error(`Paystack refundTransaction failed: ${json?.message || 'unknown error'}`)
+    }
+    return { id: String(json.data.id), status: String(json.data.status || 'pending') }
+  }
+
+  // Fallback for the refund-sweep safety net (src/app/api/admin/refund-sweep):
+  // if the refund.processed/refund.failed webhook never arrives (missed
+  // delivery, an outage, anything), this actively asks Paystack what actually
+  // happened to a refund stuck in 'processing' rather than leaving it there
+  // forever waiting on a webhook that may never come.
+  async verifyRefund(paystackRefundId: string): Promise<{ status: string }> {
+    const { json } = await paystackRequest(this.creds.secretKey, 'GET', `/refund/${paystackRefundId}`)
+    if (!json?.status || !json?.data) {
+      throw new Error(`Paystack verifyRefund failed: ${json?.message || 'unknown error'}`)
+    }
+    return { status: String(json.data.status || 'pending') }
   }
 }

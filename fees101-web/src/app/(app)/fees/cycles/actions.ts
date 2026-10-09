@@ -3,7 +3,7 @@
 import { requirePermission } from '@/lib/auth/permissions'
 import { requireBillingActiveOrError } from '@/lib/platformBilling/requireBillingActive'
 import { revalidatePath } from 'next/cache'
-import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
+import { computeInvoiceForStudent, applyCreditBalanceDelta, syncCreditLedgerForInvoice } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 import { carryForwardFeeAdjustments } from '@/lib/fees/carryForwardAdjustments'
 import { PromotionDecision } from '@/lib/yearEnd/promotion'
@@ -1215,6 +1215,7 @@ export async function generateInvoiceForStudent(studentId: string, cycleId: stri
   if (computed.creditApplied > 0) {
     await applyCreditBalanceDelta(supabase, schoolId, studentId, -computed.creditApplied)
   }
+  await syncCreditLedgerForInvoice(supabase, schoolId, studentId, data.id, computed.creditApplied)
 
   const { data: student } = await supabase
     .from('students')

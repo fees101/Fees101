@@ -6,10 +6,26 @@
 -- channel used) is effectively unreachable — nobody at the school can get an
 -- invoice or reminder to them until their phone/email is fixed.
 --
--- Self-clearing by construction: it only ever looks at the newest outbound
--- message per channel, so the moment a later message to that family is
--- sent/delivered the channel is no longer "failed" and the family drops out of
--- the count. No flag to reset, no row to dismiss.
+-- Self-clearing by construction: it only ever looks at the newest RESOLVED
+-- outbound message per channel, so the moment a later message to that family
+-- is confirmed delivered the channel is no longer "failed" and the family
+-- drops out of the count. No flag to reset, no row to dismiss.
+--
+-- Only resolved outcomes count — 'delivered' or 'failed' — never 'sent'.
+-- 'sent' means the provider's gateway merely *accepted* the request (see
+-- sendchamp.ts / brevo.ts); it is not evidence the message reached anyone and
+-- is upgraded to 'delivered' or 'failed' later by the provider's webhook
+-- (webhooks/sendchamp, webhooks/brevo). Fixed 2026-10-09: this used to pick
+-- the single latest message per channel regardless of status, so a family
+-- correctly flagged unreachable on a dead phone number would drop out the
+-- moment ANY new message was merely accepted by the gateway (e.g. the
+-- automatic payment receipt fired on full payment, applyPayment.ts /
+-- sendReceipt.ts) — even though that receipt never actually reached them and
+-- might still resolve to 'failed' once its DLR arrives. Payment status is
+-- irrelevant here either way; the bug was that an unresolved 'sent' row was
+-- treated as proof of reachability. Ignoring 'sent' rows means a still-failed
+-- channel stays counted as failed until a later message is actually
+-- confirmed delivered.
 --
 -- SECURITY INVOKER (the default): the caller's own RLS on message_logs/students
 -- applies, so this can only ever see the caller's own school. The p_school_id
@@ -30,8 +46,12 @@ stable
 security invoker
 set search_path = public
 as $$
-  with latest_per_channel as (
-    -- The most recent outbound message for each (family, channel) pairing.
+  with latest_resolved_per_channel as (
+    -- The most recent RESOLVED (delivered/failed) outbound message for each
+    -- (family, channel) pairing. A channel whose only attempts are still
+    -- 'sent' (pending, unconfirmed) has no resolved outcome yet and is left
+    -- out entirely — the same as a channel never tried — rather than being
+    -- treated as proof the family is reachable.
     select distinct on (s.family_id, m.channel)
            s.family_id as family_id,
            m.status     as status
@@ -39,6 +59,7 @@ as $$
     join public.students s on s.id = m.related_student_id
     where m.school_id = p_school_id
       and m.direction = 'outbound'
+      and m.status in ('delivered', 'failed')
       and s.family_id is not null
       and s.status = 'active'
     order by s.family_id, m.channel, m.sent_at desc nulls last, m.created_at desc
@@ -46,9 +67,10 @@ as $$
   select count(*)::int
   from (
     select family_id
-    from latest_per_channel
+    from latest_resolved_per_channel
     group by family_id
-    -- Unreachable only when the latest message on every channel tried failed.
+    -- Unreachable only when the latest resolved outcome on every channel
+    -- tried failed.
     having bool_and(status = 'failed')
   ) unreachable;
 $$;

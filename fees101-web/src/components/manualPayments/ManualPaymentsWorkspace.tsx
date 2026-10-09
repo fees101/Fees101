@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { usePermissions } from '@/lib/auth/PermissionsProvider'
@@ -21,7 +21,7 @@ import {
   getStudentOpenInvoices,
   type ManualPaymentStudentOption,
   type ManualPaymentInvoiceOption,
-} from '@/app/(app)/discounts/manual-payments/actions'
+} from '@/app/(app)/money/manual-payments/actions'
 
 const INK = 'var(--color-ink)'
 const BODY = 'var(--color-neutral-800)'
@@ -70,12 +70,15 @@ type Tab = 'record' | 'pending' | 'history'
 
 interface Props {
   pending: PendingManualPayment[]
+  // Naira total of the full pending set "if all approved" — computed
+  // server-side in getPendingManualPayments, not re-derived here.
+  total: number
   decided: DecidedManualPayment[]
   canRecord: boolean
   canApprove: boolean
 }
 
-export default function ManualPaymentsWorkspace({ pending, decided, canRecord, canApprove }: Props) {
+export default function ManualPaymentsWorkspace({ pending, total, decided, canRecord, canApprove }: Props) {
   const router = useRouter()
   const { isOwner } = usePermissions()
   // Staff who can record but not approve land on Record; approvers land on
@@ -122,6 +125,7 @@ export default function ManualPaymentsWorkspace({ pending, decided, canRecord, c
       {tab === 'pending' && (
         <PendingList
           pending={pending}
+          total={total}
           canApprove={canApprove}
           onResult={(ok, message) => { setToast({ ok, message }); if (ok) router.refresh() }}
         />
@@ -351,9 +355,10 @@ function RecordForm({ onDone, onError }: { onDone: (msg: string) => void; onErro
 // ---------------------------------------------------------------------------
 
 function PendingList({
-  pending, canApprove, onResult,
+  pending, total, canApprove, onResult,
 }: {
   pending: PendingManualPayment[]
+  total: number
   canApprove: boolean
   onResult: (ok: boolean, message: string) => void
 }) {
@@ -361,11 +366,6 @@ function PendingList({
   const [rejectNote, setRejectNote] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const total = useMemo(
-    () => pending.filter(p => !p.isReversal).reduce((s, p) => s + p.amount, 0),
-    [pending],
-  )
 
   async function approve(id: string) {
     setError(null); setBusyId(id)

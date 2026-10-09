@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getAuthContext, can } from '@/lib/auth/permissions'
 import { getActivityFeed } from '@/lib/queries/activity'
+import { getCreditAppliedForTerm } from '@/lib/queries/fees'
 import ActivityFeed from '@/components/activity/ActivityFeed'
 import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
 import AccessDenied from '@/components/layout/AccessDenied'
@@ -58,7 +59,7 @@ export default async function ActivityPage({ searchParams }: PageProps) {
   // The active term's start date backs the "Term" preset.
   const { data: activeCycle } = await ctx.supabase
     .from('billing_cycles')
-    .select('start_date')
+    .select('id, start_date')
     .eq('school_id', ctx.schoolId || '')
     .eq('status', 'active')
     .order('start_date', { ascending: false })
@@ -108,6 +109,13 @@ export default async function ActivityPage({ searchParams }: PageProps) {
     perPage,
   }, showFinancials)
 
+  // Only meaningful for the Term preset — credit_applied lives on the invoice
+  // with no timestamp of its own, so there's no accurate way to scope it to an
+  // arbitrary date window the way cash payments are. See getCreditAppliedForTerm.
+  const creditAppliedThisTerm = (range === 'term' && showFinancials && activeCycle?.id)
+    ? await getCreditAppliedForTerm(ctx.supabase, ctx.schoolId || '', activeCycle.id)
+    : null
+
   return (
     <>
       <WorkspaceHeader workspaceKey="today" title="Today" />
@@ -124,6 +132,7 @@ export default async function ActivityPage({ searchParams }: PageProps) {
           to={to || ''}
           search={sp.search || ''}
           schoolId={ctx.schoolId ?? ''}
+          creditAppliedThisTerm={creditAppliedThisTerm}
           aggregate={aggregate}
           termFrom={termFrom}
           showFinancials={showFinancials}

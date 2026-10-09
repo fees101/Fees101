@@ -7,6 +7,7 @@
     { "path": "/api/admin/purge-deletions", "schedule": "15 3 * * *" },
     { "path": "/api/admin/job-sweep", "schedule": "0 4 * * *" },
     { "path": "/api/admin/rollover-sweep", "schedule": "0 4 * * *" },
+    { "path": "/api/admin/refund-sweep", "schedule": "0 4 * * *" },
     { "path": "/api/cron/charge-mandates", "schedule": "0 5 * * *" }
   ]
 }

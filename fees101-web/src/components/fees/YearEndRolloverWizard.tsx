@@ -481,7 +481,7 @@ export default function YearEndRolloverWizard({ activeRun, groups, classes, prev
           desc: `${readiness.pendingDiscountCount} request${readiness.pendingDiscountCount === 1 ? '' : 's'} still pending. Approving or declining them first keeps the balances carried forward accurate.`,
           tone: 'warn',
           status: 'Decide first',
-          action: { label: 'Decide first', href: '/discounts' },
+          action: { label: 'Decide first', href: '/money/discounts' },
         })
       } else {
         out.push({

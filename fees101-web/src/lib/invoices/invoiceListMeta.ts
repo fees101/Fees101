@@ -19,6 +19,9 @@ export interface AllInvoiceRow {
   cycleId: string
   cycleName: string
   cycleStatus: 'draft' | 'active' | 'closed'
+  // Disambiguates two terms with the same name across sessions/years, and
+  // sorts the term picker oldest-to-newest instead of insertion order.
+  cycleDueDate: string | null
   totalAmount: number
   paidAmount: number
   outstandingAmount: number

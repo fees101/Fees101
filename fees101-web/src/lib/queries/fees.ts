@@ -49,25 +49,73 @@ export async function getCollectedForDateRange(supabase: any, schoolId: string, 
 // paid (a late payment for this term still counts here; a payment on a different
 // term's invoice does not).
 //
+// Also includes each invoice's own credit_applied — money that funded a real
+// bill this term without a payments row ever existing for it (an original
+// overpayment applied at generation time, or credit moved in from a sibling via
+// reallocateFamilyCredit). Found live 2026-10-09: a sibling-credit transfer that
+// fully paid a second student's invoice was invisible here even though that
+// invoice is genuinely SETTLED for this term — Collected is supposed to answer
+// "how much of this term is paid for," and excluding a real paid-in-full
+// invoice understated that. No double-counting risk: the originating cash
+// (whichever payments row first produced the credit) was itself excluded from
+// Collected the moment it missed an invoice_id (see below), specifically
+// because it hadn't funded anything yet — once it's applied to this term's
+// invoice, counting it here is the first and only time it's counted.
+//
+// REFINED (2026-10-09, db/credit_ledger.sql): "money that funded a real bill
+// via credit" above only counts if that credit was ALSO collected this term.
+// A credit_applied figure summed straight off invoices can't tell that apart
+// from credit carried over from a past term — which this term's Collected
+// must never claim, since it was already counted the term it actually
+// arrived. See getCreditAppliedForTerm for the per-term attribution.
+//
 // Deliberately excluded:
-//  - payments with no invoice (invoice_id null, i.e. credit-balance /
-//    overpayment rows), which belong to no single term: the !inner join drops
-//    them.
-//  - credit applications (credit_applied): these never create a payments row, so
-//    reading the payments table already excludes them and nothing is
-//    double-counted when carried-over credit later covers a bill.
+//  - payments with no invoice (invoice_id null, i.e. unapplied credit-balance /
+//    overpayment rows sitting on a student with nothing to apply to yet): the
+//    !inner join drops them. They're "credit on file" (a separate stock
+//    figure) until an invoice's credit_applied actually claims them.
 // Reversal rows (negative amount against a this-term invoice) are summed as the
 // negatives they are, so an original payment and its later reversal net to zero
 // collected rather than overstating it.
 export async function getCollectedForTerm(supabase: any, schoolId: string, cycleId: string): Promise<number> {
-  const { data } = await supabase
-    .from('payments')
+  const [{ data: payments }, creditApplied] = await Promise.all([
+    supabase
+      .from('payments')
+      .select('amount, invoices!inner(billing_cycle_id)')
+      .eq('school_id', schoolId)
+      .eq('match_status', 'matched')
+      .eq('invoices.billing_cycle_id', cycleId),
+    getCreditAppliedForTerm(supabase, schoolId, cycleId),
+  ])
+
+  const cash = (payments || []).reduce((sum: number, p: any) => sum + Number(p.amount), 0)
+  return cash + creditApplied
+}
+
+// The credit-application half of getCollectedForTerm, split out so the Record
+// page can show it on its own (labelled separately from cash received, not
+// merged into it there — "Received in range" is a pure cash-flow figure and
+// should stay that way) without duplicating the query.
+//
+// FIXED (2026-10-09): this used to sum invoices.credit_applied directly for
+// every invoice in the term — but that counts credit that was CARRIED OVER
+// from a past term just as readily as credit that actually arrived this
+// term, double-counting money this term's Collected already claimed back
+// when it first arrived. db/credit_ledger.sql tags every naira of credit
+// with the term it was actually collected in (origin_cycle_id) and records
+// exactly which lot funded which invoice spend (credit_consumption_log), so
+// this now only sums the slice of this term's credit_applied that was ALSO
+// collected THIS term — i.e. money that genuinely flowed in and out within
+// the same term, never anything carried in from before.
+export async function getCreditAppliedForTerm(supabase: any, schoolId: string, cycleId: string): Promise<number> {
+  const { data: rows } = await supabase
+    .from('credit_consumption_log')
     .select('amount, invoices!inner(billing_cycle_id)')
     .eq('school_id', schoolId)
-    .eq('match_status', 'matched')
+    .eq('origin_cycle_id', cycleId)
     .eq('invoices.billing_cycle_id', cycleId)
 
-  return (data || []).reduce((sum: number, p: any) => sum + Number(p.amount), 0)
+  return (rows || []).reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0)
 }
 
 export async function getFeesOverview(cycleId?: string) {
@@ -276,6 +324,9 @@ export async function getFeeStructure(billingCycleId?: string) {
       studentCountByClass: {},
       totalActiveStudents: 0,
       issuedInvoiceCount: 0,
+      requiredRevenue: 0,
+      optionalRevenue: 0,
+      grossPotential: 0,
     }
   }
 
@@ -332,8 +383,28 @@ export async function getFeeStructure(billingCycleId?: string) {
     })
   }
 
+  // Projected revenue per fee item — an optional fee only bills the students
+  // who opted in, a school-wide fee bills every active student, and a
+  // per-class fee bills that class's active student count. Computed here
+  // (server-side, the one source of truth) rather than re-derived client-side
+  // in FeeStructureLayout from the raw allFees/studentCountByClass rows.
+  function revenueFor(f: typeof allFees[number]): number {
+    if (f.is_optional_extra) return Number(f.amount) * (optInCountMap[f.id] || 0)
+    if (f.class_id === null) return Number(f.amount) * totalActiveStudents
+    return Number(f.amount) * (studentCountByClass[f.class_id] || 0)
+  }
+  let requiredRevenue = 0
+  let optionalRevenue = 0
+  for (const f of allFees) {
+    if (f.is_optional_extra) optionalRevenue += revenueFor(f)
+    else requiredRevenue += revenueFor(f)
+  }
+
   return {
     cycle,
+    requiredRevenue,
+    optionalRevenue,
+    grossPotential: requiredRevenue + optionalRevenue,
     // Classes carry a per-section display_order (Primary 1-6 and JSS 1-3 both
     // start at 1), so a flat sort by display_order interleaves the sections.
     // Order by the section first, then the class within it, so the matrix reads
@@ -478,11 +549,12 @@ export async function getAllCycles(): Promise<CycleRow[]> {
 
   const cycleIds = cycles.map(c => c.id)
 
-  // After the cycle list, these four are all independent of one another.
+  // After the cycle list, these five are all independent of one another.
   const [
     { count: totalActiveStudents },
     { data: invoices },
     { data: allPayments },
+    { data: creditConsumption },
     { data: feeItems },
   ] = await Promise.all([
     // Get total active students (for "X of Y invoiced")
@@ -506,6 +578,13 @@ export async function getAllCycles(): Promise<CycleRow[]> {
       .select('amount, invoices!inner(billing_cycle_id)')
       .eq('school_id', schoolId)
       .eq('match_status', 'matched')
+      .in('invoices.billing_cycle_id', cycleIds),
+    // Credit applied this term that was ALSO collected this term — see
+    // getCreditAppliedForTerm's comment for why origin_cycle_id matters here.
+    supabase
+      .from('credit_consumption_log')
+      .select('amount, origin_cycle_id, invoices!inner(billing_cycle_id)')
+      .eq('school_id', schoolId)
       .in('invoices.billing_cycle_id', cycleIds),
     // Get fee item counts per cycle
     supabase
@@ -549,6 +628,14 @@ export async function getAllCycles(): Promise<CycleRow[]> {
     const cycleId = p.invoices?.billing_cycle_id
     if (!cycleId) return
     collectedByCycle[cycleId] = (collectedByCycle[cycleId] || 0) + Number(p.amount)
+  })
+  // Plus the slice of credit_applied that was ALSO collected this term — see
+  // getCreditAppliedForTerm's comment: credit carried over from a past term
+  // must not be double-counted into this term's Collected.
+  ;(creditConsumption || []).forEach((r: any) => {
+    const cycleId = r.invoices?.billing_cycle_id
+    if (!cycleId || r.origin_cycle_id !== cycleId) return
+    collectedByCycle[cycleId] = (collectedByCycle[cycleId] || 0) + Number(r.amount || 0)
   })
 
   const feeItemStats: Record<string, number> = {}
@@ -1031,6 +1118,14 @@ export interface InvoiceDetail {
     paidAt: string
     reference: string
     receivedByName: string | null
+    // Set for a real (gateway) payment — feeds the "Refund this payment"
+    // action; null/undefined for a manually recorded one (use a manual
+    // reversal there instead).
+    provider: string | null
+    // Original amount minus any completed/processing refund already against
+    // it — the "Refund" action is hidden once this hits 0 (fully refunded)
+    // and offers only the true remainder otherwise.
+    refundableAmount: number
     // Set when this payment was one piece of a larger transfer that got
     // split across multiple invoices/credit — so a parent looking at just
     // this invoice isn't left wondering where the rest of their money went.
@@ -1161,6 +1256,22 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
   // from there: credit portion = full entered amount − what landed on this
   // invoice. Only original approved entries (not reversals) carry a split.
   const paymentIds = (payments || []).map((p: any) => p.id)
+
+  // How much of each payment is still refundable — found live 2026-10-09: the
+  // invoice page's "Refund" action used to show unconditionally on any
+  // automatic payment, even one already refunded in FULL. A partial refund
+  // still correctly leaves the remainder refundable.
+  const refundedByPayment: Record<string, number> = {}
+  if (paymentIds.length > 0) {
+    const { data: existingRefunds } = await supabase
+      .from('refunds')
+      .select('payment_id, amount')
+      .in('payment_id', paymentIds)
+      .in('status', ['completed', 'processing'])
+    ;(existingRefunds || []).forEach((r: any) => {
+      refundedByPayment[r.payment_id] = (refundedByPayment[r.payment_id] || 0) + Number(r.amount)
+    })
+  }
   const manualFullById: Record<string, number> = {}
   if (paymentIds.length > 0) {
     const { data: manualRows } = await supabase
@@ -1234,6 +1345,8 @@ export async function getInvoiceByIdForSchool(supabase: any, schoolId: string, i
         method: p.method,
         paidAt: p.paid_at,
         reference: p.provider_reference || '',
+        provider: p.provider || null,
+        refundableAmount: Math.max(Number(p.amount) - (refundedByPayment[p.id] || 0), 0),
         // Gateway-driven payments have no staff member to attribute — that's
         // expected, not missing data, so label it instead of a bare dash.
         receivedByName: p.users?.name || (p.provider ? 'Automatic' : null),
@@ -1419,7 +1532,7 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
       needs_resend,
       generated_at,
       students(first_name, last_name, admission_number, status, classes(name)),
-      billing_cycles(id, name, status)
+      billing_cycles(id, name, status, due_date)
     `)
     .eq('school_id', schoolId)
     .order('generated_at', { ascending: false })
@@ -1459,6 +1572,8 @@ export async function getAllInvoices(): Promise<AllInvoiceRow[]> {
       cycleName: inv.billing_cycles?.name || '',
       // @ts-expect-error — joined
       cycleStatus: inv.billing_cycles?.status || 'closed',
+      // @ts-expect-error — joined
+      cycleDueDate: inv.billing_cycles?.due_date || null,
       totalAmount: total,
       paidAmount: paid,
       outstandingAmount: Number(inv.outstanding_amount ?? (total - paid)),
@@ -1488,7 +1603,7 @@ export interface AllInvoicesResult {
   total: number // count matching statusFilter+termFilter+search, for pagination
   page: number
   perPage: number
-  terms: { id: string; name: string }[]
+  terms: { id: string; name: string; dueDate: string | null }[]
   counts: InvoiceCounts // term+search scoped, NOT status-filtered (so chips show their own count)
   ledger: InvoiceLedgerTotals // same scope as counts
 }
@@ -1545,14 +1660,18 @@ export async function getAllInvoicesForList(options: AllInvoicesOptions = {}): P
 
   const all = await getAllInvoices()
 
-  const terms: { id: string; name: string }[] = []
+  const terms: { id: string; name: string; dueDate: string | null }[] = []
   const seenTerms = new Set<string>()
   for (const inv of all) {
     if (inv.cycleId && !seenTerms.has(inv.cycleId)) {
       seenTerms.add(inv.cycleId)
-      terms.push({ id: inv.cycleId, name: inv.cycleName })
+      terms.push({ id: inv.cycleId, name: inv.cycleName, dueDate: inv.cycleDueDate })
     }
   }
+  // Chronological, oldest first — the dropdown previously ordered terms by
+  // whichever invoice happened to be iterated first (insertion order), not by
+  // when the term actually ran, which made "which one's newer" a guess.
+  terms.sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))
 
   const scoped = all.filter(inv => matchesInvoiceScope(inv, termFilter, search))
 

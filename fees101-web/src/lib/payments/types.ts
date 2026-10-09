@@ -82,6 +82,15 @@ export interface TerminalEventStatus {
   delivered: boolean
 }
 
+export interface RefundResult {
+  // Paystack's refund id (data.id) — stamped on the refund row immediately so
+  // the later refund.processed/refund.failed webhook can find it back.
+  id: string
+  // 'processed' confirms synchronously; 'pending' means wait for the webhook;
+  // anything else is treated as a failure by the caller.
+  status: string
+}
+
 export interface PaymentProvider {
   // Machine name of the provider ('monnify' | 'paystack'). Stamped onto
   // payments / processed_provider_transactions rows so the persistence layer
@@ -116,6 +125,14 @@ export interface PaymentProvider {
   ): Promise<PushEventResult>
   // Confirms the device actually received a pushed event.
   getTerminalEventStatus?(terminalId: string, eventId: string): Promise<TerminalEventStatus>
+
+  // --- Refunds, optional per provider (Paystack only for now) ---
+  // Refunds a specific transaction, in full or in part, to the original payer.
+  // amountNaira omitted means a full refund of the transaction's own amount.
+  refundTransaction?(reference: string, amountNaira?: number, note?: string): Promise<RefundResult>
+  // Checks a refund's current status directly with the provider — the
+  // refund-sweep safety net's fallback for a missed/delayed webhook.
+  verifyRefund?(paystackRefundId: string): Promise<{ status: string }>
 }
 
 export interface ProviderCredentials {

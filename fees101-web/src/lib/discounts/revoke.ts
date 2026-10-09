@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
+import { computeInvoiceForStudent, applyCreditBalanceDelta, syncCreditLedgerForInvoice } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 
@@ -123,6 +123,7 @@ export async function revokeActiveDiscount(
   if (computed.creditApplied > 0) {
     await applyCreditBalanceDelta(supabase, schoolId, discount.student_id, -computed.creditApplied)
   }
+  await syncCreditLedgerForInvoice(supabase, schoolId, discount.student_id, invoice.id, computed.creditApplied)
 
   await logAuditEvent(supabase, {
     schoolId,

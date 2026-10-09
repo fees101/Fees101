@@ -54,11 +54,12 @@ export default function Sidebar({
 
   // Each workspace resolves to the first mode this role can actually reach; a
   // workspace with no reachable mode drops out of the rail entirely. A
-  // feature-gated workspace is also dropped when its flag is off, regardless of
-  // permissions.
+  // feature-gated workspace (or a feature-gated MODE inside an otherwise
+  // reachable workspace, e.g. Money's Manual payments tab) is also skipped
+  // when its flag is off, regardless of permissions.
   const visible = workspaces
     .filter(ws => ws.featureFlag !== 'manualPayments' || manualPaymentsEnabled)
-    .map(ws => ({ ws, href: workspaceLanding(ws, permissions, isOwner) }))
+    .map(ws => ({ ws, href: workspaceLanding(ws, permissions, isOwner, manualPaymentsEnabled) }))
     .filter((w): w is { ws: Workspace; href: string } => w.href !== null)
 
   // Shared nav body, used by both the desktop rail and the mobile drawer.

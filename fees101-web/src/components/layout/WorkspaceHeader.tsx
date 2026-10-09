@@ -9,6 +9,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { usePermissions } from '@/lib/auth/PermissionsProvider'
+import { useNavMeta } from '@/lib/nav/NavMetaProvider'
 import { workspaces, accessibleModes, type NavMode } from '@/lib/nav/navConfig'
 
 interface WorkspaceHeaderProps {
@@ -42,8 +43,9 @@ export default function WorkspaceHeader({
 }: WorkspaceHeaderProps) {
   const pathname = usePathname()
   const { permissions, isOwner } = usePermissions()
+  const { counts, manualPaymentsEnabled } = useNavMeta()
   const ws = workspaces.find(w => w.key === workspaceKey)
-  const modes = ws ? accessibleModes(ws, permissions, isOwner) : []
+  const modes = ws ? accessibleModes(ws, permissions, isOwner, manualPaymentsEnabled) : []
   const crumbText = crumb ?? ws?.group ?? ''
   const tabsVisible = showTabs && !back && (tabs ? tabs.length > 0 : modes.length > 1)
   // The workspace title is the WORKSPACE name (e.g. "Team & Trust", "Money"),
@@ -93,6 +95,7 @@ export default function WorkspaceHeader({
                 ))
               : modes.map(m => {
                   const active = isModeActive(m, pathname)
+                  const count = m.badgeKey ? counts[m.badgeKey] : undefined
                   return (
                     <Link
                       key={m.href}
@@ -102,6 +105,15 @@ export default function WorkspaceHeader({
                       className="m-tab flex-shrink-0"
                     >
                       {m.label}
+                      {/* Reuses the system's existing "needs a human" chip
+                          (same one status cells use) instead of a bespoke
+                          badge, so a pending count reads as the same kind of
+                          signal everywhere in the app, not a one-off style. */}
+                      {typeof count === 'number' && count > 0 && (
+                        <span className="m-chip m-chip-red m-num" style={{ padding: '1px 6px' }}>
+                          {count}
+                        </span>
+                      )}
                     </Link>
                   )
                 })}

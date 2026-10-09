@@ -32,6 +32,10 @@ export const BILLING_TERMS_VERSION = '2026-10-01'
 // liability_version so a text change re-prompts for a fresh acceptance.
 export const MANUAL_PAYMENT_LIABILITY_VERSION = '2026-10-03'
 
+// Same mechanism, for refunding a real (Paystack) payment — real-money
+// clawback risk, same two-sided gate (console-enabled + owner-accepted).
+export const REFUNDS_LIABILITY_VERSION = '2026-10-07'
+
 // Small token charge used when an already-connected school switches from DVA
 // back to a direct-debit mandate. Paystack's bank/recurring channel only
 // creates a reusable authorization off a real successful transaction, so a

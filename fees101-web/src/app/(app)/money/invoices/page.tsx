@@ -45,7 +45,22 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
 
   const params = await searchParams
   const statusFilter = normalizeStatusFilter(params.filter)
-  const termFilter = params.term || 'all'
+  // Default to the active term when no ?term= is present at all (a fresh
+  // visit to this tab) — a bursar's day-to-day work is almost always this
+  // term's invoices, not the full lifetime list. Only a genuinely absent
+  // param defaults this way: picking "All terms" from the dropdown sets
+  // ?term=all explicitly, which is left alone here, not overridden back to
+  // the active term.
+  let termFilter: string = params.term ?? ''
+  if (!termFilter) {
+    const { data: activeCycle } = await ctx.supabase
+      .from('billing_cycles')
+      .select('id')
+      .eq('school_id', ctx.schoolId || '')
+      .eq('status', 'active')
+      .maybeSingle()
+    termFilter = activeCycle?.id || 'all'
+  }
   const search = params.q || ''
   const page = Math.max(1, parseInt(params.page || '1', 10) || 1)
   const perPage = parseInt(params.perPage || '50', 10) || 50

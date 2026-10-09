@@ -52,6 +52,17 @@ export interface DiscountCyclePoint {
   estAmount: number
 }
 
+// Real money refunded, per term + category + method — only 'completed'
+// refunds (see db/analytics_refund_series.sql). method is Paystack's own
+// labels ('paystack_reversal' | 'bank_transfer').
+export interface RefundCyclePoint {
+  cycleId: string
+  category: string
+  method: string
+  refundCount: number
+  refundedAmount: number
+}
+
 export interface ClassCyclePoint {
   cycleId: string
   className: string
@@ -82,11 +93,12 @@ export interface AnalyticsBundle {
   discountSeries: DiscountCyclePoint[]
   classSeries: ClassCyclePoint[]
   feeClassSeries: FeeClassPoint[]  // empty if analytics_fee_class_series isn't installed yet
+  refundSeries: RefundCyclePoint[] // empty if analytics_refund_series isn't installed yet
 }
 
 const EMPTY: AnalyticsBundle = {
   ready: true, hasData: false,
-  termSeries: [], feeSeries: [], discountSeries: [], classSeries: [], feeClassSeries: [],
+  termSeries: [], feeSeries: [], discountSeries: [], classSeries: [], feeClassSeries: [], refundSeries: [],
 }
 
 // Aggregation is done DB-side (see db/analytics_functions.sql) which returns a
@@ -120,11 +132,12 @@ export async function getAnalyticsBundle(): Promise<AnalyticsBundle> {
 
   if (termSeries.length === 0) return EMPTY
 
-  const [{ data: feeRows }, { data: discRows }, { data: classRows }, feeClassRes] = await Promise.all([
+  const [{ data: feeRows }, { data: discRows }, { data: classRows }, feeClassRes, refundRes] = await Promise.all([
     supabase.rpc('analytics_fee_series', { p_school_id: schoolId }),
     supabase.rpc('analytics_discount_series', { p_school_id: schoolId }),
     supabase.rpc('analytics_class_series', { p_school_id: schoolId }),
     supabase.rpc('analytics_fee_class_series', { p_school_id: schoolId }),
+    supabase.rpc('analytics_refund_series', { p_school_id: schoolId }),
   ])
 
   const feeSeries: FeeCyclePoint[] = (feeRows || []).map((f: any) => ({
@@ -170,7 +183,18 @@ export async function getAnalyticsBundle(): Promise<AnalyticsBundle> {
     price: n(f.price),
   }))
 
-  return { ready: true, hasData: true, termSeries, feeSeries, discountSeries, classSeries, feeClassSeries }
+  // Additive: absent on installs that predate analytics_refund_series. Its
+  // error is non-fatal — the refunds tile/table just show empty until the new
+  // db/analytics_refund_series.sql is run.
+  const refundSeries: RefundCyclePoint[] = (refundRes?.data || []).map((r: any) => ({
+    cycleId: r.cycle_id,
+    category: r.category,
+    method: r.refund_method,
+    refundCount: n(r.refund_count),
+    refundedAmount: n(r.refunded_amount),
+  }))
+
+  return { ready: true, hasData: true, termSeries, feeSeries, discountSeries, classSeries, feeClassSeries, refundSeries }
 }
 
 // Server-side redaction for a caller who holds see-analytics but not
@@ -201,6 +225,7 @@ export function redactAnalyticsBundle(bundle: AnalyticsBundle): AnalyticsBundle 
     discountSeries: bundle.discountSeries.map(d => ({ ...d, estAmount: 0 })),
     classSeries: bundle.classSeries.map(c => ({ ...c, billed: 0, collected: 0, outstanding: 0 })),
     feeClassSeries: bundle.feeClassSeries.map(f => ({ ...f, billed: 0, price: 0 })),
+    refundSeries: bundle.refundSeries.map(r => ({ ...r, refundedAmount: 0 })),
   }
 }
 

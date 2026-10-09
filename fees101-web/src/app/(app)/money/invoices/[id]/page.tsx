@@ -6,6 +6,8 @@ import InvoiceDetailLayout from '@/components/invoices/InvoiceDetailLayout'
 import WorkspaceHeader from '@/components/layout/WorkspaceHeader'
 import AccessDenied from '@/components/layout/AccessDenied'
 import { getAuthContext, can } from '@/lib/auth/permissions'
+import { getRefundsFeatureState } from '@/lib/queries/refunds'
+import { getIncomingCreditTransfers } from '@/lib/queries/students'
 
 export const metadata: Metadata = { title: 'Invoice' }
 
@@ -26,12 +28,15 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
   }
 
   const { id } = await params
-  const [invoice, discountSettings] = await Promise.all([
+  const [invoice, discountSettings, refundsFeature] = await Promise.all([
     getInvoiceById(id),
     getDiscountSettings(),
+    getRefundsFeatureState(),
   ])
 
   if (!invoice) notFound()
+
+  const incomingCreditTransfers = await getIncomingCreditTransfers(invoice.studentId)
 
   return (
     <>
@@ -45,6 +50,8 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
         invoice={invoice}
         discountSettings={discountSettings ?? mergeDiscountSettings('', undefined)}
         autoApproveThreshold={discountSettings?.approval.thresholdNaira ?? null}
+        canRequestRefund={can(ctx, 'request-refunds') && refundsFeature.liabilityAccepted}
+        incomingCreditTransfers={incomingCreditTransfers}
       />
     </>
   )

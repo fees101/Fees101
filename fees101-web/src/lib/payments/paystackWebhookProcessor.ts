@@ -19,6 +19,8 @@
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getPaymentProviderForSchool } from './getProvider'
 import { applyProviderPayment, resolveDvaOwner, resolveTerminalPaymentRequest } from './applyPayment'
+import { finalizeCompletedRefund } from './completeRefund'
+import { recordExternalMoneyLoss } from './externalMoneyLoss'
 
 interface ProcessResult {
   status: number
@@ -152,6 +154,143 @@ export async function processPaystackWebhook(
     }
     await updateWebhookEvent(supabase, eventId, { status: 'processed', processed_at: new Date().toISOString() })
     return { status: 200, body: { message: `Acknowledged terminal status event ${eventType}` } }
+  }
+
+  // Refund confirmation: a refundTransaction() API call can come back 'pending'
+  // (queued for settlement) rather than an immediate 'processed' — these two
+  // events are how Paystack later confirms the outcome. Matched back to our
+  // refunds row by the id refundTransaction() stamped on it at request time.
+  if (eventType === 'refund.processed' || eventType === 'refund.failed') {
+    const paystackRefundId = data?.id != null ? String(data.id) : undefined
+    if (paystackRefundId) {
+      const { data: refundRow, error: lookupError } = await supabase
+        .from('refunds')
+        .select('id')
+        .eq('school_id', schoolId)
+        .eq('paystack_refund_id', paystackRefundId)
+        .eq('status', 'processing')
+        .maybeSingle()
+
+      // Found live 2026-10-09: this lookup's error used to be silently
+      // discarded — a transient failure here (a dropped connection, anything)
+      // looked identical to "no matching refund," so the webhook got marked
+      // 'processed' and Paystack never retried, leaving a real refund stuck
+      // in 'processing' forever with nothing left to resolve it. Returning a
+      // non-200 here instead makes Paystack redeliver the same event shortly
+      // after — the lookup almost certainly succeeds on a retry, so this
+      // self-heals without ever needing the sweep.
+      if (lookupError) {
+        await updateWebhookEvent(supabase, eventId, {
+          status: 'error',
+          error_message: `Failed to look up refund for ${eventType}: ${lookupError.message}`,
+        })
+        return { status: 500, body: { error: 'Failed to look up matching refund' } }
+      }
+
+      if (refundRow) {
+        try {
+          if (eventType === 'refund.processed') {
+            const { error: rpcError } = await supabase.rpc('complete_refund_request', {
+              p_refund_id: refundRow.id,
+              p_paystack_refund_id: paystackRefundId,
+            })
+            if (rpcError) throw rpcError
+            await finalizeCompletedRefund(supabase, refundRow.id)
+          } else {
+            const { error: rpcError } = await supabase.rpc('fail_refund_request', {
+              p_refund_id: refundRow.id,
+              p_reason: data?.refund_reason || data?.reason || 'Paystack reported the refund as failed',
+            })
+            if (rpcError) throw rpcError
+          }
+        } catch (err: any) {
+          await updateWebhookEvent(supabase, eventId, {
+            status: 'error',
+            error_message: `Failed to apply ${eventType}: ${err?.message || 'unknown error'}`,
+          })
+          return { status: 200, body: { message: `Captured, failed to apply ${eventType}` } }
+        }
+      } else if (eventType === 'refund.processed') {
+        // No row we created matches this id — this refund was made directly
+        // on Paystack's dashboard, not requested through Fees101. A failed
+        // refund with no match needs no reconciliation (nothing moved); only
+        // a confirmed success does. See externalMoneyLoss.ts.
+        try {
+          await recordExternalMoneyLoss(
+            supabase,
+            schoolId,
+            (data?.transaction_reference || data?.transaction?.reference) ? String(data.transaction_reference || data.transaction.reference) : undefined,
+            Number(data?.amount || 0) / 100,
+            'paystack_reversal',
+            paystackRefundId,
+          )
+        } catch (err: any) {
+          await updateWebhookEvent(supabase, eventId, {
+            status: 'error',
+            error_message: `Failed to record external refund: ${err?.message || 'unknown error'}`,
+          })
+          return { status: 200, body: { message: 'Captured, failed to record external refund' } }
+        }
+      }
+      // No matching 'processing' row is fine — already completed/failed by the
+      // synchronous API response, or a duplicate delivery. Not an error.
+    }
+    await updateWebhookEvent(supabase, eventId, { status: 'processed', processed_at: new Date().toISOString() })
+    return { status: 200, body: { message: `Acknowledged ${eventType}` } }
+  }
+
+  // Chargebacks/card disputes — Paystack holds the disputed amount when a
+  // dispute opens, and debits the school's balance if it resolves against
+  // them. Like an external refund, this is money leaving without anyone
+  // touching Fees101 — same detect-and-flag treatment, triggered only once
+  // the outcome is final (resolve), not on mere creation (outcome unknown).
+  if (eventType === 'charge.dispute.create') {
+    const { error: disputeNotifyError } = await supabase.from('admin_notifications').insert({
+      school_id: schoolId,
+      type: 'external_refund_detected',
+      title: 'A card dispute was opened on Paystack',
+      body: `A customer disputed a ₦${(Number(data?.amount || 0) / 100).toLocaleString()} charge` +
+        ((data?.transaction_reference || data?.transaction?.reference) ? ` (ref ${data.transaction_reference || data.transaction.reference})` : '') +
+        `. No money has moved yet — this is a heads up while Paystack investigates.`,
+    })
+    if (disputeNotifyError) {
+      await updateWebhookEvent(supabase, eventId, {
+        status: 'error',
+        error_message: `Failed to record dispute-opened notification: ${disputeNotifyError.message}`,
+      })
+      return { status: 200, body: { message: 'Captured, failed to record dispute notification' } }
+    }
+    await updateWebhookEvent(supabase, eventId, { status: 'processed', processed_at: new Date().toISOString() })
+    return { status: 200, body: { message: 'Acknowledged dispute opened' } }
+  }
+
+  if (eventType === 'charge.dispute.resolve') {
+    // Paystack's resolution field naming isn't nailed down in our own testing
+    // yet — checked defensively against every plausible shape rather than
+    // assuming one. A dispute resolved IN THE SCHOOL'S FAVOR needs no action
+    // (nothing left); only a lost dispute is money actually leaving.
+    const resolution = String(data?.resolution || data?.status || '').toLowerCase()
+    const lost = resolution.includes('merchant_accepted') || resolution.includes('declined') || resolution.includes('lost')
+    if (lost) {
+      try {
+        await recordExternalMoneyLoss(
+          supabase,
+          schoolId,
+          (data?.transaction_reference || data?.transaction?.reference) ? String(data.transaction_reference || data.transaction.reference) : undefined,
+          Number(data?.amount || 0) / 100,
+          'chargeback',
+          data?.id != null ? String(data.id) : undefined,
+        )
+      } catch (err: any) {
+        await updateWebhookEvent(supabase, eventId, {
+          status: 'error',
+          error_message: `Failed to record chargeback: ${err?.message || 'unknown error'}`,
+        })
+        return { status: 200, body: { message: 'Captured, failed to record chargeback' } }
+      }
+    }
+    await updateWebhookEvent(supabase, eventId, { status: 'processed', processed_at: new Date().toISOString() })
+    return { status: 200, body: { message: 'Acknowledged dispute resolution' } }
   }
 
   // Only successful charges move money. Everything else (assign events, pending

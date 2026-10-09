@@ -74,24 +74,51 @@ export interface ActiveRecurringDiscount {
   currentTermSubtotal: number | null
 }
 
-export async function getPendingDiscountRequests(): Promise<PendingDiscountRequest[]> {
+// What a request takes off the bill, in naira — a fixed amount is exact, a
+// percentage is resolved against the invoice subtotal (capped at it, since a
+// discount can never exceed the bill it's applied to). Mirrors
+// DiscountQueue.tsx's requestNairaValue, kept in sync with it by hand since
+// one lives server-side (queue total) and the other client-side (per-row).
+function discountNairaValue(amount: number, isPercentage: boolean, invoiceSubtotal: number): number {
+  if (!isPercentage) return amount
+  if (invoiceSubtotal <= 0) return 0
+  return Math.min(invoiceSubtotal, (invoiceSubtotal * amount) / 100)
+}
+
+export interface PendingDiscountRequestsResult {
+  requests: PendingDiscountRequest[]
+  // Naira total of the full pending set "if all approved" — computed here
+  // from its own narrow query rather than the client reducing the (currently
+  // unpaginated) `requests` array, so the figure stays correct if a limit is
+  // ever added to the row fetch above.
+  queueTotal: number
+}
+
+export async function getPendingDiscountRequests(): Promise<PendingDiscountRequestsResult> {
   const ctx = await getSchoolContext()
-  if (!ctx) return []
+  if (!ctx) return { requests: [], queueTotal: 0 }
   const { supabase, schoolId } = ctx
 
-  const { data } = await supabase
-    .from('discounts')
-    .select(`
-      id, invoice_id, student_id, category, amount, is_percentage, is_recurring, reason, requested_at,
-      students!inner(first_name, last_name, classes(name)),
-      invoices!inner(subtotal, discount_amount, billing_cycles(name)),
-      requested_by_user:users!discounts_requested_by_fkey(name)
-    `)
-    .eq('school_id', schoolId)
-    .eq('status', 'pending')
-    .order('requested_at', { ascending: true })
+  const [{ data }, { data: totalRows }] = await Promise.all([
+    supabase
+      .from('discounts')
+      .select(`
+        id, invoice_id, student_id, category, amount, is_percentage, is_recurring, reason, requested_at,
+        students!inner(first_name, last_name, classes(name)),
+        invoices!inner(subtotal, discount_amount, billing_cycles(name)),
+        requested_by_user:users!discounts_requested_by_fkey(name)
+      `)
+      .eq('school_id', schoolId)
+      .eq('status', 'pending')
+      .order('requested_at', { ascending: true }),
+    supabase
+      .from('discounts')
+      .select('amount, is_percentage, invoices!inner(subtotal)')
+      .eq('school_id', schoolId)
+      .eq('status', 'pending'),
+  ])
 
-  return (data || []).map((row: any) => ({
+  const requests = (data || []).map((row: any) => ({
     id: row.id,
     invoiceId: row.invoice_id,
     studentId: row.student_id,
@@ -108,6 +135,13 @@ export async function getPendingDiscountRequests(): Promise<PendingDiscountReque
     invoiceSubtotal: Number(row.invoices?.subtotal || 0),
     existingDiscountAmount: Number(row.invoices?.discount_amount || 0),
   }))
+
+  const queueTotal = (totalRows || []).reduce(
+    (sum: number, row: any) => sum + discountNairaValue(Number(row.amount), row.is_percentage, Number(row.invoices?.subtotal || 0)),
+    0,
+  )
+
+  return { requests, queueTotal }
 }
 
 // Recently decided requests — approved or denied — shown below the pending

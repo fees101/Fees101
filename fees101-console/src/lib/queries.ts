@@ -133,7 +133,12 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
   const supabase = createServiceRoleClient()
 
   const [{ data: school }, { data: billing }, { data: charges }, { data: audit }] = await Promise.all([
-    supabase.from('schools').select('id, name, terms_per_year, manual_payment_entry_enabled, manual_payment_entry_enabled_at, manual_payment_entry_enabled_by, manual_payment_liability_version, manual_payment_liability_accepted_at').eq('id', schoolId).maybeSingle(),
+    // '*' (not a fixed column list) so this still resolves pre-migration — a
+    // named column that doesn't exist yet (e.g. refunds_enabled, before
+    // db/refunds_workflow.sql has run) would 400 the whole query otherwise,
+    // taking down every school detail page. Same reasoning as platform_billing's
+    // select below.
+    supabase.from('schools').select('*').eq('id', schoolId).maybeSingle(),
     supabase.from('platform_billing').select('*').eq('school_id', schoolId).maybeSingle(),
     supabase.from('platform_billing_charges').select('id, amount, status, created_at, failure_reason').eq('school_id', schoolId).order('created_at', { ascending: false }).limit(20),
     supabase.from('platform_audit_log').select('id, actor_name, action, summary, created_at').eq('school_id', schoolId).order('created_at', { ascending: false }).limit(20),

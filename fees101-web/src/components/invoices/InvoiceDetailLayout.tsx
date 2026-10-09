@@ -15,6 +15,7 @@ import { useCan } from '@/lib/auth/PermissionsProvider'
 import ChargeOnTerminalButton from '@/components/payments/ChargeOnTerminalButton'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import type { DiscountSettings } from '@/lib/queries/discounts'
+import RefundRowAction from '@/components/refunds/RefundRowAction'
 
 const CHANNEL_LABELS: Record<MessageChannel, string> = {
   sms: 'SMS',
@@ -25,6 +26,11 @@ interface Props {
   invoice: InvoiceDetail
   discountSettings: DiscountSettings
   autoApproveThreshold: number | null
+  canRequestRefund: boolean
+  // Sibling-to-sibling credit this student received — moves no real money and
+  // writes no payments row, so without this nothing here explains where a
+  // "Credit balance applied" line actually came from.
+  incomingCreditTransfers: { summary: string; actorName: string | null; createdAt: string }[]
 }
 
 // The invoice detail sits on the ink ground (App Shell "showInvoice"): the same
@@ -97,9 +103,17 @@ function kindLabel(kind: string | undefined): string {
 // sent/resent, each payment, carried forward, cancelled. Some steps have no
 // stored timestamp (a discount edit), shown with an em-dash rather than a
 // fabricated time.
-interface LogEntry { what: string; time: string; detail: string; color: string }
+interface LogEntry {
+  what: string
+  time: string
+  detail: string
+  color: string
+  // Set only for a real "Payment received" entry on a refundable (provider,
+  // positive-amount) payment — feeds the inline "Refund" action.
+  refundable?: { id: string; amount: number; paidAt: string }
+}
 
-function buildLog(invoice: InvoiceDetail): LogEntry[] {
+function buildLog(invoice: InvoiceDetail, incomingCreditTransfers: Props['incomingCreditTransfers']): LogEntry[] {
   const log: LogEntry[] = []
 
   log.push({
@@ -136,7 +150,13 @@ function buildLog(invoice: InvoiceDetail): LogEntry[] {
         // payment rather than a gateway transfer.
         detail += ` — part of a ${formatNaira(p.creditSplit.transactionTotal)} payment, ${formatNaira(p.creditSplit.creditAmount)} to credit`
       }
-      log.push({ what: 'Payment received', time: formatDate(p.paidAt), detail, color: INK.green })
+      log.push({
+        what: 'Payment received',
+        time: formatDate(p.paidAt),
+        detail,
+        color: INK.green,
+        refundable: (p.provider && p.refundableAmount > 0) ? { id: p.id, amount: p.refundableAmount, paidAt: p.paidAt } : undefined,
+      })
     })
 
   if (invoice.sentAt) {
@@ -149,6 +169,20 @@ function buildLog(invoice: InvoiceDetail): LogEntry[] {
       color: invoice.needsResend ? INK.amber : INK.paper,
     })
   }
+
+  ;[...incomingCreditTransfers]
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .forEach((t) => {
+      // t.summary already reads "Received ₦X credit from {sibling}[ — outcome]"
+      // (see reallocateFamilyCredit) — this is the one place that actually
+      // names where a "Credit balance applied" figure came from.
+      log.push({
+        what: 'Credit received from sibling',
+        time: formatDate(t.createdAt),
+        detail: t.summary + (t.actorName ? ` · moved by ${t.actorName}` : ''),
+        color: INK.green,
+      })
+    })
 
   if (invoice.carriedForwardToCycleName) {
     log.push({
@@ -171,7 +205,7 @@ function buildLog(invoice: InvoiceDetail): LogEntry[] {
   return log
 }
 
-export default function InvoiceDetailLayout({ invoice, discountSettings, autoApproveThreshold }: Props) {
+export default function InvoiceDetailLayout({ invoice, discountSettings, autoApproveThreshold, canRequestRefund, incomingCreditTransfers }: Props) {
   const router = useRouter()
   useRealtimeRefresh([
     { table: 'invoices', filter: `id=eq.${invoice.id}` },
@@ -179,7 +213,7 @@ export default function InvoiceDetailLayout({ invoice, discountSettings, autoApp
   ])
   const state = inkState(invoice)
   const due = dueNote(invoice)
-  const log = buildLog(invoice)
+  const log = buildLog(invoice, incomingCreditTransfers)
   const pdfUrl = `/api/invoices/${invoice.id}/pdf`
 
   const [sending, setSending] = useState(false)
@@ -457,6 +491,14 @@ export default function InvoiceDetailLayout({ invoice, discountSettings, autoApp
                 <p className="text-[12px] m-num flex-shrink-0" style={{ color: INK.dim }}>{l.time}</p>
               </div>
               <p className="text-[12px] mt-0.5 m-num" style={{ color: INK.dim }}>{l.detail}</p>
+              {canRequestRefund && l.refundable && (
+                <p className="mt-1">
+                  <RefundRowAction
+                    payment={{ id: l.refundable.id, studentId: invoice.studentId, amount: l.refundable.amount, cycleName: invoice.cycleName, paidAt: l.refundable.paidAt }}
+                    color={INK.signal}
+                  />
+                </p>
+              )}
             </div>
           ))}
 

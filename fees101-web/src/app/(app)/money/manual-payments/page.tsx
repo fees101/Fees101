@@ -39,7 +39,7 @@ export default async function ManualPaymentsPage() {
   if (!canRecord && !canApprove) {
     return (
       <>
-        <WorkspaceHeader workspaceKey="manual-payments" title="Manual payments" />
+        <WorkspaceHeader workspaceKey="money" title="Manual payments" />
         <AccessDenied ctx={ctx} label="record or approve manual payments" />
       </>
     )
@@ -49,11 +49,11 @@ export default async function ManualPaymentsPage() {
 
   // Fees101 has not turned the feature on for this school. Keep it fully hidden —
   // a school shouldn't learn the feature exists before it asks for it — so send
-  // them to the Discounts workspace rather than showing a "reach out" notice
-  // that advertises it. The Manual payments sidebar item is likewise hidden
-  // until enabled.
+  // them to the Money workspace (where this mode would otherwise live) rather
+  // than showing a "reach out" notice that advertises it. The Manual payments
+  // tab on Money is likewise hidden until enabled.
   if (!feature.enabled) {
-    redirect('/discounts')
+    redirect('/money/invoices')
   }
 
   // Enabled, but the owner has not accepted the current responsibility note.
@@ -61,14 +61,14 @@ export default async function ManualPaymentsPage() {
     if (ctx.isOwner) {
       return (
         <>
-          <WorkspaceHeader workspaceKey="manual-payments" title="Manual payments" />
+          <WorkspaceHeader workspaceKey="money" title="Manual payments" />
           <ManualPaymentLiabilityGate version={feature.currentVersion} />
         </>
       )
     }
     return (
       <>
-        <WorkspaceHeader workspaceKey="manual-payments" title="Manual payments" />
+        <WorkspaceHeader workspaceKey="money" title="Manual payments" />
         <Notice title="Manual payment entry is not ready yet">
           The school owner needs to review and accept a short responsibility note before cash, POS and cheque
           payments can be recorded here. Ask them to sign in and open this page.
@@ -77,17 +77,20 @@ export default async function ManualPaymentsPage() {
     )
   }
 
-  const [pending, decided] = await Promise.all([
+  const [{ pending, total }, decided] = await Promise.all([
     getPendingManualPayments(),
     getDecidedManualPayments(),
   ])
 
   return (
     <>
-      {/* showTabs is off so the header does not render the workspace's single
-          route-mode tab here: the workspace below owns the one tab bar (Record /
-          Pending / History), avoiding two competing tab bars on this page. */}
-      <WorkspaceHeader workspaceKey="manual-payments" title="Manual payments" showTabs={false} />
+      {/* Money's full tab bar (Invoices/Collections/Reports/Refunds/Manual
+          payments) stays visible here — folding Manual payments into Money as
+          a mode (2026-10-09) means this is one of several Money tabs, not its
+          own workspace. ManualPaymentsWorkspace's own Record/Pending/History
+          toggle below is a second, independent tab row — the same two-tier
+          pattern Collections already uses. */}
+      <WorkspaceHeader workspaceKey="money" title="Manual payments" />
       {ctx.schoolId && (
         <RealtimeRefresh
           subscriptions={[{ table: 'manual_payment_requests', filter: `school_id=eq.${ctx.schoolId}` }]}
@@ -95,6 +98,7 @@ export default async function ManualPaymentsPage() {
       )}
       <ManualPaymentsWorkspace
         pending={pending}
+        total={total}
         decided={decided}
         canRecord={canRecord}
         canApprove={canApprove}

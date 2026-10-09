@@ -455,3 +455,47 @@ export async function applyCreditBalanceDelta(
     p_delta: delta,
   })
 }
+
+// Keeps db/credit_ledger.sql's per-term credit attribution in sync with one
+// invoice's credit_applied value. Call this any time an invoice's
+// credit_applied is written directly (not through apply_invoice_recompute or
+// insert_generated_invoice, which already call this themselves) — currently
+// the discount apply/revoke flows and the single late-joiner invoice
+// generation path, all of which write credit_applied with a plain
+// insert/update rather than through either RPC. Safe to call even when
+// nothing changed; it always fully resyncs this invoice's slice of the
+// ledger to whatever p_newCreditApplied is now.
+export async function syncCreditLedgerForInvoice(
+  supabase: any,
+  schoolId: string,
+  studentId: string,
+  invoiceId: string,
+  newCreditApplied: number
+): Promise<void> {
+  await supabase.rpc('credit_ledger_sync_invoice', {
+    p_school_id: schoolId,
+    p_student_id: studentId,
+    p_invoice_id: invoiceId,
+    p_new_credit_applied: newCreditApplied,
+  })
+}
+
+// Adds a new credit lot (db/credit_ledger.sql) for an addition to a student's
+// credit_balance that isn't tied to any invoice — e.g. a resolved
+// deferred-opt-out overage being credited back. Tagged with the school's
+// currently active term inside the RPC itself.
+export async function addCreditLedgerLot(
+  supabase: any,
+  schoolId: string,
+  studentId: string,
+  amount: number,
+  source: string
+): Promise<void> {
+  if (amount <= 0) return
+  await supabase.rpc('credit_ledger_add_lot', {
+    p_school_id: schoolId,
+    p_student_id: studentId,
+    p_amount: amount,
+    p_source: source,
+  })
+}

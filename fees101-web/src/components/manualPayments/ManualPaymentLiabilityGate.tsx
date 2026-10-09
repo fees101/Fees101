@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { acceptManualPaymentLiability } from '@/app/(app)/discounts/manual-payments/actions'
+import { acceptManualPaymentLiability } from '@/app/(app)/money/manual-payments/actions'
 import Toast from '@/components/ui/Toast'
 
 const INK = 'var(--color-ink)'

@@ -1189,3 +1189,35 @@ return {
     existingInvoice: existingInvoiceInfo,
   }
 }
+
+// Sibling credit transfers received by this student — moves no real money and
+// writes no payments row, so without this nothing on an invoice/activity page
+// would ever explain where a "Credit balance applied" figure actually came
+// from. Sourced from the audit log (the one place either side of the move
+// gets written — see reallocateFamilyCredit in students/[id]/actions.ts).
+export interface IncomingCreditTransfer {
+  summary: string
+  actorName: string | null
+  createdAt: string
+}
+
+export async function getIncomingCreditTransfers(studentId: string): Promise<IncomingCreditTransfer[]> {
+  const ctx = await getAuthContext()
+  if (!ctx) return []
+  const { supabase, schoolId } = ctx
+  if (!schoolId) return []
+
+  const { data } = await supabase
+    .from('audit_log')
+    .select('summary, actor_name, created_at')
+    .eq('school_id', schoolId)
+    .eq('target_type', 'student')
+    .eq('target_id', studentId)
+    .eq('action', 'student.family_credit_reallocated')
+    .order('created_at', { ascending: false })
+    .limit(8)
+
+  return (data || [])
+    .filter((r: any) => typeof r.summary === 'string' && r.summary.startsWith('Received'))
+    .map((r: any) => ({ summary: r.summary, actorName: r.actor_name, createdAt: r.created_at }))
+}

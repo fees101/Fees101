@@ -1,5 +1,5 @@
 import type {
-  TermPoint, FeeCyclePoint, DiscountCyclePoint, ClassCyclePoint, FeeClassPoint,
+  TermPoint, FeeCyclePoint, DiscountCyclePoint, ClassCyclePoint, FeeClassPoint, RefundCyclePoint,
 } from '@/lib/queries/analytics'
 
 // Pure aggregation over a chosen set of cycles. The dashboard picks the cycle
@@ -32,6 +32,18 @@ export interface DiscountRow {
   discountCount: number
   studentCount: number
   estAmount: number
+}
+
+export interface RefundCategoryRow {
+  category: string
+  refundCount: number
+  refundedAmount: number
+}
+
+export interface RefundMethodRow {
+  method: string
+  refundCount: number
+  refundedAmount: number
 }
 
 export interface ClassRow {
@@ -108,6 +120,44 @@ export function aggDiscounts(discountSeries: DiscountCyclePoint[], cycleIds: Set
   return Array.from(m.values())
     .map(d => ({ ...d, estAmount: Math.round(d.estAmount) }))
     .sort((a, b) => b.estAmount - a.estAmount)
+}
+
+// Total money refunded in the selected scope — only 'completed' refunds ever
+// reach refundSeries (see db/analytics_refund_series.sql), so this is real
+// money that left, already netted out of `collected` upstream (a completed
+// refund's negative payment row is what moved paid_amount down in the first
+// place). Shown as its own figure so staff see WHY collected dipped, not just
+// a quietly lower number.
+export function sumRefunds(refundSeries: RefundCyclePoint[], cycleIds: Set<string>): number {
+  return refundSeries.filter(r => cycleIds.has(r.cycleId)).reduce((sum, r) => sum + r.refundedAmount, 0)
+}
+
+export function aggRefundsByCategory(refundSeries: RefundCyclePoint[], cycleIds: Set<string>): RefundCategoryRow[] {
+  const m = new Map<string, RefundCategoryRow>()
+  for (const r of refundSeries) {
+    if (!cycleIds.has(r.cycleId)) continue
+    const e = m.get(r.category) || { category: r.category, refundCount: 0, refundedAmount: 0 }
+    e.refundCount += r.refundCount
+    e.refundedAmount += r.refundedAmount
+    m.set(r.category, e)
+  }
+  return Array.from(m.values()).sort((a, b) => b.refundedAmount - a.refundedAmount)
+}
+
+// By method (Paystack API vs bank-transfer-with-proof) — operationally
+// different: a Paystack reversal comes straight out of the settlement batch,
+// a bank transfer is money the school has to actually wire out of its own
+// account. Worth seeing separately, not just folded into one total.
+export function aggRefundsByMethod(refundSeries: RefundCyclePoint[], cycleIds: Set<string>): RefundMethodRow[] {
+  const m = new Map<string, RefundMethodRow>()
+  for (const r of refundSeries) {
+    if (!cycleIds.has(r.cycleId)) continue
+    const e = m.get(r.method) || { method: r.method, refundCount: 0, refundedAmount: 0 }
+    e.refundCount += r.refundCount
+    e.refundedAmount += r.refundedAmount
+    m.set(r.method, e)
+  }
+  return Array.from(m.values()).sort((a, b) => b.refundedAmount - a.refundedAmount)
 }
 
 export function aggClasses(classSeries: ClassCyclePoint[], cycleIds: Set<string>): ClassRow[] {

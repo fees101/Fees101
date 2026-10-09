@@ -1,6 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { paymentChannelLabel } from '@/lib/paymentMethod'
 import { formatDateTime } from '@/lib/format/date'
+import { getAuthContext, can } from '@/lib/auth/permissions'
+import { getRefundsFeatureState } from '@/lib/queries/refunds'
+import RefundRowAction from '@/components/refunds/RefundRowAction'
 
 interface StudentActivityTimelineProps {
   studentId: string
@@ -26,14 +29,42 @@ export default async function StudentActivityTimeline({
 }: StudentActivityTimelineProps) {
   const supabase = await createClient()
 
+  // Whether the "Refund this payment" action should render at all — needs
+  // both the permission and the owner's liability acceptance (self-serve:
+  // no per-school console toggle), same gate the request action re-checks
+  // server-side.
+  const [authCtx, refundsFeature] = await Promise.all([
+    getAuthContext(),
+    getRefundsFeatureState(),
+  ])
+  const canRequestRefund = !!authCtx && can(authCtx, 'request-refunds') && refundsFeature.liabilityAccepted
+
   // Get recent payments for this student
   const { data: payments } = await supabase
     .from('payments')
-    .select('id, amount, method, paid_at, provider_reference')
+    .select('id, amount, method, paid_at, provider_reference, provider')
     .eq('student_id', studentId)
     .eq('match_status', 'matched')
     .order('paid_at', { ascending: false })
     .limit(4)
+
+  // How much of each payment is still refundable (original amount minus any
+  // completed/processing refund already against it) — found live 2026-10-09:
+  // the Refund button used to show unconditionally on any automatic payment,
+  // even one already refunded in FULL, with nothing left to refund. A
+  // partially-refunded payment still correctly offers the remainder.
+  const paymentIds = (payments || []).filter(p => p.provider).map(p => p.id)
+  const refundedByPayment = new Map<string, number>()
+  if (paymentIds.length > 0) {
+    const { data: existingRefunds } = await supabase
+      .from('refunds')
+      .select('payment_id, amount')
+      .in('payment_id', paymentIds)
+      .in('status', ['completed', 'processing'])
+    for (const r of existingRefunds || []) {
+      refundedByPayment.set(r.payment_id, (refundedByPayment.get(r.payment_id) || 0) + Number(r.amount))
+    }
+  }
 
   // Get invoices for this student
   const { data: invoices } = await supabase
@@ -43,13 +74,29 @@ export default async function StudentActivityTimeline({
     .order('generated_at', { ascending: false })
     .limit(4)
 
+  // Sibling-to-sibling credit transfers move no real money and write no
+  // payments row (just the two students' credit_balance figures), so without
+  // this they'd never show up anywhere on either student's own page — audit_log
+  // is the only record either side of the move was ever written.
+  const { data: creditTransfers } = await supabase
+    .from('audit_log')
+    .select('id, summary, actor_name, created_at')
+    .eq('target_type', 'student')
+    .eq('target_id', studentId)
+    .eq('action', 'student.family_credit_reallocated')
+    .order('created_at', { ascending: false })
+    .limit(4)
+
   type Event = {
     id: string
-    type: 'payment' | 'invoice'
+    type: 'payment' | 'invoice' | 'credit_transfer'
     reversal?: boolean
     description: string
     detail?: string
     timestamp: string
+    // Only set for a real (provider) payment event — feeds the "Refund this
+    // payment" row action.
+    refundable?: { id: string; amount: number; paidAt: string }
   }
 
   const events: Event[] = []
@@ -59,6 +106,7 @@ export default async function StudentActivityTimeline({
     // it as such and render it in neutral ink (never ledger green) below.
     const amt = Number(payment.amount)
     const reversal = amt < 0
+    const remaining = amt - (refundedByPayment.get(payment.id) || 0)
     events.push({
       id: `payment-${payment.id}`,
       type: 'payment',
@@ -71,6 +119,7 @@ export default async function StudentActivityTimeline({
         .filter(Boolean)
         .join(' · '),
       timestamp: payment.paid_at,
+      refundable: (!reversal && payment.provider && remaining > 0) ? { id: payment.id, amount: remaining, paidAt: payment.paid_at } : undefined,
     })
   })
 
@@ -82,6 +131,16 @@ export default async function StudentActivityTimeline({
       // @ts-expect-error - joined object
       detail: invoice.billing_cycles?.name || '',
       timestamp: invoice.generated_at,
+    })
+  })
+
+  creditTransfers?.forEach(entry => {
+    events.push({
+      id: `credit-${entry.id}`,
+      type: 'credit_transfer',
+      description: entry.summary,
+      detail: entry.actor_name ? `By ${entry.actor_name}` : undefined,
+      timestamp: entry.created_at,
     })
   })
 
@@ -112,6 +171,11 @@ export default async function StudentActivityTimeline({
             </div>
             {event.detail && (
               <p className="text-xs text-[var(--color-neutral-700)] mt-[3px]">{event.detail}</p>
+            )}
+            {canRequestRefund && event.refundable && (
+              <p className="mt-[5px]">
+                <RefundRowAction payment={{ id: event.refundable.id, studentId, amount: event.refundable.amount, paidAt: event.refundable.paidAt }} />
+              </p>
             )}
           </div>
         ))

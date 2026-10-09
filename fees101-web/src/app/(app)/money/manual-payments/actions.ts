@@ -390,7 +390,7 @@ export async function requestManualPayment(input: RecordManualPaymentInput): Pro
     if ('error' in result) {
       await supabase.from('manual_payment_requests').delete().eq('id', inserted.id).eq('status', 'pending')
     }
-    revalidatePath('/discounts/manual-payments')
+    revalidatePath('/money/manual-payments')
     return result
   }
 
@@ -404,7 +404,7 @@ export async function requestManualPayment(input: RecordManualPaymentInput): Pro
     metadata: { studentId: input.studentId, invoiceId, amount, method: input.method },
   })
 
-  revalidatePath('/discounts/manual-payments')
+  revalidatePath('/money/manual-payments')
   return { success: true }
 }
 
@@ -428,7 +428,7 @@ export async function approveManualPayment(requestId: string): Promise<ActionRes
   if (req.status !== 'pending') return { error: 'This request has already been resolved.' }
 
   const result = await applyApprovedManualPayment(ctx, req as RequestRow, false)
-  revalidatePath('/discounts/manual-payments')
+  revalidatePath('/money/manual-payments')
   return result
 }
 
@@ -477,7 +477,7 @@ export async function rejectManualPayment(requestId: string, reviewNote: string)
     metadata: { studentId: req.student_id, amount: Number(req.amount), reason: reviewNote.trim() },
   })
 
-  revalidatePath('/discounts/manual-payments')
+  revalidatePath('/money/manual-payments')
   return { success: true }
 }
 
@@ -559,7 +559,7 @@ export async function requestReversal(originalId: string, reason: string): Promi
     if ('error' in result) {
       await supabase.from('manual_payment_requests').delete().eq('id', inserted.id).eq('status', 'pending')
     }
-    revalidatePath('/discounts/manual-payments')
+    revalidatePath('/money/manual-payments')
     return result
   }
 
@@ -573,7 +573,7 @@ export async function requestReversal(originalId: string, reason: string): Promi
     metadata: { studentId: original.student_id, originalRequestId: originalId, reason: reason.trim() },
   })
 
-  revalidatePath('/discounts/manual-payments')
+  revalidatePath('/money/manual-payments')
   return { success: true }
 }
 
@@ -615,6 +615,6 @@ export async function acceptManualPaymentLiability(accepted: boolean): Promise<A
     metadata: { version: MANUAL_PAYMENT_LIABILITY_VERSION },
   })
 
-  revalidatePath('/discounts/manual-payments')
+  revalidatePath('/money/manual-payments')
   return { success: true }
 }

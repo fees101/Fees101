@@ -7,9 +7,20 @@
 -- ids so the Students roster can scope itself to that exact set
 -- (/students?filter=unreachable) instead of only showing a number.
 --
--- Self-clearing by construction: it only ever looks at the newest outbound
--- message per channel, so the moment a later message to that family is
--- sent/delivered the channel is no longer "failed" and the family drops out.
+-- Self-clearing by construction: it only ever looks at the newest RESOLVED
+-- outbound message per channel, so the moment a later message to that family
+-- is confirmed delivered the channel is no longer "failed" and the family
+-- drops out.
+--
+-- Only resolved outcomes count — 'delivered' or 'failed' — never 'sent'.
+-- 'sent' means the provider's gateway merely *accepted* the request (see
+-- sendchamp.ts / brevo.ts); it is not evidence the message reached anyone and
+-- is upgraded to 'delivered' or 'failed' later by the provider's webhook
+-- (webhooks/sendchamp, webhooks/brevo). Fixed 2026-10-09 to match
+-- needs_you_unreachable_families.sql — see that file's header for the full
+-- story (a payment receipt merely accepted by the gateway was masking a
+-- genuinely dead phone/email). Payment status itself is irrelevant; both
+-- RPCs only ever look at message deliverability.
 --
 -- SECURITY INVOKER (the default): the caller's own RLS on message_logs/students
 -- applies, so this can only ever see the caller's own school. The p_school_id
@@ -29,8 +40,12 @@ stable
 security invoker
 set search_path = public
 as $$
-  with latest_per_channel as (
-    -- The most recent outbound message for each (family, channel) pairing.
+  with latest_resolved_per_channel as (
+    -- The most recent RESOLVED (delivered/failed) outbound message for each
+    -- (family, channel) pairing. A channel whose only attempts are still
+    -- 'sent' (pending, unconfirmed) has no resolved outcome yet and is left
+    -- out entirely — the same as a channel never tried — rather than being
+    -- treated as proof the family is reachable.
     select distinct on (s.family_id, m.channel)
            s.family_id as family_id,
            m.status     as status
@@ -38,14 +53,16 @@ as $$
     join public.students s on s.id = m.related_student_id
     where m.school_id = p_school_id
       and m.direction = 'outbound'
+      and m.status in ('delivered', 'failed')
       and s.family_id is not null
       and s.status = 'active'
     order by s.family_id, m.channel, m.sent_at desc nulls last, m.created_at desc
   )
   select family_id
-  from latest_per_channel
+  from latest_resolved_per_channel
   group by family_id
-  -- Unreachable only when the latest message on every channel tried failed.
+  -- Unreachable only when the latest resolved outcome on every channel tried
+  -- failed.
   having bool_and(status = 'failed');
 $$;
 

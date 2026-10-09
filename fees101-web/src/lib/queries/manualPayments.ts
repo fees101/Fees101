@@ -80,18 +80,36 @@ const ROW_SELECT =
   'students(first_name, last_name, classes(name)), ' +
   'invoices(billing_cycles(name))'
 
-export async function getPendingManualPayments(): Promise<PendingManualPayment[]> {
+export interface PendingManualPaymentsResult {
+  pending: PendingManualPayment[]
+  // Naira total of the full pending set "if all approved" — a reversal
+  // request carries no cost of its own (it undoes an earlier one), so it's
+  // excluded here exactly as PendingList's old client-side reduce excluded
+  // it. Computed from its own narrow query rather than the client reducing
+  // the (currently unpaginated) `pending` array, so the figure stays correct
+  // if a limit is ever added to the row fetch above.
+  total: number
+}
+
+export async function getPendingManualPayments(): Promise<PendingManualPaymentsResult> {
   const sc = await getSchoolContext()
-  if (!sc) return []
+  if (!sc) return { pending: [], total: 0 }
 
-  const { data } = await sc.supabase
-    .from('manual_payment_requests')
-    .select(ROW_SELECT)
-    .eq('school_id', sc.schoolId)
-    .eq('status', 'pending')
-    .order('requested_at', { ascending: true })
+  const [{ data }, { data: amounts }] = await Promise.all([
+    sc.supabase
+      .from('manual_payment_requests')
+      .select(ROW_SELECT)
+      .eq('school_id', sc.schoolId)
+      .eq('status', 'pending')
+      .order('requested_at', { ascending: true }),
+    sc.supabase
+      .from('manual_payment_requests')
+      .select('amount, reversal_of')
+      .eq('school_id', sc.schoolId)
+      .eq('status', 'pending'),
+  ])
 
-  return (data || []).map((r: any) => ({
+  const pending = (data || []).map((r: any) => ({
     id: r.id,
     studentId: r.student_id,
     studentName: studentName(r),
@@ -107,6 +125,12 @@ export async function getPendingManualPayments(): Promise<PendingManualPayment[]
     requestedAt: r.requested_at,
     isReversal: !!r.reversal_of,
   }))
+
+  const total = (amounts || [])
+    .filter((r: any) => !r.reversal_of)
+    .reduce((sum: number, r: any) => sum + Number(r.amount), 0)
+
+  return { pending, total }
 }
 
 export async function getDecidedManualPayments(limit = 50): Promise<DecidedManualPayment[]> {

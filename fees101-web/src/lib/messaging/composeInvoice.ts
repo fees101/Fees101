@@ -1016,3 +1016,66 @@ export function composeManualPaymentCorrectionEmail(p: ManualPaymentCorrectionMe
   return { subject, html, text }
 }
 
+export interface RefundMessageParams {
+  schoolName: string
+  parentName?: string
+  studentName: string
+  amountRefunded: number
+  // How the money is actually coming back — changes the parent-facing copy
+  // (a Paystack refund or a lost chargeback dispute both land back on the
+  // original card/account automatically; a bank transfer refund is a fresh
+  // transfer the school initiated).
+  refundMethod: 'paystack_reversal' | 'bank_transfer' | 'chargeback'
+  reason?: string
+  logoUrl?: string | null
+}
+
+// Sent once a refund actually completes (ledger written). Deliberately framed
+// as money coming BACK to the parent — never the "correction" wording used for
+// an internal-ledger-only reversal, since here real money has moved.
+export function composeRefundSMS(p: RefundMessageParams): string {
+  const method = p.refundMethod === 'bank_transfer'
+    ? 'to your bank account'
+    : 'back to your original payment method'
+  return capSmsLength(
+    `${safeSchoolName(p.schoolName)}: a refund of NGN ${amount(p.amountRefunded)} for ` +
+    `${firstName(p.studentName)} has been processed ${method}.`
+  )
+}
+
+export function composeRefundEmail(p: RefundMessageParams): EmailBody {
+  const student = firstName(p.studentName)
+  const subject = `Refund of ${nairaAmount(p.amountRefunded)} processed`
+  const methodLine = p.refundMethod === 'bank_transfer'
+    ? 'to your bank account'
+    : 'back to your original payment method'
+
+  const text =
+    `${p.schoolName}\nREFUND PROCESSED\n\n` +
+    `A refund of ${nairaAmount(p.amountRefunded)} for ${p.studentName} has been processed ${methodLine}.\n` +
+    (p.reason ? `Reason: ${p.reason}\n` : '') +
+    `\nIf you have any questions, contact the school office.\n` +
+    `\nSent by ${p.schoolName} through Fees101.`
+
+  const html = emailShell(
+    GREEN,
+    headerRow(p.schoolName, 'REFUND PROCESSED', GREEN, p.logoUrl) +
+    `<tr><td style="padding:26px 28px 22px;">` +
+    `<p style="margin:0 0 6px; color:${SECONDARY}; font-size:11px; letter-spacing:0.14em; ${EMAIL_FONT}">REFUNDED</p>` +
+    `<p style="margin:0 0 6px; color:${GREEN}; font-size:36px; font-weight:bold; letter-spacing:-0.02em; ${EMAIL_FONT}">${nairaAmount(p.amountRefunded)}</p>` +
+    `<p style="margin:0; color:${INK}; font-size:15px; font-weight:bold; ${EMAIL_FONT}">A refund for ${student} has been processed ${methodLine}.</p>` +
+    `</td></tr>` +
+    `<tr><td style="border-top:2px solid ${RULE}; padding:20px 28px;">` +
+    ledgerTable(
+      ledgerRow('Student', p.studentName) +
+      ledgerRow('Amount refunded', nairaAmount(p.amountRefunded), GREEN) +
+      (p.reason ? ledgerRow('Reason', p.reason) : '')
+    ) +
+    noteParagraph('If you have any questions about this refund, contact the school office.') +
+    `</td></tr>` +
+    footerRow(p.schoolName)
+  )
+
+  return { subject, html, text }
+}
+

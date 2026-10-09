@@ -9,7 +9,7 @@ import { sendMessageWithFallback } from '@/lib/messaging/sendMessage'
 import { MessageChannel } from '@/lib/messaging/types'
 import { composeReminderSMS, composeOverdueSMS } from '@/lib/messaging/composeInvoice'
 import { getSchoolSmsName } from '@/lib/messaging/schoolSmsName'
-import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
+import { computeInvoiceForStudent, applyCreditBalanceDelta, addCreditLedgerLot } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 import { revokeActiveDiscount, type RevokeDiscountResult } from '@/lib/discounts/revoke'
 import { logAuditEvent } from '@/lib/audit/logAudit'
@@ -902,6 +902,7 @@ export async function resolveDeferredOptOutOverage(
   const roundedOverage = Math.max(0, Number(overage) || 0)
   if (decision === 'credit' && roundedOverage > 0) {
     await applyCreditBalanceDelta(supabase, schoolId, studentId, roundedOverage)
+    await addCreditLedgerLot(supabase, schoolId, studentId, roundedOverage, 'opt_out_overage')
   } else if (decision === 'leave' && roundedOverage > 0) {
     await supabase.from('unresolved_credits').insert({
       school_id: schoolId,
@@ -1323,10 +1324,16 @@ export async function reallocateFamilyCredit(
     .limit(1)
     .maybeSingle()
 
+  // Recorded so the "Received" activity entry below can say what actually
+  // happened to the invoice, not just that the balance moved — otherwise
+  // staff see OUTSTANDING ₦0 on the invoice with nothing in Activity
+  // explaining how it got cleared.
+  let invoiceOutcome: string | null = null
+
   if (activeCycle) {
     const { data: recipientInvoice } = await supabase
       .from('invoices')
-      .select('id')
+      .select('id, billing_cycles(name)')
       .eq('student_id', toStudentId)
       .eq('billing_cycle_id', activeCycle.id)
       .eq('school_id', schoolId)
@@ -1341,6 +1348,19 @@ export async function reallocateFamilyCredit(
       // "needs resend" someone has to remember to click later.
       if (!('error' in regenerated)) {
         await sendInvoiceUpdateNotice(recipientInvoice.id)
+
+        const { data: updatedInvoice } = await supabase
+          .from('invoices')
+          .select('status, outstanding_amount')
+          .eq('id', recipientInvoice.id)
+          .maybeSingle()
+        // @ts-expect-error — joined
+        const cycleName = recipientInvoice.billing_cycles?.name || 'this term'
+        if (updatedInvoice?.status === 'paid') {
+          invoiceOutcome = `${cycleName} invoice now fully paid`
+        } else if (updatedInvoice && Number(updatedInvoice.outstanding_amount) > 0) {
+          invoiceOutcome = `applied to the ${cycleName} invoice, ₦${Number(updatedInvoice.outstanding_amount).toLocaleString()} still outstanding`
+        }
       }
     }
   }
@@ -1348,15 +1368,31 @@ export async function reallocateFamilyCredit(
   const fromName = `${fromStudent.first_name} ${fromStudent.last_name}`.trim()
   const toName = `${toStudent.first_name} ${toStudent.last_name}`.trim()
 
-  await logAuditEvent(supabase, {
-    schoolId,
-    actorId: userId,
-    action: 'student.family_credit_reallocated',
-    targetType: 'student',
-    targetId: fromStudentId,
-    summary: `Moved ₦${amount.toLocaleString()} credit from ${fromName} to ${toName}`,
-    metadata: { fromStudentId, toStudentId, familyId: fromStudent.family_id, amount },
-  })
+  // Two entries, one per side, each targeted at that student — so both the
+  // sender's and the recipient's own Activity panel can show this (it moves no
+  // real money and writes no payments row, so there's nothing else that would
+  // ever surface it there otherwise).
+  await Promise.all([
+    logAuditEvent(supabase, {
+      schoolId,
+      actorId: userId,
+      action: 'student.family_credit_reallocated',
+      targetType: 'student',
+      targetId: fromStudentId,
+      summary: `Moved ₦${amount.toLocaleString()} credit to ${toName}`,
+      metadata: { direction: 'out', fromStudentId, toStudentId, familyId: fromStudent.family_id, amount },
+    }),
+    logAuditEvent(supabase, {
+      schoolId,
+      actorId: userId,
+      action: 'student.family_credit_reallocated',
+      targetType: 'student',
+      targetId: toStudentId,
+      summary: `Received ₦${amount.toLocaleString()} credit from ${fromName}`
+        + (invoiceOutcome ? ` — ${invoiceOutcome}` : ''),
+      metadata: { direction: 'in', fromStudentId, toStudentId, familyId: fromStudent.family_id, amount, invoiceOutcome },
+    }),
+  ])
 
   revalidatePath(`/students/${fromStudentId}`)
   revalidatePath(`/students/${toStudentId}`)

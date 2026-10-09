@@ -1,4 +1,4 @@
-import { computeInvoiceForStudent, applyCreditBalanceDelta } from '@/lib/computeInvoice'
+import { computeInvoiceForStudent, applyCreditBalanceDelta, syncCreditLedgerForInvoice } from '@/lib/computeInvoice'
 import { recordAppliedDiscounts } from '@/lib/discounts/compute'
 
 export type ClaimAndApplyResult =
@@ -117,6 +117,7 @@ export async function claimAndApplyDiscount(
   if (computed.creditApplied > 0) {
     await applyCreditBalanceDelta(supabase, schoolId, discount.student_id, -computed.creditApplied)
   }
+  await syncCreditLedgerForInvoice(supabase, schoolId, discount.student_id, invoice.id, computed.creditApplied)
 
   return {
     success: true,

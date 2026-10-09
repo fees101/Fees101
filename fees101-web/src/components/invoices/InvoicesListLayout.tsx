@@ -16,7 +16,7 @@ interface Props {
   total: number
   page: number
   perPage: number
-  terms: { id: string; name: string }[]
+  terms: { id: string; name: string; dueDate: string | null }[]
   counts: InvoiceCounts
   ledger: InvoiceLedgerTotals
   statusFilter: InvoiceStatusFilter
@@ -65,6 +65,19 @@ function csvCell(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return ''
   const s = String(value)
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+// Short, unambiguous date for a term option — "First Term"/"Second Term"
+// alone repeats every session/year, so the due date is the thing that
+// actually tells two terms apart and shows which is older vs. more recent.
+// Short, unambiguous — "First Term"/"Second Term"/"Third Term" repeats every
+// session, so the year is what actually tells two terms apart at a glance.
+// Terms are listed oldest to newest (sorted by due date in the query).
+function shortYear(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return String(d.getFullYear())
 }
 
 export default function InvoicesListLayout({
@@ -293,15 +306,20 @@ export default function InvoicesListLayout({
               {chip('stale_students', 'Withdrawn/left', counts.staleStudents, counts.staleStudents > 0)}
               <div className="flex flex-wrap items-center gap-2 ml-auto">
                 {terms.length > 1 && (
+                  // Bordered like the Export button (not the thin field look) so
+                  // it reads as a deliberate control, not a cramped dropdown. The
+                  // year suffix — short, not a full date — is what actually
+                  // disambiguates "First Term" across sessions; terms are listed
+                  // oldest to newest.
                   <Select
                     value={termFilter}
                     onChange={(v) => navigate({ term: v, page: '1' })}
                     tone="ink"
                     ariaLabel="Term"
-                    style={{ padding: '7px 10px', fontSize: 13, minHeight: 36 }}
+                    style={{ width: 'auto', padding: '7px 14px', fontSize: 13, fontWeight: 700, minHeight: 36, border: `2px solid ${INK.paper}` }}
                     options={[
                       { value: 'all', label: 'All terms' },
-                      ...terms.map((t) => ({ value: t.id, label: t.name })),
+                      ...terms.map((t) => ({ value: t.id, label: `${t.name} (${shortYear(t.dueDate)})` })),
                     ]}
                   />
                 )}
@@ -348,7 +366,10 @@ export default function InvoicesListLayout({
                       className="grid gap-2.5 items-baseline cursor-pointer"
                       style={{ gridTemplateColumns: GRID, minWidth: 600, padding: '12px 0', borderBottom: `1px solid ${INK.ruleSoft}` }}
                     >
-                      <span className="m-num text-[13px]" style={{ color: INK.dim }}>{inv.invoiceNumber || '—'}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <p className="m-num text-[13px]" style={{ color: INK.dim }}>{inv.invoiceNumber || '—'}</p>
+                        <p className="text-[11px] mt-0.5" style={{ color: INK.faint }}>{inv.cycleName} ({shortYear(inv.cycleDueDate)})</p>
+                      </div>
                       <div style={{ minWidth: 0 }}>
                         <p className="text-[14px] font-semibold" style={{ color: INK.paper }}>{inv.studentLastName}, {inv.studentFirstName}</p>
                         <p className="m-num text-[12px] mt-0.5" style={{ color: INK.dim }}>{inv.studentAdmissionNumber}</p>

@@ -59,7 +59,7 @@ export async function approveDiscount(discountId: string) {
     },
   })
 
-  revalidatePath('/discounts')
+  revalidatePath('/money/discounts')
   revalidatePath(`/money/invoices/${result.invoiceId}`)
   revalidatePath(`/students/${discount.student_id}`)
   return { success: true }
@@ -102,7 +102,7 @@ export async function rejectDiscount(discountId: string, rejectionReason: string
     metadata: { invoiceId: discount.invoice_id, studentId: discount.student_id, reason: rejectionReason.trim() },
   })
 
-  revalidatePath('/discounts')
+  revalidatePath('/money/discounts')
   revalidatePath(`/money/invoices/${discount.invoice_id}`)
   return { success: true }
 }
@@ -122,7 +122,7 @@ export async function revokeDecidedDiscount(discountId: string) {
   const result = await revokeActiveDiscount(supabase, schoolId, userId, discountId)
   if ('error' in result) return result
 
-  revalidatePath('/discounts')
+  revalidatePath('/money/discounts')
   revalidatePath(`/money/invoices/${result.invoiceId}`)
   revalidatePath(`/students/${result.studentId}`)
   return result

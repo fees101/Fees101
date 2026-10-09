@@ -7,4 +7,8 @@ export const FLAGGED_PAYMENT_NOTIFICATION_TYPES = [
   'suspicious_payment_amount',
   'terminal_amount_mismatch',
   'terminal_repeat_payment',
+  // Money left via Paystack without going through Fees101 at all — a refund
+  // made directly on Paystack's dashboard, a card dispute opened, or a lost
+  // chargeback. See src/lib/payments/externalMoneyLoss.ts.
+  'external_refund_detected',
 ] as const

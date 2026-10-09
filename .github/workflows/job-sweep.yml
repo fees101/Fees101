@@ -35,3 +35,7 @@ jobs:
         run: |
           curl -sf -X POST "${{ secrets.APP_URL }}/api/admin/rollover-sweep" \
             -H "x-sweep-secret: ${{ secrets.SWEEP_SECRET }}"
+      - name: Ping refund-sweep endpoint
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/admin/refund-sweep" \
+            -H "x-sweep-secret: ${{ secrets.SWEEP_SECRET }}"

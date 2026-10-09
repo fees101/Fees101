@@ -104,7 +104,11 @@ export default async function Dashboard() {
       subtitle: 'Past due for more than two weeks.',
       amount: kpis.overdue14Amount,
       status: 'Overdue',
-      href: '/money/invoices?filter=overdue',
+      // School-wide (overdue14Count isn't scoped to the current term — see
+      // dashboard.ts) so the link must say term=all explicitly, or the
+      // Invoices page's own current-term default would silently drop any
+      // overdue invoice sitting on a different term.
+      href: '/money/invoices?filter=overdue&term=all',
     })
   }
   // Money on the books against a student who has already left — it won't collect
@@ -117,7 +121,8 @@ export default async function Dashboard() {
       subtitle: 'Still owing on a withdrawn or graduated student.',
       amount: attention.staleStudentInvoiceAmount,
       status: 'Open invoice',
-      href: '/money/invoices?filter=stale_students',
+      // Same school-wide scoping issue as overdue/resend above.
+      href: '/money/invoices?filter=stale_students&term=all',
     })
   }
   // Families nobody can reach: every channel tried most recently failed, so an
@@ -140,7 +145,14 @@ export default async function Dashboard() {
       subtitle: 'Parents still hold the old figures.',
       amount: kpis.needsResendAmount,
       status: 'Needs resend',
-      href: '/money/invoices?filter=needs_resend',
+      // needsResendCount (dashboard.ts) is school-wide/term-independent on
+      // purpose — a stale invoice on an older still-open term is exactly what
+      // this is meant to catch. The Invoices page now defaults ?term= to the
+      // active cycle when the param is absent entirely, which would silently
+      // filter these invoices back out if a carried-forward/non-active-term
+      // invoice is what needs resending. term=all keeps this link showing the
+      // same set the count above was computed from.
+      href: '/money/invoices?filter=needs_resend&term=all',
       resendCount: kpis.needsResendCount,
     })
   }
@@ -151,7 +163,7 @@ export default async function Dashboard() {
       subtitle: 'Review and approve or decline.',
       amount: kpis.pendingApprovalsAmount,
       status: 'Pending',
-      href: '/discounts',
+      href: '/money/discounts',
     })
   }
   // Manual (cash/POS/cheque) payment requests waiting for an approver — only when
@@ -164,7 +176,7 @@ export default async function Dashboard() {
       subtitle: 'Cash, POS or cheque entries recorded by staff.',
       amount: null,
       status: 'Pending',
-      href: '/discounts/manual-payments',
+      href: '/money/manual-payments',
     })
   }
   if (canManageInvoices && kpis.cycleNeverInvoiced && kpis.currentCycleId) {
@@ -288,14 +300,14 @@ export default async function Dashboard() {
                 <section className="m-panel">
                   <div className="flex flex-wrap items-end justify-between gap-5 mb-4">
                     <div>
-                      <p className="text-[11px] tracking-[0.16em] uppercase text-[var(--color-neutral-700)] mb-2" title="Cash received for this term's invoices, no matter when it was paid. Not a running cash-flow total.">
+                      <p className="text-[11px] tracking-[0.16em] uppercase text-[var(--color-neutral-700)] mb-2" title="Cash received for this term's invoices, plus any credit actually applied to one of them — not a running cash-flow total, and not counting credit still sitting unused.">
                         Collected · {kpis.currentCycleName}
                       </p>
                       <p className="text-[40px] sm:text-[54px] font-extrabold leading-[0.9] tracking-[-0.03em] text-[var(--color-ledger)] m-num">
                         {formatNaira(kpis.totalCollected)}
                       </p>
                       <p className="text-[12px] text-[var(--color-neutral-700)] mt-1.5 max-w-[34ch]">
-                        Money received for this term&apos;s fees.
+                        Money paid against this term&apos;s invoices.
                       </p>
                     </div>
                     <div className="text-right">

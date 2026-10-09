@@ -30,6 +30,11 @@ interface Props {
   // same convention as the dashboard hero and Cycles' billed/collected. Row
   // amounts are already redacted at the source (null, rendered as "—").
   showFinancials: boolean
+  // Credit applied to this term's invoices — only computed for the Term
+  // preset (see page.tsx for why: credit_applied has no timestamp of its own,
+  // so it can't be scoped to an arbitrary date window). Null otherwise, or
+  // when there's nothing to show.
+  creditAppliedThisTerm: number | null
 }
 
 // The school operates on Lagos time; pin every clock/day bucket to it so the
@@ -101,7 +106,7 @@ function categoryColor(row: ActivityRow): string {
 }
 
 export default function ActivityFeed({
-  rows, total, page, perPage, category, range, from, to, search, schoolId, aggregate, termFrom, showFinancials,
+  rows, total, page, perPage, category, range, from, to, search, schoolId, aggregate, termFrom, showFinancials, creditAppliedThisTerm,
 }: Props) {
   const router = useRouter()
   const pathname = usePathname()
@@ -232,6 +237,15 @@ export default function ActivityFeed({
           <p className="m-num mt-1.5 text-[13px] text-[var(--color-neutral-700)]">
             {aggregate.totalEvents.toLocaleString()} events · {aggregate.paymentsCount.toLocaleString()} payments · {rangeLabel}
           </p>
+          {creditAppliedThisTerm != null && creditAppliedThisTerm > 0 && (
+            // Deliberately separate from the figure above, not added into it —
+            // "Received in range" is cash only; this is credit (from an
+            // overpayment or a sibling transfer) that paid a real bill this
+            // term without ever showing up as a payment here.
+            <p className="m-num mt-1 text-[13px] text-[var(--color-neutral-700)]">
+              + {formatNaira(creditAppliedThisTerm)} credit applied this term
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex border-2 border-[var(--color-ink)]">

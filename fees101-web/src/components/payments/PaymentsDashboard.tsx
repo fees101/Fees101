@@ -3,11 +3,13 @@
 import { useMemo, useState } from 'react'
 import type { AnalyticsBundle } from '@/lib/queries/analytics'
 import {
-  summarize, aggFees, aggDiscounts, aggClasses, feeChoices, feePriceFan, type Summary,
+  summarize, aggFees, aggDiscounts, aggClasses, feeChoices, feePriceFan,
+  sumRefunds, aggRefundsByCategory, aggRefundsByMethod, type Summary,
 } from '@/lib/analytics/aggregate'
 import DrilldownModal from './DrilldownModal'
 import Select from '@/components/ui/Select'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
+import { refundCategoryLabel, refundMethodLabel } from '@/lib/refunds/display'
 
 // ---------------------------------------------------------------------------
 // Collections (App Shell "Money · mode 1", INK GROUND). The instrument surface
@@ -83,7 +85,7 @@ export default function PaymentsDashboard({ bundle, showFinancials, schoolId }: 
         ]
       : []
   )
-  const { termSeries: terms, feeSeries, discountSeries, classSeries, feeClassSeries } = bundle
+  const { termSeries: terms, feeSeries, discountSeries, classSeries, feeClassSeries, refundSeries } = bundle
   const len = terms.length
   const amt = (v: number) => showFinancials ? formatNaira(v) : MASKED
 
@@ -143,6 +145,9 @@ export default function PaymentsDashboard({ bundle, showFinancials, schoolId }: 
   const summary = useMemo(() => summarize(terms, selCycleIds), [terms, selCycleIds])
   const byFee = useMemo(() => aggFees(feeSeries, selCycleIds, summary.invoiceCount), [feeSeries, selCycleIds, summary.invoiceCount])
   const discounts = useMemo(() => aggDiscounts(discountSeries, selCycleIds), [discountSeries, selCycleIds])
+  const refundTotal = useMemo(() => sumRefunds(refundSeries, selCycleIds), [refundSeries, selCycleIds])
+  const refundsByCategory = useMemo(() => aggRefundsByCategory(refundSeries, selCycleIds), [refundSeries, selCycleIds])
+  const refundsByMethod = useMemo(() => aggRefundsByMethod(refundSeries, selCycleIds), [refundSeries, selCycleIds])
   const classes = useMemo(() => aggClasses(classSeries, selCycleIds), [classSeries, selCycleIds])
   // Worst rate first — the table exists to find the class that needs a call.
   const classesWorst = useMemo(() => [...classes].sort((a, b) => a.rate - b.rate), [classes])
@@ -252,6 +257,9 @@ export default function PaymentsDashboard({ bundle, showFinancials, schoolId }: 
 
   // ---- Derived strip figures ---------------------------------------------
   const discPct = summary.grossPotential > 0 ? Math.round((summary.discountTotal / summary.grossPotential) * 1000) / 10 : 0
+  // % of collected, not % of gross potential — a refund is money that already
+  // arrived and then left again, so it's only meaningful against what came in.
+  const refundPct = summary.collected > 0 ? Math.round((refundTotal / summary.collected) * 1000) / 10 : 0
   const avgInvoice = summary.invoiceCount > 0 ? summary.billed / summary.invoiceCount : 0
   const ratePts = baseline ? summary.collectionRate - baseline.summary.collectionRate : null
 
@@ -302,10 +310,10 @@ export default function PaymentsDashboard({ bundle, showFinancials, schoolId }: 
 
       {mode === 'range' ? (
         <>
-          {/* Five-figure strip */}
+          {/* Six-figure strip */}
           <div
             className="grid"
-            style={{ gridTemplateColumns: 'repeat(5, minmax(150px, 1fr))', minWidth: 820, borderTop: `2px solid ${INK.paper}`, borderBottom: `2px solid ${INK.rule}`, marginBottom: 28 }}
+            style={{ gridTemplateColumns: 'repeat(6, minmax(140px, 1fr))', minWidth: 940, borderTop: `2px solid ${INK.paper}`, borderBottom: `2px solid ${INK.rule}`, marginBottom: 28 }}
           >
             <MetricCell first label="COLLECTED" value={showFinancials ? abbrevNaira(summary.collected) : MASKED} color={INK.green} sub={showFinancials ? formatNaira(summary.collected) : ''} />
             <MetricCell label="OUTSTANDING" value={showFinancials ? abbrevNaira(summary.outstanding) : MASKED} color={INK.amber} sub={showFinancials ? formatNaira(summary.outstanding) : `${100 - summary.collectionRate}% of billed`} />
@@ -313,6 +321,7 @@ export default function PaymentsDashboard({ bundle, showFinancials, schoolId }: 
               sub={ratePts !== null ? `${ratePts >= 0 ? '+' : ''}${ratePts} pts vs ${baseline!.label}` : (showFinancials ? `of ${abbrevNaira(summary.billed)} billed` : 'of billed')}
               subColor={ratePts !== null ? (ratePts >= 0 ? INK.green : INK.amber) : INK.dim} />
             <MetricCell label="DISCOUNTED" value={showFinancials ? abbrevNaira(summary.discountTotal) : MASKED} color={INK.white} sub={`${discPct}% of gross potential`} />
+            <MetricCell label="REFUNDED" value={showFinancials ? abbrevNaira(refundTotal) : MASKED} color={refundTotal > 0 ? INK.amber : INK.white} sub={refundTotal > 0 ? `${refundPct}% of collected` : 'none in this selection'} />
             <MetricCell last label="INVOICES" value={`${summary.invoiceCount.toLocaleString()}`} color={INK.white} sub={showFinancials ? `${formatNaira(avgInvoice)} average` : 'invoices billed'} />
           </div>
 
@@ -452,6 +461,16 @@ export default function PaymentsDashboard({ bundle, showFinancials, schoolId }: 
                           <MoneyLine color={INK.amber} label="Still outstanding" value={amt(summary.outstanding)} valueColor={INK.amber} />
                           <MoneyLine color={INK.rule} label="Given away as discounts" value={amt(summary.discountTotal)} valueColor={INK.faint} />
                         </div>
+                        {refundTotal > 0 && (
+                          // Not a slice of the bar above — a refund is money that already
+                          // counted as "Actually collected" and then left again, so it
+                          // can't also be a portion of gross potential. Called out
+                          // separately so the collected figure isn't read as untouched cash.
+                          <p className="text-[12px] mt-2" style={{ color: INK.dim }}>
+                            Of which <span className="m-num font-semibold" style={{ color: INK.amber }}>{amt(refundTotal)}</span> was
+                            later refunded back out — already netted out of &ldquo;Actually collected&rdquo; above, not an extra deduction.
+                          </p>
+                        )}
                       </>
                     )
                   })()}
@@ -488,6 +507,32 @@ export default function PaymentsDashboard({ bundle, showFinancials, schoolId }: 
                           <span className="m-num text-[14px] text-right" style={{ color: INK.faint }}>{amt(d.estAmount)}</span>
                         </div>
                       ))}
+                    </>
+                  )}
+
+                  <h2 className="text-[20px] font-extrabold mt-7 mb-1" style={{ color: INK.white }}>Refunds issued</h2>
+                  <p className="text-[13px] mb-4" style={{ color: INK.dim }}>Money paid back out, by why it was asked for. Completed refunds only — a request still pending or in progress hasn&apos;t moved money yet (see the Refunds workspace for those).</p>
+                  {refundsByCategory.length === 0 ? <p className="text-[13px]" style={{ color: INK.dim }}>No completed refunds in this selection.</p> : (
+                    <>
+                      <div className="grid" style={{ gridTemplateColumns: 'minmax(110px,1.6fr) minmax(56px,0.6fr) minmax(96px,1fr)', gap: 12, minWidth: 420, padding: '0 0 8px', borderBottom: `2px solid ${INK.rule}` }}>
+                        <ColH>CATEGORY</ColH><ColH right>COUNT</ColH><ColH right>REFUNDED</ColH>
+                      </div>
+                      {refundsByCategory.map(r => (
+                        <div key={r.category} className="grid" style={{ gridTemplateColumns: 'minmax(110px,1.6fr) minmax(56px,0.6fr) minmax(96px,1fr)', gap: 12, minWidth: 420, padding: '10px 0', borderBottom: `1px solid ${INK.ruleSoft}` }}>
+                          <span className="text-[14px] font-semibold" style={{ color: INK.paper }}>{refundCategoryLabel(r.category)}</span>
+                          <span className="m-num text-[13px] text-right" style={{ color: INK.dim }}>{r.refundCount}</span>
+                          <span className="m-num text-[14px] text-right" style={{ color: INK.amber }}>{amt(r.refundedAmount)}</span>
+                        </div>
+                      ))}
+                      {/* By method, not a full table — just how much left automatically via
+                          Paystack vs how much the school had to actually wire out of its own
+                          bank account, which matters for cash-flow awareness even though both
+                          already show up net in Collected above. */}
+                      <div className="flex flex-col gap-1 mt-3">
+                        {refundsByMethod.map(m => (
+                          <MoneyLine key={m.method} color={INK.rule} label={`Via ${refundMethodLabel(m.method).toLowerCase()}`} value={amt(m.refundedAmount)} valueColor={INK.faint} />
+                        ))}
+                      </div>
                     </>
                   )}
                 </div>

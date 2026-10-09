@@ -36,6 +36,12 @@ interface Data {
   studentCountByClass: Record<string, number>
   totalActiveStudents: number
   issuedInvoiceCount: number
+  // Projected revenue, computed server-side (src/lib/queries/fees.ts,
+  // getFeeStructure) from the same allFees/studentCountByClass rows — the one
+  // source of truth, so the browser doesn't re-derive a money figure.
+  requiredRevenue: number
+  optionalRevenue: number
+  grossPotential: number
 }
 
 interface Props {
@@ -77,7 +83,7 @@ export default function FeeStructureLayout({ data, initialClassId, readOnly: rea
   // Read-only if the caller says so (e.g. a closed term) OR the user lacks
   // manage-fee-structure — a see-fee-structure-only user can view but not edit.
   const readOnly = readOnlyProp || !canManageFeeStructure
-  const { cycle, classes, allFees, studentCountByClass, totalActiveStudents, issuedInvoiceCount } = data
+  const { cycle, classes, allFees, studentCountByClass, totalActiveStudents, issuedInvoiceCount, grossPotential } = data
 
   // Arrived here via a term's "Edit fees" link, which carries a from= param
   // so there's a way back instead of the page just substituting whatever was
@@ -132,13 +138,6 @@ export default function FeeStructureLayout({ data, initialClassId, readOnly: rea
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false)
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null)
 
-  function revenueFor(item: FeeItem): number {
-    if (item.isOptional) return item.amount * item.optInCount
-    if (item.isSchoolWide) return item.amount * totalActiveStudents
-    if (item.classId) return item.amount * (studentCountByClass[item.classId] || 0)
-    return 0
-  }
-
   // Group fee items by name + scope + required/optional, in first-seen order,
   // and lay each group out as one cell per class. A school-wide fee shows its
   // single amount in every column; a per-class fee shows its amount where it
@@ -151,7 +150,6 @@ export default function FeeStructureLayout({ data, initialClassId, readOnly: rea
       isSchoolWide: boolean
       isOptional: boolean
       totalOptIns: number
-      totalRevenue: number
       cells: (number | null)[]
     }
     const map = new Map<string, Group>()
@@ -167,14 +165,12 @@ export default function FeeStructureLayout({ data, initialClassId, readOnly: rea
           isSchoolWide: f.isSchoolWide,
           isOptional: f.isOptional,
           totalOptIns: 0,
-          totalRevenue: 0,
           cells: [],
         }
         map.set(key, g)
       }
       g.items.push(f)
       g.totalOptIns += f.optInCount
-      g.totalRevenue += revenueFor(f)
     }
     const groups = Array.from(map.values())
     for (const g of groups) {
@@ -194,9 +190,7 @@ export default function FeeStructureLayout({ data, initialClassId, readOnly: rea
     const perStudent = classes.map((_, ci) =>
       required.reduce((sum, g) => sum + (g.cells[ci] ?? 0), 0)
     )
-    const requiredRevenue = required.reduce((s, g) => s + g.totalRevenue, 0)
-    const optionalRevenue = optional.reduce((s, g) => s + g.totalRevenue, 0)
-    return { required, optional, perStudent, grossPotential: requiredRevenue + optionalRevenue }
+    return { required, optional, perStudent }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allFees, classes, studentCountByClass, totalActiveStudents])
 
@@ -396,7 +390,7 @@ export default function FeeStructureLayout({ data, initialClassId, readOnly: rea
                 GROSS POTENTIAL · {cycle.name.toUpperCase()}
               </p>
               <p className="m-num text-[40px] font-extrabold" style={{ lineHeight: 0.92, letterSpacing: '-0.03em', color: INK }}>
-                {showFinancials ? formatNaira(matrix.grossPotential) : '—'}
+                {showFinancials ? formatNaira(grossPotential) : '—'}
               </p>
               <p className="text-[13px] mt-1.5" style={{ color: META }}>
                 {feeCount} {feeCount === 1 ? 'fee' : 'fees'} across {classes.length} {classes.length === 1 ? 'class' : 'classes'} · before discounts
