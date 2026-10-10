@@ -22,7 +22,15 @@ import { friendlyWriteError } from '@/lib/errors/friendlyWriteError'
 // calls and why the ledger write happens where it does for each method.
 
 const CATEGORIES = new Set(['overpayment', 'withdrawal', 'duplicate_payment', 'fee_correction', 'parent_request', 'other'])
-const REFUND_METHODS = new Set(['paystack_reversal', 'bank_transfer'])
+const REFUND_METHODS = new Set(['paystack_reversal', 'monnify_reversal', 'bank_transfer'])
+// Maps a payment's own recorded provider to the one automatic refund method
+// that can actually move money back through it. A payment keeps whatever
+// provider processed it even if the school later switches providers, so this
+// is checked against the PAYMENT's provider, not the school's current one.
+const PROVIDER_REFUND_METHOD: Record<string, string> = {
+  paystack: 'paystack_reversal',
+  monnify: 'monnify_reversal',
+}
 const MIN_REASON_LENGTH = 20
 const MIN_REFERENCE_LENGTH = 3
 
@@ -124,21 +132,36 @@ async function applyApprovedRefund(
     return { success: true }
   }
 
-  // paystack_reversal: the RPC only claimed the row ('processing'). Call
-  // Paystack now, then land the result.
+  // paystack_reversal / monnify_reversal: the RPC only claimed the row
+  // ('processing'). Call the matching provider now, then land the result.
+  // Same shape for both — refundTransaction()/verifyRefund() are provider-
+  // agnostic on PaymentProvider, and complete_refund_request/
+  // fail_refund_request don't care which provider produced the id they're
+  // given.
+  const providerLabel = refund.refund_method === 'monnify_reversal' ? 'Monnify' : 'Paystack'
   const provider = await getPaymentProviderForSchool(schoolId as string, supabase)
-  if (!provider?.refundTransaction) {
-    await supabase.rpc('fail_refund_request', { p_refund_id: refund.id, p_reason: 'This school is not connected to Paystack.' })
+  if (!provider?.refundTransaction || provider.name !== (refund.refund_method === 'monnify_reversal' ? 'monnify' : 'paystack')) {
+    await supabase.rpc('fail_refund_request', { p_refund_id: refund.id, p_reason: `This school is not connected to ${providerLabel}.` })
     revalidatePath('/money/refunds')
-    return { error: 'This school is not connected to Paystack, so a Paystack refund could not be started. The request has been marked failed.' }
+    return { error: `This school is not connected to ${providerLabel}, so a ${providerLabel} refund could not be started. The request has been marked failed.` }
   }
 
   const { data: payment } = await supabase
     .from('payments')
-    .select('provider_reference')
+    .select('provider_reference, provider_transaction_id')
     .eq('id', refund.payment_id)
     .maybeSingle()
-  const reference = payment?.provider_reference
+  // provider_transaction_id, not provider_reference — confirmed live
+  // 2026-10-10 against the real Monnify sandbox ("Transaction with specified
+  // reference does not exist"). The two columns happen to hold the identical
+  // value for every Paystack payment (both are stamped from data.reference in
+  // paystackWebhookProcessor.ts), which is why this went unnoticed there, but
+  // they are genuinely DIFFERENT Monnify identifiers: provider_reference
+  // stores Monnify's merchant-supplied paymentReference, while
+  // provider_transaction_id stores Monnify's own transactionReference — the
+  // one every other Monnify call in this app (verifyTransaction) already
+  // keys on, and the one its refund API actually expects.
+  const reference = payment?.provider_transaction_id || payment?.provider_reference
   if (!reference) {
     await supabase.rpc('fail_refund_request', { p_refund_id: refund.id, p_reason: 'The original payment has no provider reference to refund.' })
     revalidatePath('/money/refunds')
@@ -151,17 +174,17 @@ async function applyApprovedRefund(
       const { error: completeError } = await supabase
         .rpc('complete_refund_request', { p_refund_id: refund.id, p_paystack_refund_id: result.id })
         .single()
-      if (completeError) return { error: rpcErrorMessage(completeError, 'Paystack confirmed the refund but it could not be recorded.') }
+      if (completeError) return { error: rpcErrorMessage(completeError, `${providerLabel} confirmed the refund but it could not be recorded.`) }
       await finalizeCompletedRefund(supabase, refund.id)
     } else {
-      // Still pending on Paystack's side — stamp the id so the refund.processed/
-      // refund.failed webhook can find this row; status stays 'processing'.
+      // Still pending on the provider's side — stamp the id so the refund
+      // webhook can find this row; status stays 'processing'.
       await supabase.from('refunds').update({ paystack_refund_id: result.id }).eq('id', refund.id).eq('status', 'processing')
     }
   } catch (err: any) {
-    await supabase.rpc('fail_refund_request', { p_refund_id: refund.id, p_reason: err?.message || 'Paystack refund call failed' })
+    await supabase.rpc('fail_refund_request', { p_refund_id: refund.id, p_reason: err?.message || `${providerLabel} refund call failed` })
     revalidatePath('/money/refunds')
-    return { error: err?.message || 'The Paystack refund could not be started.' }
+    return { error: err?.message || `The ${providerLabel} refund could not be started.` }
   }
 
   revalidatePath('/money/refunds')
@@ -222,9 +245,14 @@ export async function requestRefund(input: RequestRefundInput): Promise<ActionRe
       return { error: `Add a reference of at least ${MIN_REFERENCE_LENGTH} characters as proof the bank transfer was made.` }
     }
   } else {
-    const { data: school } = await supabase.from('schools').select('payment_provider').eq('id', schoolId).maybeSingle()
-    if (school?.payment_provider !== 'paystack') {
-      return { error: 'Refunds via Paystack are only available for Paystack-connected schools. Use the bank transfer method instead.' }
+    // An automatic reversal must match the provider that actually processed
+    // THIS payment (payment.provider, read above), not the school's current
+    // setting — a school can switch providers while an old payment still
+    // only exists on the one it was made through.
+    const expectedMethod = PROVIDER_REFUND_METHOD[payment.provider as string]
+    if (input.refundMethod !== expectedMethod) {
+      const providerLabel = payment.provider === 'monnify' ? 'Monnify' : 'Paystack'
+      return { error: `This payment was made through ${providerLabel} — use the ${providerLabel} refund method, or bank transfer instead.` }
     }
     refundReference = (input.refundReference || '').trim() || null
   }

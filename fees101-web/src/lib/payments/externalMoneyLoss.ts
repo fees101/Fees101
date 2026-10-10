@@ -1,12 +1,13 @@
-// Reconciliation for money that left a school's Paystack balance WITHOUT
-// going through Fees101 at all — a refund made directly on Paystack's own
-// dashboard, or a lost chargeback/card-dispute. Shared by both webhook
-// branches (refund.processed with no matching `refunds` row, and a resolved
-// dispute that went against the school) since the detect-and-record shape is
-// identical: find the original payment(s) by provider_transaction_id, prorate
-// the loss across any split rows (one charge can fund more than one invoice),
-// write one 'pending' `refunds` row per split tagged `initiated_externally`,
-// and raise one Needs-you alert.
+// Reconciliation for money that left a school's provider balance WITHOUT
+// going through Fees101 at all — a refund made directly on the provider's own
+// dashboard, or (Paystack only) a lost chargeback/card-dispute. Shared by both
+// providers' webhook processors (Paystack's refund.processed with no matching
+// `refunds` row and a resolved dispute that went against the school; Monnify's
+// refund-completed event with no matching row) since the detect-and-record
+// shape is identical: find the original payment(s) by provider_transaction_id,
+// prorate the loss across any split rows (one charge can fund more than one
+// invoice), write one 'pending' `refunds` row per split tagged
+// `initiated_externally`, and raise one Needs-you alert.
 //
 // Deliberately does NOT write the ledger adjustment here — that only happens
 // when a human clicks Confirm in the Refunds workspace
@@ -23,14 +24,19 @@ export async function recordExternalMoneyLoss(
   schoolId: string,
   transactionReference: string | undefined,
   lostAmountNaira: number,
-  method: 'paystack_reversal' | 'chargeback',
-  // Paystack's own id for the event that caused this — a refund id for
-  // refund.processed, a dispute id for a resolved dispute. Reused as the
-  // dedupe key (Paystack can redeliver the same webhook) even though the
-  // column is named for the refund case.
+  method: 'paystack_reversal' | 'monnify_reversal' | 'chargeback',
+  // The provider's own id for the event that caused this — a refund id for
+  // refund.processed/the Monnify refund-completed equivalent, a dispute id
+  // for a resolved Paystack dispute. Reused as the dedupe key (either
+  // provider can redeliver the same webhook) even though the column is
+  // named for the Paystack refund case — Monnify's refund reference is
+  // stored here too, same convention refundTransaction()/verifyRefund()
+  // already follow on MonnifyProvider.
   externalEventId: string | undefined,
 ): Promise<void> {
   if (!(lostAmountNaira > 0)) return
+
+  const providerLabel = method === 'monnify_reversal' ? 'Monnify' : 'Paystack'
 
   if (externalEventId) {
     // Thrown (not swallowed) on a lookup failure — the caller's try/catch
@@ -49,7 +55,7 @@ export async function recordExternalMoneyLoss(
 
   const lostAmount = Math.round(lostAmountNaira)
   const noun = method === 'chargeback' ? 'was taken back via a card dispute' : 'was refunded'
-  const title = method === 'chargeback' ? 'A chargeback happened on Paystack' : 'A refund happened on Paystack'
+  const title = method === 'chargeback' ? 'A chargeback happened on Paystack' : `A refund happened on ${providerLabel}`
 
   let splits: { id: string; student_id: string; invoice_id: string | null; amount: number }[] = []
   if (transactionReference) {
@@ -72,9 +78,9 @@ export async function recordExternalMoneyLoss(
       school_id: schoolId,
       type: 'external_refund_detected',
       title,
-      body: `Paystack reports ₦${lostAmount.toLocaleString()} ${noun}` +
+      body: `${providerLabel} reports ₦${lostAmount.toLocaleString()} ${noun}` +
         (transactionReference ? ` on transaction ${transactionReference}` : '') +
-        `, but no matching payment was found in Fees101 — review on Paystack directly.`,
+        `, but no matching payment was found in Fees101 — review on ${providerLabel} directly.`,
     })
     if (bareNotifyError) throw bareNotifyError
     return
@@ -83,10 +89,10 @@ export async function recordExternalMoneyLoss(
   const totalOriginal = splits.reduce((sum, s) => sum + Number(s.amount), 0)
   const reason = method === 'chargeback'
     ? 'Detected via Paystack webhook — a card dispute was resolved against the school, outside Fees101.'
-    : 'Detected via Paystack webhook — refunded directly on Paystack, not through Fees101.'
+    : `Detected via ${providerLabel} webhook — refunded directly on ${providerLabel}, not through Fees101.`
   const requestedByName = method === 'chargeback'
     ? 'Paystack (card dispute, outside Fees101)'
-    : 'Paystack (outside Fees101)'
+    : `${providerLabel} (outside Fees101)`
 
   let remaining = lostAmount
   const inserts: Record<string, unknown>[] = []
@@ -126,7 +132,7 @@ export async function recordExternalMoneyLoss(
     school_id: schoolId,
     type: 'external_refund_detected',
     title,
-    body: `₦${lostAmount.toLocaleString()} ${noun} directly on Paystack, outside Fees101. ` +
+    body: `₦${lostAmount.toLocaleString()} ${noun} directly on ${providerLabel}, outside Fees101. ` +
       `Review and confirm in Refunds so your records match.`,
     student_id: splits[0].student_id,
     amount: lostAmount,

@@ -9,7 +9,9 @@
 //   Authentication: "Token" / "Bearer token" (not Basic Auth — no real
 //   username applies here, a single shared secret is simpler to manage and
 //   rotate). Paste BREVO_WEBHOOK_SECRET as the token value.
-//   Events to tick: Delivered, Hard bounce, Blocked, Invalid email.
+//   Events to tick: Delivered, Hard bounce, Blocked, Invalid email, Spam
+//   (added 2026-10-10 — see the spam-complaint handling below; re-tick this
+//   in the live Brevo dashboard, ticking it in code alone does nothing).
 // Docs: https://developers.brevo.com/docs/transactional-webhooks
 //
 // Brevo doesn't sign payloads with an HMAC (no signature header, unlike
@@ -75,14 +77,62 @@ export async function POST(request: NextRequest) {
   // Brevo echoes back the same messageId it returned at send time (brevo.ts),
   // under the field name "message-id".
   const messageId: string | undefined = payload?.['message-id']
+  const event: string = (payload?.event || '').toLowerCase()
   const status = mapStatus(payload?.event)
   console.log('[brevo webhook] received', { messageId, event: payload?.event, mappedStatus: status })
+
+  const supabase = createServiceRoleClient()
+
+  // A spam complaint is a different risk than a bounce: the address is valid
+  // and reached the inbox, but the recipient (or their mail provider) flagged
+  // it — unlike a bounce, this is NOT evidence the family is unreachable, so
+  // it deliberately does not touch message_logs.status or the reachability
+  // logic in needs_you_unreachable_families.sql. It still deserves a human's
+  // attention for two separate reasons: (1) it may mean the wrong email was
+  // entered for a family and the real owner is now annoyed by a stranger's
+  // invoice, and (2) repeated spam complaints risk Brevo/ISPs throttling or
+  // blocking the sending domain for EVERY school, not just this one — so this
+  // is flagged even though no single complaint is actionable on its own.
+  // 'unsubscribed' is grouped in here too: our transactional emails carry no
+  // unsubscribe link, so Brevo only reports it when a mail client surfaces
+  // its own one-click-unsubscribe UI — in practice that is almost always a
+  // spam signal wearing a different event name, not a real list opt-out.
+  if (event === 'spam' || event === 'unsubscribed') {
+    let schoolId: string | null = null
+    let studentId: string | null = null
+    let messageLogId: string | null = null
+    if (messageId) {
+      const { data: match } = await supabase
+        .from('message_logs')
+        .select('id, school_id, related_student_id')
+        .eq('provider_message_id', messageId)
+        .maybeSingle()
+      schoolId = match?.school_id || null
+      studentId = match?.related_student_id || null
+      messageLogId = match?.id || null
+    }
+    if (schoolId) {
+      const label = event === 'spam' ? 'marked as spam' : 'unsubscribed from'
+      await supabase.from('admin_notifications').insert({
+        school_id: schoolId,
+        type: 'email_spam_complaint',
+        title: event === 'spam' ? 'A parent marked a Fees101 email as spam' : 'A parent unsubscribed from Fees101 email',
+        body: `${payload?.email || 'A recipient'} ${label} an email from your school` +
+          `. The email itself was delivered — this isn't a bad address, but worth checking the right person has this email on file, ` +
+          `and repeated reports like this can affect delivery for every school on Fees101.`,
+        related_message_id: messageLogId,
+        student_id: studentId,
+      })
+    } else {
+      console.warn('[brevo webhook] spam/unsubscribe event with no matching message_logs row', { messageId, email: payload?.email })
+    }
+    return NextResponse.json({ received: true })
+  }
 
   if (!messageId || !status) {
     return NextResponse.json({ received: true })
   }
 
-  const supabase = createServiceRoleClient()
   const update: Record<string, unknown> = { status }
   if (status === 'delivered') update.delivered_at = new Date().toISOString()
   if (status === 'failed') update.failed_reason = payload?.reason || payload?.event

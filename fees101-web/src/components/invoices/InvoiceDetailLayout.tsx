@@ -110,7 +110,7 @@ interface LogEntry {
   color: string
   // Set only for a real "Payment received" entry on a refundable (provider,
   // positive-amount) payment — feeds the inline "Refund" action.
-  refundable?: { id: string; amount: number; paidAt: string }
+  refundable?: { id: string; amount: number; paidAt: string; provider: string | null }
 }
 
 function buildLog(invoice: InvoiceDetail, incomingCreditTransfers: Props['incomingCreditTransfers']): LogEntry[] {
@@ -155,7 +155,7 @@ function buildLog(invoice: InvoiceDetail, incomingCreditTransfers: Props['incomi
         time: formatDate(p.paidAt),
         detail,
         color: INK.green,
-        refundable: (p.provider && p.refundableAmount > 0) ? { id: p.id, amount: p.refundableAmount, paidAt: p.paidAt } : undefined,
+        refundable: (p.provider && p.refundableAmount > 0) ? { id: p.id, amount: p.refundableAmount, paidAt: p.paidAt, provider: p.provider } : undefined,
       })
     })
 
@@ -494,7 +494,7 @@ export default function InvoiceDetailLayout({ invoice, discountSettings, autoApp
               {canRequestRefund && l.refundable && (
                 <p className="mt-1">
                   <RefundRowAction
-                    payment={{ id: l.refundable.id, studentId: invoice.studentId, amount: l.refundable.amount, cycleName: invoice.cycleName, paidAt: l.refundable.paidAt }}
+                    payment={{ id: l.refundable.id, studentId: invoice.studentId, amount: l.refundable.amount, cycleName: invoice.cycleName, paidAt: l.refundable.paidAt, provider: l.refundable.provider }}
                     color={INK.signal}
                   />
                 </p>

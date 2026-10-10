@@ -5,6 +5,7 @@
 
 const METHOD_LABELS: Record<string, string> = {
   paystack_reversal: 'Paystack refund',
+  monnify_reversal: 'Monnify refund',
   bank_transfer: 'Bank transfer (from school)',
   chargeback: 'Chargeback (card dispute)',
 }

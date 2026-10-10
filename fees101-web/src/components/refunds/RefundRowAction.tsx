@@ -10,6 +10,7 @@ interface Props {
     amount: number
     cycleName?: string | null
     paidAt?: string | null
+    provider?: string | null
   }
   // Override for an ink-ground surface (e.g. the invoice detail page), whose
   // lifted signal-red differs from the paper-ground --color-signal-text.

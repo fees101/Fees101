@@ -51,10 +51,17 @@ export default async function RefundsPage() {
   // Only gate left is the owner's one-time liability acceptance.
   if (!feature.liabilityAccepted) {
     if (ctx.isOwner) {
+      // Names the school's own connected provider in the liability note
+      // (Paystack vs Monnify) rather than always assuming Paystack.
+      const { data: school } = await ctx.supabase
+        .from('schools')
+        .select('payment_provider')
+        .eq('id', ctx.schoolId)
+        .maybeSingle()
       return (
         <>
           <WorkspaceHeader workspaceKey="money" title="Refunds" />
-          <RefundLiabilityGate version={feature.currentVersion} />
+          <RefundLiabilityGate version={feature.currentVersion} provider={school?.payment_provider ?? null} />
         </>
       )
     }

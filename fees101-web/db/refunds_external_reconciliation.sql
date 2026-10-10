@@ -51,6 +51,8 @@ declare
   v_reviewer_name text;
   v_pay_invoice uuid;
   v_pay_student uuid;
+  v_pay_amount numeric;
+  v_already_refunded numeric;
   v_method text;
   v_notes text;
   v_ledger_payment_id uuid;
@@ -83,6 +85,24 @@ begin
     raise exception 'This item has already been resolved or could not be found';
   end if;
 
+  -- Over-refund guard: more than one externally-detected item can now exist
+  -- on the same payment at once (see the relaxed unique index below — two
+  -- genuinely separate Paystack-side events, e.g. two partial refunds before
+  -- either was reviewed, each get their own row instead of the second one
+  -- failing to record at all). This is the check that keeps confirming both
+  -- from ever crediting back more than the payment actually covers.
+  select amount into v_pay_amount from payments where id = v_refund.payment_id and school_id = p_school_id for update;
+
+  select coalesce(sum(amount), 0) into v_already_refunded
+  from refunds
+  where payment_id = v_refund.payment_id
+    and id <> v_refund.id
+    and status in ('completed', 'processing');
+
+  if v_already_refunded + v_refund.amount > v_pay_amount then
+    raise exception 'Confirming this would refund more than the original payment (already accounted for %, original %)', v_already_refunded, v_pay_amount;
+  end if;
+
   select p.invoice_id, p.student_id into v_pay_invoice, v_pay_student
   from payments p
   where p.id = v_refund.payment_id and p.school_id = p_school_id
@@ -110,3 +130,23 @@ begin
   where id = p_refund_id;
 end;
 $$;
+
+-- Found 2026-10-10 live-testing the external-detection path: the original
+-- "one active refund per payment" unique index (db/refunds_workflow.sql)
+-- blocks ANY second pending/processing row on the same payment — a rule
+-- meant to stop a staff member double-SUBMITTING a request. An
+-- externally-detected row isn't a request at all (nobody asked, the money
+-- already moved on Paystack's side regardless of what Fees101 thinks), so if
+-- the same transaction gets refunded more than once before the first
+-- detected item is confirmed or dismissed, the second detection would fail
+-- to insert — not silently (the error-checking added earlier today makes it
+-- throw and Paystack redeliver), but it would never record as its own item
+-- until the first is cleared. Scoping the constraint to only
+-- initiated_externally = false lets genuinely separate Paystack-side events
+-- each get their own row; confirm_external_refund's over-refund guard above
+-- is what now stops the total ever exceeding what the original payment
+-- actually covers, which is the real protection this index was for anyway.
+drop index if exists refunds_one_active_per_payment;
+create unique index if not exists refunds_one_active_per_payment
+  on public.refunds (payment_id)
+  where status in ('pending', 'processing') and initiated_externally = false;

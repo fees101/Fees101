@@ -15,10 +15,17 @@ const CATEGORY_OPTIONS = [
   { value: 'other', label: 'Other' },
 ]
 
-const METHOD_OPTIONS = [
-  { value: 'paystack_reversal', label: 'Paystack refund (back to original payment method)' },
-  { value: 'bank_transfer', label: "Bank transfer (we already sent it from the school's bank)" },
-]
+const BANK_TRANSFER_OPTION = { value: 'bank_transfer', label: "Bank transfer (we already sent it from the school's bank)" }
+
+// One automatic method per provider, keyed by the PAYMENT's own recorded
+// provider (not the school's current setting — a payment keeps whatever
+// provider actually processed it, even after a school switches providers).
+// A payment made some other way (manual/cash, or no provider at all) gets no
+// automatic option at all — only bank transfer, handled by the fallback below.
+const AUTO_METHOD_BY_PROVIDER: Record<string, { value: string; label: string }> = {
+  paystack: { value: 'paystack_reversal', label: 'Paystack refund (back to original payment method)' },
+  monnify: { value: 'monnify_reversal', label: 'Monnify refund (back to original payment method)' },
+}
 
 interface RefundablePaymentInfo {
   id: string
@@ -29,6 +36,10 @@ interface RefundablePaymentInfo {
   // allows refunding a payment from an already-closed term; never a hard
   // limit, just make sure whoever's requesting sees how old it is).
   paidAt?: string | null
+  // The provider that actually processed this payment ('paystack' | 'monnify').
+  // Determines which automatic refund option (if any) is offered — never
+  // offer a Paystack refund on a Monnify payment or vice versa.
+  provider?: string | null
 }
 
 // Plain-language age, same formatting as RefundsWorkspace's.
@@ -56,10 +67,12 @@ interface Props {
 // form), since a refund has to reference one.
 export default function RequestRefundDrawer({ payment, onClose }: Props) {
   const router = useRouter()
+  const autoMethod = payment.provider ? AUTO_METHOD_BY_PROVIDER[payment.provider] : undefined
+  const METHOD_OPTIONS = autoMethod ? [autoMethod, BANK_TRANSFER_OPTION] : [BANK_TRANSFER_OPTION]
   const [amount, setAmount] = useState(String(payment.amount))
   const [category, setCategory] = useState('parent_request')
   const [reason, setReason] = useState('')
-  const [refundMethod, setRefundMethod] = useState('paystack_reversal')
+  const [refundMethod, setRefundMethod] = useState(autoMethod ? autoMethod.value : 'bank_transfer')
   const [refundReference, setRefundReference] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

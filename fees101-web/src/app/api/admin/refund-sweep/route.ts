@@ -23,7 +23,7 @@ async function runRefundSweep() {
     .from('refunds')
     .select('id, school_id, paystack_refund_id')
     .eq('status', 'processing')
-    .eq('refund_method', 'paystack_reversal')
+    .in('refund_method', ['paystack_reversal', 'monnify_reversal'])
     .not('paystack_refund_id', 'is', null)
     .lt('approved_at', staleBefore)
 
@@ -50,13 +50,13 @@ async function runRefundSweep() {
       } else if (status === 'failed') {
         const { error } = await supabase.rpc('fail_refund_request', {
           p_refund_id: row.id,
-          p_reason: 'Paystack reported the refund as failed (caught by the refund sweep, not a webhook)',
+          p_reason: `${provider.name === 'monnify' ? 'Monnify' : 'Paystack'} reported the refund as failed (caught by the refund sweep, not a webhook)`,
         })
         if (error) throw error
         results.push({ refundId: row.id, schoolId: row.school_id, outcome: 'failed' })
       } else {
-        // Still genuinely pending on Paystack's side — leave it, the sweep
-        // will check again next run.
+        // Still genuinely pending on the provider's side — leave it, the
+        // sweep will check again next run.
         results.push({ refundId: row.id, schoolId: row.school_id, outcome: 'still_pending' })
       }
     } catch (err: any) {

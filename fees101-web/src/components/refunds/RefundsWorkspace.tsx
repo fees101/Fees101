@@ -139,7 +139,7 @@ function PendingList({
     setBusyId(null)
     if ('error' in r) { setError(r.error); onResult(false, r.error); return }
     setOpen(null)
-    onResult(true, p.initiatedExternally ? 'Confirmed — your records now match Paystack.' : 'Refund approved.')
+    onResult(true, p.initiatedExternally ? `Confirmed — your records now match ${p.refundMethod === 'monnify_reversal' ? 'Monnify' : 'Paystack'}.` : 'Refund approved.')
   }
 
   async function reject(id: string) {
@@ -155,7 +155,7 @@ function PendingList({
     <Surface
       title="Waiting for a decision"
       body={canApprove
-        ? 'Refunds other staff have requested, oldest first. Approving a Paystack refund starts it immediately; approving a bank transfer refund records money the school has already sent.'
+        ? 'Refunds other staff have requested, oldest first. Approving a Paystack or Monnify refund starts it immediately; approving a bank transfer refund records money the school has already sent.'
         : 'Refunds waiting for someone with approval rights to sign off. You requested these; they are processed once approved.'}
       figure={total > 0 ? naira(total) : ''}
       figureLabel="IF ALL APPROVED"
@@ -175,7 +175,7 @@ function PendingList({
                     {p.studentName}
                   </Link>
                   <p className="text-[12px]" style={{ color: p.initiatedExternally ? SIGNAL : META, margin: '2px 0 0', fontWeight: p.initiatedExternally ? 700 : 400 }}>
-                    {p.className}{p.initiatedExternally ? ' · detected on Paystack, not requested through Fees101' : (p.requestedByName ? ` · requested by ${p.requestedByName}` : '')}
+                    {p.className}{p.initiatedExternally ? ` · detected on ${p.refundMethod === 'monnify_reversal' ? 'Monnify' : 'Paystack'}, not requested through Fees101` : (p.requestedByName ? ` · requested by ${p.requestedByName}` : '')}
                   </p>
                 </div>
                 <div style={{ minWidth: 0 }}>
@@ -219,9 +219,11 @@ function PendingList({
                     <>
                       <p className="text-sm mb-3" style={{ color: INK, maxWidth: '64ch' }}>
                         {p.initiatedExternally
-                          ? `Paystack reports ${naira(p.amount)} was ${p.refundMethod === 'chargeback' ? 'taken back via a card dispute' : 'refunded'} on ${p.studentName}'s payment, outside Fees101. Confirming updates this invoice/credit balance to match — the money has already moved either way.`
+                          ? `${p.refundMethod === 'monnify_reversal' ? 'Monnify' : 'Paystack'} reports ${naira(p.amount)} was ${p.refundMethod === 'chargeback' ? 'taken back via a card dispute' : 'refunded'} on ${p.studentName}'s payment, outside Fees101. Confirming updates this invoice/credit balance to match — the money has already moved either way.`
                           : p.refundMethod === 'paystack_reversal'
                           ? `Approving starts a Paystack refund of ${naira(p.amount)} to ${p.studentName}'s family, funded from the school's Paystack balance.`
+                          : p.refundMethod === 'monnify_reversal'
+                          ? `Approving starts a Monnify refund of ${naira(p.amount)} to ${p.studentName}'s family, funded from the school's Monnify balance.`
                           : `Approving records a ${naira(p.amount)} refund already sent to ${p.studentName}'s family from the school's own bank, and notifies them.`}
                       </p>
                       <div className="flex items-center gap-2 flex-wrap">
@@ -308,7 +310,7 @@ function HistoryList({ decided }: { decided: DecidedRefund[] }) {
                 </p>
                 {d.paystackRefundId && (
                   <p className="text-[12px] m-num" style={{ color: META, margin: '3px 0 0' }}>
-                    Paystack ref {d.paystackRefundId}
+                    {d.refundMethod === 'monnify_reversal' ? 'Monnify' : 'Paystack'} ref {d.paystackRefundId}
                   </p>
                 )}
                 {d.paymentPaidAt && (

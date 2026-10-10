@@ -2,10 +2,20 @@
 // signature, parse, dedupe, and cascade the payment across the owner's
 // outstanding invoices. Kept separate from route.ts so the route itself
 // stays a thin adapter between Next.js and this.
+//
+// Also handles Monnify's refund-completion webhook (see the REFUND branch
+// below), the Monnify-side equivalent of paystackWebhookProcessor.ts's
+// refund.processed/refund.failed handling — same detect-and-flag pattern,
+// reusing externalMoneyLoss.ts and the confirm_external_refund/refunds-table
+// machinery as-is. Monnify (bank transfer/reserved-account collections) has
+// no card-dispute/chargeback concept the way Paystack's card rail does, so
+// there is no Monnify equivalent of charge.dispute.create/resolve here.
 
 import { createServiceRoleClient } from '@/lib/supabase/serviceRole'
 import { getPaymentProviderForSchool } from './getProvider'
 import { applyProviderPayment, resolveDvaOwner } from './applyPayment'
+import { finalizeCompletedRefund } from './completeRefund'
+import { recordExternalMoneyLoss } from './externalMoneyLoss'
 
 interface ProcessResult {
   status: number
@@ -93,6 +103,89 @@ export async function processMonnifyWebhook(
     transaction_reference: transactionReference || null,
     status: 'processing',
   })
+
+  // Refund confirmation — mirrors the Paystack webhook's refund.processed/
+  // refund.failed branch exactly: detect, flag, never auto-reconcile the
+  // ledger from here. Monnify's exact refund webhook eventType is not
+  // confirmed against a live delivery (this session had no completed Monnify
+  // transaction to refund) — matched defensively on any eventType containing
+  // "REFUND" rather than one hardcoded guess, with the actual outcome read
+  // from eventData.refundStatus/status so a close-but-not-exact type name
+  // still gets handled instead of silently falling through to "no handler".
+  if (eventType && eventType.toUpperCase().includes('REFUND')) {
+    const monnifyRefundId = eventData?.refundReference ? String(eventData.refundReference) : undefined
+    const refundStatus = String(eventData?.refundStatus || eventData?.status || '').toUpperCase()
+    const failed = refundStatus === 'FAILED' || refundStatus === 'REJECTED' || refundStatus === 'DECLINED' || eventType.toUpperCase().includes('FAILED')
+    const succeeded = !failed && (refundStatus === 'COMPLETED' || refundStatus === 'SUCCESSFUL' || eventType.toUpperCase().includes('SUCCESSFUL') || eventType.toUpperCase().includes('COMPLETED'))
+
+    if (monnifyRefundId) {
+      const { data: refundRow, error: lookupError } = await supabase
+        .from('refunds')
+        .select('id')
+        .eq('school_id', schoolId)
+        .eq('paystack_refund_id', monnifyRefundId) // reused column, see externalMoneyLoss.ts
+        .eq('status', 'processing')
+        .maybeSingle()
+
+      if (lookupError) {
+        await updateWebhookEvent(supabase, eventId, {
+          status: 'error',
+          error_message: `Failed to look up refund for ${eventType}: ${lookupError.message}`,
+        })
+        return { status: 500, body: { error: 'Failed to look up matching refund' } }
+      }
+
+      if (refundRow) {
+        try {
+          if (succeeded) {
+            const { error: rpcError } = await supabase.rpc('complete_refund_request', {
+              p_refund_id: refundRow.id,
+              p_paystack_refund_id: monnifyRefundId,
+            })
+            if (rpcError) throw rpcError
+            await finalizeCompletedRefund(supabase, refundRow.id)
+          } else if (failed) {
+            const { error: rpcError } = await supabase.rpc('fail_refund_request', {
+              p_refund_id: refundRow.id,
+              p_reason: eventData?.refundReason || eventData?.reason || 'Monnify reported the refund as failed',
+            })
+            if (rpcError) throw rpcError
+          }
+          // Neither succeeded nor failed (still pending) — nothing to do yet,
+          // leave the row 'processing' for a later delivery or the sweep.
+        } catch (err: any) {
+          await updateWebhookEvent(supabase, eventId, {
+            status: 'error',
+            error_message: `Failed to apply ${eventType}: ${err?.message || 'unknown error'}`,
+          })
+          return { status: 200, body: { message: `Captured, failed to apply ${eventType}` } }
+        }
+      } else if (succeeded) {
+        // No row we created matches this id — refunded directly on Monnify's
+        // own dashboard, not requested through Fees101.
+        try {
+          await recordExternalMoneyLoss(
+            supabase,
+            schoolId,
+            eventData?.transactionReference ? String(eventData.transactionReference) : undefined,
+            Number(eventData?.refundAmount ?? eventData?.amountRefunded ?? 0),
+            'monnify_reversal',
+            monnifyRefundId,
+          )
+        } catch (err: any) {
+          await updateWebhookEvent(supabase, eventId, {
+            status: 'error',
+            error_message: `Failed to record external refund: ${err?.message || 'unknown error'}`,
+          })
+          return { status: 200, body: { message: 'Captured, failed to record external refund' } }
+        }
+      }
+      // No matching 'processing' row and not a success is fine — already
+      // completed/failed, or a duplicate delivery. Not an error.
+    }
+    await updateWebhookEvent(supabase, eventId, { status: 'processed', processed_at: new Date().toISOString() })
+    return { status: 200, body: { message: `Acknowledged ${eventType}` } }
+  }
 
   if (eventType !== 'SUCCESSFUL_TRANSACTION') {
     // Some other Monnify event we don't act on yet — acknowledged, not an error.

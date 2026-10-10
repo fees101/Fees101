@@ -15,12 +15,17 @@ const SIGNAL = 'var(--color-signal-text)'
 // accepted, no one at the school can request or approve a refund. Deliberately
 // plain and matter-of-fact, not a warning banner: it states who is responsible
 // for what, and the owner accepts once per version.
-export default function RefundLiabilityGate({ version }: { version: string }) {
+export default function RefundLiabilityGate({ version, provider }: { version: string; provider?: string | null }) {
   const router = useRouter()
   const [accepted, setAccepted] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ ok: boolean; message: string } | null>(null)
+
+  // Names the school's own connected provider rather than always saying
+  // "Paystack" — a Monnify school was shown Paystack-specific wording here
+  // even though it has no Paystack account to fund a refund from.
+  const providerLabel = provider === 'monnify' ? 'Monnify' : 'Paystack'
 
   async function handleAccept() {
     setError(null)
@@ -43,15 +48,15 @@ export default function RefundLiabilityGate({ version }: { version: string }) {
           Before processing refunds
         </h2>
         <p className="text-[14px] leading-[1.6]" style={{ color: BODY, margin: '0 0 18px' }}>
-          Refunds return real money to a parent — either through Paystack (funded from your school&apos;s own
-          Paystack balance, clawed back from upcoming settlements if it has already been paid out) or from your
+          Refunds return real money to a parent — either through {providerLabel} (funded from your school&apos;s own
+          {' '}{providerLabel} balance, clawed back from upcoming settlements if it has already been paid out) or from your
           school&apos;s own bank. Please read this and accept it as the owner before turning it on for your team.
         </p>
 
         <ul className="text-[14px] leading-[1.6]" style={{ color: BODY, margin: '0 0 18px', paddingLeft: 18, listStyle: 'disc' }}>
           <li style={{ margin: '0 0 8px' }}>
-            A Paystack refund is funded from your school&apos;s own Paystack balance. If the money has already been
-            settled to your bank, Paystack claws the refund back from your upcoming settlements instead.
+            A {providerLabel} refund is funded from your school&apos;s own {providerLabel} balance. If the money has already been
+            settled to your bank, {providerLabel} claws the refund back from your upcoming settlements instead.
           </li>
           <li style={{ margin: '0 0 8px' }}>
             A refund you request yourself applies immediately. A refund requested by other staff waits for someone

@@ -96,7 +96,7 @@ export default async function StudentActivityTimeline({
     timestamp: string
     // Only set for a real (provider) payment event — feeds the "Refund this
     // payment" row action.
-    refundable?: { id: string; amount: number; paidAt: string }
+    refundable?: { id: string; amount: number; paidAt: string; provider: string | null }
   }
 
   const events: Event[] = []
@@ -119,7 +119,7 @@ export default async function StudentActivityTimeline({
         .filter(Boolean)
         .join(' · '),
       timestamp: payment.paid_at,
-      refundable: (!reversal && payment.provider && remaining > 0) ? { id: payment.id, amount: remaining, paidAt: payment.paid_at } : undefined,
+      refundable: (!reversal && payment.provider && remaining > 0) ? { id: payment.id, amount: remaining, paidAt: payment.paid_at, provider: payment.provider } : undefined,
     })
   })
 
@@ -174,7 +174,7 @@ export default async function StudentActivityTimeline({
             )}
             {canRequestRefund && event.refundable && (
               <p className="mt-[5px]">
-                <RefundRowAction payment={{ id: event.refundable.id, studentId, amount: event.refundable.amount, paidAt: event.refundable.paidAt }} />
+                <RefundRowAction payment={{ id: event.refundable.id, studentId, amount: event.refundable.amount, paidAt: event.refundable.paidAt, provider: event.refundable.provider }} />
               </p>
             )}
           </div>

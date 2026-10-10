@@ -22,6 +22,7 @@ export async function finalizeCompletedRefund(supabase: any, refundId: string): 
     targetId: refund.id,
     summary: `Refunded ₦${Math.round(Number(refund.amount)).toLocaleString('en-NG')} via ${
       refund.refund_method === 'paystack_reversal' ? 'Paystack'
+        : refund.refund_method === 'monnify_reversal' ? 'Monnify'
         : refund.refund_method === 'chargeback' ? 'a chargeback'
         : 'bank transfer'
     }`,
