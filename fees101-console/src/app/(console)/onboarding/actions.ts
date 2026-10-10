@@ -120,3 +120,33 @@ export async function createSchool(input: CreateSchoolInput): Promise<CreateScho
     actionLink: inviteData.properties.action_link,
   }
 }
+
+// Status update for a marketing-site signup lead (access_requests) — closes a
+// real gap found 2026-10-10: the leads list was read-only forever, so there
+// was no way to track outreach progress ("have we called this one back?")
+// from the console at all. A normal row update, not a schema/DB-write
+// escalation — writes only a column that already exists. Logged to the
+// platform audit trail for the same reason every other staff-initiated
+// change in this console is: so there's a record of who moved a lead and
+// when, not just the current state.
+export async function updateAccessRequestStatus(id: string, status: string): Promise<{ error: string } | { success: true }> {
+  const admin = await requireAdmin()
+  const supabase = createServiceRoleClient()
+
+  const { data: existing } = await supabase.from('access_requests').select('school_name, status').eq('id', id).maybeSingle()
+  if (!existing) return { error: 'Signup request not found.' }
+
+  const { error } = await supabase.from('access_requests').update({ status }).eq('id', id)
+  if (error) return { error: error.message }
+
+  await supabase.from('platform_audit_log').insert({
+    actor_id: admin.id,
+    actor_name: admin.name,
+    action: 'lead.status_updated',
+    school_id: null,
+    summary: `Marked signup request from "${existing.school_name}" as ${status} (was ${existing.status})`,
+    metadata: { accessRequestId: id, from: existing.status, to: status },
+  })
+
+  return { success: true }
+}

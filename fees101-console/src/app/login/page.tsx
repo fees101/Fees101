@@ -14,7 +14,7 @@ export default function LoginPage() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <form action={formAction} className="panel" style={{ padding: 32, width: 360 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Fees101 Platform</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Fees101 Console</h1>
         <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 24 }}>Founder dashboard — sign in.</p>
 
         <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Email</label>

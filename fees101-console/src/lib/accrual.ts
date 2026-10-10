@@ -221,6 +221,36 @@ export async function getAllSchoolsBillingOverview(): Promise<SchoolBillingOverv
     .sort((a, b) => a.schoolName.localeCompare(b.schoolName))
 }
 
+export interface BillingOverviewPage {
+  rows: SchoolBillingOverviewRow[]
+  total: number
+}
+
+// Paginated/filtered variant for the /billing page's per-school table
+// (2026-10-10 rebuild). Deliberately still computes the join in memory rather
+// than a true SQL-level paginated query: `schools`/`platform_billing` are
+// bounded by TENANT count, not row count (hundreds of schools, not millions
+// of payment rows) — the same reasoning businessQueries.ts already documents
+// for its own aggregates. Filtering/sorting/paging happens after the join so
+// "active students this month" etc. stay correct regardless of page size.
+export async function getBillingOverviewPage(opts: {
+  page?: number
+  perPage?: number
+  statusFilter?: string
+  q?: string
+}): Promise<BillingOverviewPage> {
+  const all = await getAllSchoolsBillingOverview()
+  const q = (opts.q || '').trim().toLowerCase()
+  const filtered = all.filter(r =>
+    (!opts.statusFilter || opts.statusFilter === 'all' || r.billingStatus === opts.statusFilter) &&
+    (!q || r.schoolName.toLowerCase().includes(q))
+  )
+  const perPage = opts.perPage || 20
+  const page = Math.max(1, opts.page || 1)
+  const start = (page - 1) * perPage
+  return { rows: filtered.slice(start, start + perPage), total: filtered.length }
+}
+
 export interface CurrentBillingSummary {
   // Is the school actually billing yet? (onboarding_at set)
   billingActive: boolean

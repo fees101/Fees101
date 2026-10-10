@@ -24,10 +24,14 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 6,
 }
 
-export default function OnboardingForm() {
-  const [schoolName, setSchoolName] = useState('')
-  const [ownerName, setOwnerName] = useState('')
-  const [ownerEmail, setOwnerEmail] = useState('')
+export default function OnboardingForm({ initialSchoolName = '', initialOwnerName = '', initialOwnerEmail = '' }: {
+  initialSchoolName?: string
+  initialOwnerName?: string
+  initialOwnerEmail?: string
+}) {
+  const [schoolName, setSchoolName] = useState(initialSchoolName)
+  const [ownerName, setOwnerName] = useState(initialOwnerName)
+  const [ownerEmail, setOwnerEmail] = useState(initialOwnerEmail)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<Result | null>(null)

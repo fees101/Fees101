@@ -87,6 +87,15 @@ export interface SchoolDetail {
   id: string
   name: string
   termsPerYear: number
+  // Identity facts for the detail page's header strip, visible regardless of
+  // which tab is open — added 2026-10-10, a real gap: the page previously
+  // showed status/student count/signup date only inside specific tabs, so a
+  // support call ("when did they sign up? how many students?") needed a click
+  // before it could be answered.
+  createdAt: string
+  paymentProvider: string | null
+  subscriptionStatus: string
+  activeStudentCount: number
   billing: {
     // Raw value from the DB column — null means the school has never had an
     // override set and is silently using the platform default of 500.
@@ -100,8 +109,6 @@ export interface SchoolDetail {
     cardLast4: string | null
     paystackEmail: string | null
   }
-  charges: { id: string; amount: number; status: string; createdAt: string; failureReason: string | null }[]
-  auditLog: { id: string; actorName: string; action: string; summary: string; createdAt: string }[]
   // Manual payment entry is a per-school feature Fees101 staff turn on here,
   // only once a signed liability agreement is in place. The owner must also
   // accept an in-app liability affirmation (set on the fees101-web side) before
@@ -132,7 +139,7 @@ export interface SchoolDetail {
 export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | null> {
   const supabase = createServiceRoleClient()
 
-  const [{ data: school }, { data: billing }, { data: charges }, { data: audit }] = await Promise.all([
+  const [{ data: school }, { data: billing }, { count: activeStudentCount }] = await Promise.all([
     // '*' (not a fixed column list) so this still resolves pre-migration — a
     // named column that doesn't exist yet (e.g. refunds_enabled, before
     // db/refunds_workflow.sql has run) would 400 the whole query otherwise,
@@ -140,8 +147,7 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
     // select below.
     supabase.from('schools').select('*').eq('id', schoolId).maybeSingle(),
     supabase.from('platform_billing').select('*').eq('school_id', schoolId).maybeSingle(),
-    supabase.from('platform_billing_charges').select('id, amount, status, created_at, failure_reason').eq('school_id', schoolId).order('created_at', { ascending: false }).limit(20),
-    supabase.from('platform_audit_log').select('id, actor_name, action, summary, created_at').eq('school_id', schoolId).order('created_at', { ascending: false }).limit(20),
+    supabase.from('students').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'active'),
   ])
 
   if (!school) return null
@@ -175,6 +181,10 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
     id: school.id,
     name: school.name,
     termsPerYear: school.terms_per_year || 3,
+    createdAt: school.created_at,
+    paymentProvider: school.payment_provider || null,
+    subscriptionStatus: school.subscription_status || 'active',
+    activeStudentCount: activeStudentCount || 0,
     billing: {
       pricePerStudentMonth: billing?.price_per_student_month != null ? Number(billing.price_per_student_month) : null,
       onboardingAt: billing?.onboarding_at || null,
@@ -186,20 +196,6 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
       cardLast4: null,
       paystackEmail: billing?.paystack_email || null,
     },
-    charges: (charges || []).map(c => ({
-      id: c.id,
-      amount: Number(c.amount),
-      status: c.status,
-      createdAt: c.created_at,
-      failureReason: c.failure_reason,
-    })),
-    auditLog: (audit || []).map(a => ({
-      id: a.id,
-      actorName: a.actor_name,
-      action: a.action,
-      summary: a.summary,
-      createdAt: a.created_at,
-    })),
     manualPaymentEntry: {
       enabled: !!school.manual_payment_entry_enabled,
       enabledAt: school.manual_payment_entry_enabled_at || null,
@@ -216,6 +212,83 @@ export async function getSchoolDetail(schoolId: string): Promise<SchoolDetail | 
       billingMethod: billing?.billing_method || 'mandate',
       mandateStatus: billing?.mandate_status || 'none',
     },
+  }
+}
+
+// Charge history and the per-school audit log used to be embedded in
+// getSchoolDetail capped at .limit(20), which silently hid everything older
+// than the last 20 rows with no way to see more. Split into their own
+// server-side paginated queries (same .range() + count:'exact' shape as
+// getPlatformAuditLog) so the School detail page's Legacy and Activity tabs
+// can page through full history.
+
+export interface SchoolChargeRow {
+  id: string
+  amount: number
+  status: string
+  createdAt: string
+  failureReason: string | null
+}
+
+const SCHOOL_CHARGES_PAGE_SIZE = 20
+
+export async function getSchoolCharges(schoolId: string, page = 1): Promise<{ rows: SchoolChargeRow[]; total: number }> {
+  const supabase = createServiceRoleClient()
+  const p = Math.max(1, page)
+  const from = (p - 1) * SCHOOL_CHARGES_PAGE_SIZE
+  const to = from + SCHOOL_CHARGES_PAGE_SIZE - 1
+
+  const { data, count } = await supabase
+    .from('platform_billing_charges')
+    .select('id, amount, status, created_at, failure_reason', { count: 'exact' })
+    .eq('school_id', schoolId)
+    .order('created_at', { ascending: false })
+    .range(from, to)
+
+  return {
+    rows: (data || []).map(c => ({
+      id: c.id,
+      amount: Number(c.amount),
+      status: c.status,
+      createdAt: c.created_at,
+      failureReason: c.failure_reason,
+    })),
+    total: count || 0,
+  }
+}
+
+export interface SchoolAuditRow {
+  id: string
+  actorName: string
+  action: string
+  summary: string
+  createdAt: string
+}
+
+const SCHOOL_AUDIT_PAGE_SIZE = 20
+
+export async function getSchoolAuditLog(schoolId: string, page = 1): Promise<{ rows: SchoolAuditRow[]; total: number }> {
+  const supabase = createServiceRoleClient()
+  const p = Math.max(1, page)
+  const from = (p - 1) * SCHOOL_AUDIT_PAGE_SIZE
+  const to = from + SCHOOL_AUDIT_PAGE_SIZE - 1
+
+  const { data, count } = await supabase
+    .from('platform_audit_log')
+    .select('id, actor_name, action, summary, created_at', { count: 'exact' })
+    .eq('school_id', schoolId)
+    .order('created_at', { ascending: false })
+    .range(from, to)
+
+  return {
+    rows: (data || []).map(a => ({
+      id: a.id,
+      actorName: a.actor_name,
+      action: a.action,
+      summary: a.summary,
+      createdAt: a.created_at,
+    })),
+    total: count || 0,
   }
 }
 
@@ -406,18 +479,131 @@ export async function getSchoolsNotOnMandate(): Promise<SchoolOffMandateRow[]> {
   return rows.sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export async function getAllSchoolsCostToServe(): Promise<Map<string, SchoolUsage>> {
-  const supabase = createServiceRoleClient()
-  const { data: messages } = await supabase.from('message_logs').select('school_id, channel, cost_amount')
+// getAllSchoolsCostToServe() previously lived here — it powered the Schools
+// list page's "Messaging cost" column/total, which was removed (2026-10-10):
+// message_logs.cost_amount is a known pre-existing bug and is always ₦0, so
+// that number was always wrong. Fixing cost_amount itself is out of scope;
+// see getSchoolUsage() above for the still-live per-school usage read used on
+// the single-school detail page.
 
-  const map = new Map<string, SchoolUsage>()
-  ;(messages || []).forEach(m => {
-    const existing = map.get(m.school_id) || { smsCount: 0, smsCost: 0, emailCount: 0, emailCost: 0, totalCost: 0, rowCountProxy: 0 }
-    const cost = Number(m.cost_amount || 0)
-    if (m.channel === 'sms') { existing.smsCount++; existing.smsCost += cost }
-    else if (m.channel === 'email') { existing.emailCount++; existing.emailCost += cost }
-    existing.totalCost = existing.smsCost + existing.emailCost
-    map.set(m.school_id, existing)
+export interface SchoolsListRow {
+  id: string
+  name: string
+  createdAt: string
+  billingStatus: string
+  studentCount: number
+  paymentProvider: string | null
+  pricePerStudentMonth: number
+  onAccrualPath: boolean
+  mandateRail: string
+}
+
+export interface SchoolsListResult {
+  rows: SchoolsListRow[]
+  total: number
+}
+
+// Paginated, searchable, FILTERABLE version of the schools list for the
+// /schools page. Rebuilt 2026-10-10 to close a real gap against
+// docs/platform-dashboard-architecture.md §4.2 ("Directory: searchable,
+// filterable (status, billing state, provider, size)") — the page had search
+// but no status/provider filter and no sort at all. Billing status lives on
+// platform_billing (a join), so it can't be filtered at the `schools`-table
+// query level the way name/provider can; this now fetches every school
+// MATCHING the cheap DB-level filters (name/provider) unpaginated, joins
+// billing+students, then applies the billing-status filter and sort in JS
+// before paginating. Bounded by TENANT count, not row count — same reasoning
+// getAllSchoolsBillingOverview/getBusinessRevenue already use elsewhere in
+// this console — safe at any realistic school count, and still cheaper than
+// before for a filtered search (fewer schools to join against).
+export async function getSchoolsListPage(opts: {
+  page?: number
+  perPage?: number
+  q?: string
+  billingStatus?: string
+  provider?: string
+  sort?: 'newest' | 'oldest' | 'name' | 'students_desc'
+} = {}): Promise<SchoolsListResult> {
+  const supabase = createServiceRoleClient()
+  const page = Math.max(1, opts.page ?? 1)
+  const perPage = opts.perPage ?? 20
+  const q = (opts.q ?? '').trim()
+
+  let schoolsQuery = supabase
+    .from('schools')
+    .select('id, name, created_at, payment_provider')
+    .order('created_at', { ascending: false })
+
+  if (q) schoolsQuery = schoolsQuery.ilike('name', `%${q}%`)
+  if (opts.provider) schoolsQuery = schoolsQuery.eq('payment_provider', opts.provider)
+
+  const { data: schools } = await schoolsQuery
+  const schoolIds = (schools || []).map(s => s.id)
+
+  if (schoolIds.length === 0) {
+    return { rows: [], total: 0 }
+  }
+
+  const [{ data: billing }, { data: students }] = await Promise.all([
+    supabase
+      .from('platform_billing')
+      .select('school_id, billing_status, price_per_student_month, onboarding_at, billing_connected_at, billing_method, mandate_status, mandate_deactivated_at')
+      .in('school_id', schoolIds),
+    supabase.from('students').select('school_id').eq('status', 'active').in('school_id', schoolIds),
+  ])
+
+  const billingBySchool = new Map((billing || []).map(b => [b.school_id, b]))
+  const studentCountBySchool = new Map<string, number>()
+  ;(students || []).forEach(s => {
+    studentCountBySchool.set(s.school_id, (studentCountBySchool.get(s.school_id) || 0) + 1)
   })
-  return map
+
+  let rows: SchoolsListRow[] = (schools || []).map(s => {
+    const b = billingBySchool.get(s.id)
+
+    // Same "which rail" logic as getSchoolsNotOnMandate() above, inlined here
+    // since this needs it per-row rather than filtered to only the off-mandate
+    // set.
+    let mandateRail = 'Not connected'
+    if (b?.billing_connected_at) {
+      const method = b.billing_method || 'mandate'
+      const mandateStatus = b.mandate_status || 'none'
+      const deactivated = !!b.mandate_deactivated_at
+      const onActiveMandate = method === 'mandate' && mandateStatus === 'active' && !deactivated
+      mandateRail = onActiveMandate
+        ? 'Mandate (active)'
+        : method === 'dva'
+          ? 'Bank transfer (DVA)'
+          : deactivated
+            ? 'Mandate deactivated'
+            : `Mandate ${mandateStatus}`
+    }
+
+    return {
+      id: s.id,
+      name: s.name,
+      createdAt: s.created_at,
+      billingStatus: b?.billing_status || 'active',
+      studentCount: studentCountBySchool.get(s.id) || 0,
+      paymentProvider: s.payment_provider || null,
+      pricePerStudentMonth: Number(b?.price_per_student_month ?? 500),
+      onAccrualPath: !!b?.onboarding_at,
+      mandateRail,
+    }
+  })
+
+  if (opts.billingStatus) {
+    rows = rows.filter(r => r.billingStatus === opts.billingStatus)
+  }
+
+  if (opts.sort === 'name') rows = [...rows].sort((a, b) => a.name.localeCompare(b.name))
+  else if (opts.sort === 'oldest') rows = [...rows].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  else if (opts.sort === 'students_desc') rows = [...rows].sort((a, b) => b.studentCount - a.studentCount)
+  // default 'newest' — already ordered by created_at desc from the DB query above.
+
+  const total = rows.length
+  const from = (page - 1) * perPage
+  const paged = rows.slice(from, from + perPage)
+
+  return { rows: paged, total }
 }
