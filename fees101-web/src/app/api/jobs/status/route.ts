@@ -14,6 +14,12 @@ const JOB_PERMISSION: Record<JobType, string> = {
   bulk_dva: 'manage-payment-config',
   bulk_send: 'manage-invoices',
   close_term: 'manage-fee-structure',
+  // No start-job UI ever creates this one via the session-authenticated
+  // route above — it's only ever driven by /api/admin/backfill-provider-fees
+  // (service role) or the job-sweep, both of which call advanceJob()
+  // directly and never reach this permission check. Listed only so
+  // JOB_PERMISSION stays total over JobType.
+  provider_fee_backfill: 'manage-payment-config',
 }
 
 export async function POST(request: NextRequest) {

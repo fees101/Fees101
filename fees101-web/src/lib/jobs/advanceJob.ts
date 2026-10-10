@@ -14,6 +14,7 @@ import { processBulkDVAChunk, ensureBulkDVAJob } from '@/lib/payments/provisionD
 import { getPaymentProviderForSchool } from '@/lib/payments/getProvider'
 import { processBulkSendChunk } from '@/lib/invoicing/sendInvoice'
 import { processCloseTermCarryForwardChunk, type CarryForwardInvoiceRow } from '@/lib/invoicing/closeTermCarryForward'
+import { processProviderFeeBackfillChunk, type ProviderFeeGapGroup } from '@/lib/payments/backfillProviderFees'
 import { logAuditEvent } from '@/lib/audit/logAudit'
 
 // Advances one background_jobs row by as many chunks as fit in
@@ -39,6 +40,8 @@ export async function advanceJob(supabase: any, job: BackgroundJob): Promise<voi
     await advanceBulkSend(supabase, job, started)
   } else if (job.job_type === 'close_term') {
     await advanceCloseTerm(supabase, job, started)
+  } else if (job.job_type === 'provider_fee_backfill') {
+    await advanceProviderFeeBackfill(supabase, job, started)
   } else {
     throw new Error(`Unsupported job_type: ${job.job_type}`)
   }
@@ -330,6 +333,50 @@ async function advanceCloseTerm(supabase: any, job: BackgroundJob, started: numb
     revalidatePath('/fees')
     revalidatePath('/money/invoices')
 
+    await completeJob(job.id)
+  }
+}
+
+// One-time historical backfill of payments.provider_fee — see
+// src/lib/payments/backfillProviderFees.ts for why this exists and what it
+// does. Triggered via /api/admin/backfill-provider-fees (no end-user-facing
+// start button; the console's fee-revenue page just reads the result), so
+// unlike every job type above there is no revalidatePath or staff-audit
+// entry on completion — this isn't a staff action on this school, it's a
+// platform-level data-quality cleanup, and the job row itself is the record.
+async function advanceProviderFeeBackfill(supabase: any, job: BackgroundJob, started: number) {
+  const schoolId = job.school_id
+  let groups = (job.cursor.groups as ProviderFeeGapGroup[]) || []
+  let failed = job.failed
+  const failures = [...job.failures]
+  const total = job.total
+  const derivedProcessed = () => Math.max(0, total - groups.length - failed)
+
+  const provider = await getPaymentProviderForSchool(schoolId, supabase)
+  if (!provider) throw new Error('This school has no payment provider configured yet.')
+
+  while (groups.length > 0 && Date.now() - started < JOB_TIME_BUDGET_MS) {
+    const slice = groups.slice(0, CHUNK_SIZE)
+    const rest = groups.slice(CHUNK_SIZE)
+
+    const result = await processProviderFeeBackfillChunk(supabase, schoolId, provider, slice)
+    failed += result.failed
+    failures.push(...result.failures)
+
+    if (result.unprocessed.length > 0) {
+      // Provider outage/rate-limit mid-slice — keep the untried groups in the
+      // cursor (prepended so they run first next time) and stop, same
+      // pause-and-resume contract as advanceBulkDVA.
+      groups = [...result.unprocessed, ...rest]
+      await updateJobProgress(job.id, { cursor: { groups }, processed: derivedProcessed(), failed, failures })
+      return
+    }
+
+    groups = rest
+    if (!(await updateJobProgress(job.id, { cursor: { groups }, processed: derivedProcessed(), failed, failures }))) return
+  }
+
+  if (groups.length === 0) {
     await completeJob(job.id)
   }
 }
