@@ -181,6 +181,14 @@ $$;
 -- table). 'bank_transfer' is confirmed already allowed (a real row exists);
 -- recreate the constraint with the full intended set so both app-facing
 -- methods work, plus the original dump's other values for safety.
+-- NOTE: this must include EVERY method any shipped migration uses, or re-running
+-- this file on a DB that already holds those rows fails the constraint. In
+-- particular `monnify_reversal` and `chargeback` are added by
+-- db/refunds_monnify_support.sql (a later commit); omitting them here made this
+-- migration non-re-runnable once Monnify refunds existed. Keep this set in sync
+-- with refunds_monnify_support.sql's (the authoritative full set).
 alter table public.refunds drop constraint if exists refunds_refund_method_check;
 alter table public.refunds add constraint refunds_refund_method_check
-  check (refund_method in ('paystack_reversal', 'bank_transfer', 'cash', 'credit_to_balance', 'other'));
+  check (refund_method in (
+    'paystack_reversal', 'monnify_reversal', 'bank_transfer', 'cash', 'credit_to_balance', 'other', 'chargeback'
+  ));
